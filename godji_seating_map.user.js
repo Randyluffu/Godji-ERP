@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Годжи — Карта посадки
 // @namespace    http://tampermonkey.net/
-// @version      13.1
+// @version      13.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_seating_map.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_seating_map.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
@@ -317,13 +317,13 @@ function updCard(name){
     el.style.left=p.x+'px';el.style.top=p.y+'px';
     var td=getTableData();
     var row=td[name]||{powered:true,sessionStatus:'',elapsed:0,remain:0,progress:0};
-    // Сеанс активен только если в таблице есть статус сессии (Играет/Ожидает)
     var ss=row.sessionStatus||'';
-    // occ=true только если реальный статус (не пустой, не тире, не наш фейк "УШЁЛ")
-    var occ=ss.length>0&&ss!=='—'&&ss.indexOf('УШЁ')===-1&&ss.indexOf('УШЕЛ')===-1;
-    var waiting=occ&&(ss.indexOf('ОЖИД')!==-1||ss.indexOf('жид')!==-1);
-    // Ник берём только если сеанс реально активен
+    var occByTable=ss.length>0&&ss!=='—'&&ss.indexOf('УШЁ')===-1&&ss.indexOf('УШЕЛ')===-1;
+    var waiting=occByTable&&(ss.indexOf('ОЖИД')!==-1||ss.indexOf('жид')!==-1);
+    // Ник и факт занятости — из _godjiSessionsData (приоритет над таблицей)
     var s=sess()[name];
+    var occBySess=!!(s&&s.sessionId);
+    var occ=occByTable||occBySess;
     var nick=occ&&s&&s.nickname?s.nickname:'';
     applyState(el,occ,nick,row.powered,waiting,row.progress);
 }
@@ -344,6 +344,7 @@ Object.defineProperty(window,'_godjiSessionsData',{
             // BroadcastChannel + localStorage для надёжности
             if(_bc)try{_bc.postMessage({type:'sessions',sess:enriched});}catch(e){}
             try{localStorage.setItem('godji_tv_sess',JSON.stringify({t:Date.now(),sess:enriched}));}catch(e){}
+            window._gmLastEnriched=enriched;
         },30);
     },
     get:function(){return _sv;},
@@ -610,6 +611,12 @@ function inject(mc){
     updAll();
     // Быстрый polling каждые 800ms — таблица обновляется без событий
     _timer=setInterval(updAll,800);
+    // Принудительно шлём данные в TV каждые 5 сек
+    setInterval(function(){
+        var enriched=window._gmLastEnriched||sess();
+        if(_bc)try{_bc.postMessage({type:'sessions',sess:enriched});}catch(e){}
+        try{localStorage.setItem('godji_tv_sess',JSON.stringify({t:Date.now(),sess:enriched}));}catch(e){}
+    },5000);
 
     // Наблюдаем за изменениями в tbody таблицы
     function attachTableObs(){
@@ -784,7 +791,7 @@ function openTV(){
     '};'+
     'function loadSess(){'+
     '  try{if(window.opener&&window.opener._godjiSessionsData)sess=window.opener._godjiSessionsData;}catch(e){}'+
-    '  try{var raw=localStorage.getItem("godji_tv_sess");if(raw){var ld=JSON.parse(raw);if(ld&&ld.sess&&Date.now()-ld.t<60000)sess=ld.sess;}}catch(e){}'+
+    '  try{var raw=localStorage.getItem("godji_tv_sess");if(raw){var ld=JSON.parse(raw);if(ld&&ld.sess&&Date.now()-ld.t<300000)sess=ld.sess;}}catch(e){}'+
     '}'+
     'function upd(){'+
     '  loadSess();'+
