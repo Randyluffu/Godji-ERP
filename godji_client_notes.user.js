@@ -6,8 +6,8 @@
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
 // @include      https://*.godji.cloud/clients/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_client_notes.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_client_notes.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_client_notes.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_client_notes.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
