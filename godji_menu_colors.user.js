@@ -4,8 +4,8 @@
 // @version      7.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_menu_colors.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_menu_colors.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_menu_colors.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_menu_colors.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
