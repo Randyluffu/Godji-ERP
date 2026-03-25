@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Godji CRM - Конвертер времени
+// @name         Godji ERP - Конвертер времени
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  
