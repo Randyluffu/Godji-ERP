@@ -7,8 +7,8 @@
 // @match        https://godji.cloud/*
 // @grant        none
 // @run-at       document-start
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_bugreport.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_bugreport.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_bugreport.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_bugreport.user.js
 // ==/UserScript==
 
 (function () {
