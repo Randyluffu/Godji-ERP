@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Godji Bug Report
-// @namespace    https://github.com/Randyluffu/Godji-CRM/
+// @namespace    https://github.com/Randyluffu/Godji-ERP/
 // @version      1.3
 // @description  Собирает диагностический отчёт по всем Godji скриптам одной кнопкой
 // @author       Randyluffu
