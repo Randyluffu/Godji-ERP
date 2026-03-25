@@ -4,8 +4,8 @@
 // @version      3.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_map_sync.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-CRM/main/godji_map_sync.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
