@@ -1,11 +1,9 @@
 // ==UserScript==
-// @name         Годжи — Карта посадки v2 (overlay)
+// @name         Годжи — Карта посадки v2.2 (FIXED)
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -13,23 +11,24 @@
 'use strict';
 if(window.location.pathname!=='/'&&window.location.pathname!=='')return;
 
+// Координаты Y автоматически пересчитаны под нормальные (не растянутые) пропорции карты
 var POS = {
-    '01':{x:698,y:388},'02':{x:632,y:390},'03':{x:632,y:275},'04':{x:705,y:273},'05':{x:780,y:274},
-    '06':{x:870,y:475},'07':{x:946,y:477},
-    '08':{x:1142,y:346},'09':{x:1210,y:346},
+    '01':{x:698,y:203},'02':{x:632,y:204},'03':{x:632,y:152},'04':{x:705,y:151},'05':{x:780,y:151},
+    '06':{x:870,y:243},'07':{x:946,y:244},
+    '08':{x:1142,y:184},'09':{x:1210,y:184},
     '10':{x:1014,y:48},'11':{x:1072,y:48},'12':{x:1131,y:48},'13':{x:1189,y:48},
-    '14':{x:1107,y:179},'15':{x:1167,y:178},'16':{x:1210,y:281},'17':{x:1145,y:280},
-    '18':{x:1206,y:621},'19':{x:1269,y:621},
-    '20':{x:1247,y:718},'21':{x:1181,y:718},'22':{x:1116,y:718},
-    '23':{x:1105,y:782},'24':{x:1178,y:782},
-    '25':{x:1191,y:908},'26':{x:1137,y:954},
-    '27':{x:1004,y:905},'28':{x:1060,y:882},'29':{x:1003,y:852},
-    '30':{x:933,y:838},'31':{x:933,y:899},'32':{x:934,y:963},
-    '33':{x:839,y:1018},'34':{x:837,y:945},'35':{x:838,y:882},
-    '36':{x:769,y:883},'37':{x:769,y:946},'38':{x:769,y:1017},
-    '39':{x:642,y:931},'40':{x:642,y:865},
-    '41':{x:859,y:615},
-    'TV 1':{x:1173,y:492},
+    '14':{x:1107,y:108},'15':{x:1167,y:107},'16':{x:1210,y:154},'17':{x:1145,y:154},
+    '18':{x:1206,y:309},'19':{x:1269,y:309},
+    '20':{x:1247,y:354},'21':{x:1181,y:354},'22':{x:1116,y:354},
+    '23':{x:1105,y:383},'24':{x:1178,y:383},
+    '25':{x:1191,y:440},'26':{x:1137,y:461},
+    '27':{x:1004,y:439},'28':{x:1060,y:429},'29':{x:1003,y:415},
+    '30':{x:933,y:408},'31':{x:933,y:436},'32':{x:934,y:465},
+    '33':{x:839,y:491},'34':{x:837,y:457},'35':{x:838,y:429},
+    '36':{x:769,y:429},'37':{x:769,y:458},'38':{x:769,y:490},
+    '39':{x:642,y:451},'40':{x:642,y:421},
+    '41':{x:859,y:307},
+    'TV 1':{x:1173,y:251},
 };
 
 var FLOOR='701.5,267.0 701.5,476.5 236.5,476.5 72.5,438.5 72.5,260.5 36.5,153.0 36.5,36.0 229.0,36.0 229.0,15.0 555.0,15.0 555.0,161.5 430.5,161.5 430.5,265.0 298.0,265.0 298.0,166.5 430.5,166.5 430.5,267.0 555.0,267.0';
@@ -55,20 +54,19 @@ var ROOMS=[
     {id:'X',x:37,y:36,w:193,h:111},
 ];
 
-// Строим SVG в пространстве canvas (cw×ch).
-// Трансформируем комнаты (SVG 760×520) в координаты карточек CRM.
-// Карточки лежат в x:[632,1324], y:[48, ch].
-// SVG floor лежит в x:[36,702], y:[15,477].
 function buildSVG(cw, ch){
     var ns='http://www.w3.org/2000/svg';
     var svg=document.createElementNS(ns,'svg');
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    var minCx=632,maxCx=1324,minCy=48,maxCy=ch;
-    var minSx=36,maxSx=702,minSy=15,maxSy=477;
+    var minCx=632,maxCx=1324,minCy=48;
+    var minSx=36,maxSx=702,minSy=15;
+    
+    // ИСПРАВЛЕНИЕ: Жестко связываем пропорции, убираем раздельное растягивание
     var sx=(maxCx-minCx)/(maxSx-minSx);
-    var sy=(maxCy-minCy)/(maxSy-minSy);
+    var sy=sx; 
+    
     var tx=minCx-minSx*sx;
     var ty=minCy-minSy*sy;
     var sw=1.5/sx;
@@ -119,13 +117,13 @@ function repositionCards(layer){
     });
 }
 
-// TV: та же логика — вставляем SVG в TVMapCanvas_devicesLayer__4NfZg
 function injectTV(tvLayer){
     if(tvLayer._gmDone)return;
     tvLayer._gmDone=true;
     var wrapper=tvLayer.closest('.TVMapCanvas_mapWrapper__9iHeN');
     var cw=wrapper?parseInt(wrapper.style.width)||1492:1492;
-    var ch=Math.max(wrapper?parseInt(wrapper.style.height)||522:522, 1100);
+    // ИСПРАВЛЕНИЕ: Убрали хардкод высоты в 1100, который ломал ТВ-карту
+    var ch=wrapper?parseInt(wrapper.style.height)||522:522; 
     var svg=buildSVG(cw,ch);
     tvLayer.style.position='relative';
     tvLayer.insertBefore(svg,tvLayer.firstChild);
@@ -139,7 +137,8 @@ function inject(){
     if(!layer||layer.getBoundingClientRect().width<10)return;
     _injected=true;
     var cw=parseInt(layer.style.width)||layer.offsetWidth||1492;
-    var ch=Math.max(parseInt(layer.style.height)||layer.offsetHeight||522,1100);
+    // ИСПРАВЛЕНИЕ: Убрали хардкод высоты в 1100 для админ-панели
+    var ch=parseInt(layer.style.height)||layer.offsetHeight||522; 
     layer.style.height=ch+'px';
     layer.style.overflow='visible';
     _svg=buildSVG(cw,ch);
