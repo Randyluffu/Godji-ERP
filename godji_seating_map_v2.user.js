@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Карта посадки v2 (overlay)
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
@@ -11,8 +11,8 @@
 // ==/UserScript==
 (function(){
 'use strict';
-if(window.location.pathname!=='/'&&window.location.pathname!=='')return;
 
+// ── Позиции карточек в пикселях CRM-карты ─────────────────────────────
 var POS = {
     '01':{x:698,y:388},'02':{x:632,y:390},'03':{x:632,y:275},'04':{x:705,y:273},'05':{x:780,y:274},
     '06':{x:870,y:475},'07':{x:946,y:477},
@@ -32,6 +32,7 @@ var POS = {
     'TV 1':{x:1173,y:492},
 };
 
+// ── Геометрия комнат (SVG-пространство 760×520) ────────────────────────
 var FLOOR='701.5,267.0 701.5,476.5 236.5,476.5 72.5,438.5 72.5,260.5 36.5,153.0 36.5,36.0 229.0,36.0 229.0,15.0 555.0,15.0 555.0,161.5 430.5,161.5 430.5,265.0 298.0,265.0 298.0,166.5 430.5,166.5 430.5,267.0 555.0,267.0';
 var SHAPES={
     'Q':'701.3,269.0 699.1,266.8 630.3,266.8 628.1,269.0 628.1,271.2 632.5,275.5 632.5,300.6 628.1,305.0 628.1,459.8 630.2,462.0 699.1,462.0 701.3,459.8',
@@ -46,67 +47,205 @@ var SHAPES={
     'O':'227.4,184.7 225.2,182.5 225.2,163.6 229.6,159.2 229.6,155.1 227.4,152.9 38.8,152.9 36.6,155.1 36.6,251.5 38.8,253.7 227.4,253.7 229.6,251.5 229.6,186.9',
     'X':'200.0,36.1 228.9,63.9 229.6,65.5 229.6,110.9 225.2,114.9 225.2,137.1 229.6,141.1 229.6,144.2 227.6,146.2 38.6,146.2 36.6,144.2 36.6,70.9 38.6,68.9 89.8,68.9 91.8,66.9 91.8,37.5 93.8,35.5 198.5,35.5',
 };
-var ROOMS=[
-    {id:'Q',x:628,y:267,w:73,h:195},{id:'W',x:521,y:318,w:101,h:144},
-    {id:'E',x:430,y:318,w:84,h:144},{id:'R',x:342,y:318,w:82,h:144},
-    {id:'T',x:236,y:318,w:98,h:159},{id:'Y',x:73,y:261,w:157,h:178},
-    {id:'L',x:442,y:15,w:113,h:149},{id:'V',x:352,y:166,w:78,h:99},
-    {id:'S',x:298,y:166,w:49,h:99},{id:'O',x:37,y:153,w:193,h:101},
-    {id:'X',x:37,y:36,w:193,h:111},
-];
 
-// Строим SVG в пространстве canvas (cw×ch).
-// Трансформируем комнаты (SVG 760×520) в координаты карточек CRM.
-// Карточки лежат в x:[632,1324], y:[48, ch].
-// SVG floor лежит в x:[36,702], y:[15,477].
-function buildSVG(cw, ch){
+// Центры комнат для подписей (в SVG-координатах)
+var ROOM_LABELS={
+    'Q':{x:664,y:360},'W':{x:571,y:390},'E':{x:472,y:390},
+    'R':{x:382,y:390},'T':{x:285,y:400},'Y':{x:150,y:350},
+    'L':{x:498,y:88},'V':{x:390,y:215},'S':{x:322,y:215},
+    'O':{x:132,y:203},'X':{x:132,y:91},
+};
+
+// ── SVG для ГЛАВНОЙ карты ─────────────────────────────────────────────
+// Карточки POS лежат в пикселях CRM.
+// SVG floor: x:[36..702], y:[15..477] → нужно привести к диапазону POS.
+// Вычисляем bbox всех POS-точек:
+function getPOSBounds(){
+    var xs=Object.values(POS).map(function(p){return p.x;});
+    var ys=Object.values(POS).map(function(p){return p.y;});
+    return {
+        minX:Math.min.apply(null,xs), maxX:Math.max.apply(null,xs),
+        minY:Math.min.apply(null,ys), maxY:Math.max.apply(null,ys),
+    };
+}
+
+function buildSVGMain(cw, ch){
     var ns='http://www.w3.org/2000/svg';
     var svg=document.createElementNS(ns,'svg');
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    var minCx=632,maxCx=1324,minCy=48,maxCy=ch;
-    var minSx=36,maxSx=702,minSy=15,maxSy=477;
+    // SVG bbox (с небольшим padding чтобы фон не обрезался)
+    var SVG_PAD=10;
+    var minSx=36-SVG_PAD, maxSx=702+SVG_PAD;
+    var minSy=15-SVG_PAD, maxSy=477+SVG_PAD;
+
+    // Целевой диапазон = bbox карточек POS (центр карточки ~25px)
+    var b=getPOSBounds();
+    var CARD=25; // половина карточки
+    var minCx=b.minX+CARD, maxCx=b.maxX+CARD;
+    var minCy=b.minY+CARD, maxCy=b.maxY+CARD;
+
+    // Масштаб — берём наименьший чтобы не растягивать
     var sx=(maxCx-minCx)/(maxSx-minSx);
     var sy=(maxCy-minCy)/(maxSy-minSy);
-    var tx=minCx-minSx*sx;
-    var ty=minCy-minSy*sy;
-    var sw=1.5/sx;
+    // Используем одинаковый масштаб (меньший) и центрируем
+    var sc=Math.min(sx,sy);
+    var tx=minCx-minSx*sc;
+    var ty=minCy-minSy*sc;
+    var sw=1.5/sc;
 
     var g=document.createElementNS(ns,'g');
-    g.setAttribute('transform','translate('+tx.toFixed(1)+','+ty.toFixed(1)+') scale('+sx.toFixed(4)+','+sy.toFixed(4)+')');
+    g.setAttribute('transform','translate('+tx.toFixed(1)+','+ty.toFixed(1)+') scale('+sc.toFixed(4)+')');
 
     function poly(pts,fill,stroke,strokeW,dx,dy){
         var el=document.createElementNS(ns,'polygon');
-        el.setAttribute('points',pts);el.setAttribute('fill',fill);
+        el.setAttribute('points',pts);
+        el.setAttribute('fill',fill);
         if(stroke){el.setAttribute('stroke',stroke);el.setAttribute('stroke-width',strokeW||sw);}
         if(dx||dy)el.setAttribute('transform','translate('+(dx||0)+','+(dy||0)+')');
         return el;
     }
-    g.appendChild(poly(FLOOR,'rgba(0,0,0,0.10)',null,null,3,3));
-    g.appendChild(poly(FLOOR,'rgba(195,210,235,0.55)','rgba(155,175,215,0.5)',sw));
-    ROOMS.forEach(function(r){
-        g.appendChild(poly(SHAPES[r.id],'rgba(0,0,0,0.08)',null,null,2,2));
-        g.appendChild(poly(SHAPES[r.id],'rgba(255,255,255,0.82)','rgba(170,188,220,0.65)',sw));
+
+    // Тень пола
+    g.appendChild(poly(FLOOR,'rgba(0,0,0,0.12)',null,null,4,4));
+    // Пол
+    g.appendChild(poly(FLOOR,'rgba(195,210,235,0.50)','rgba(130,155,200,0.45)',sw));
+
+    // Комнаты
+    Object.keys(SHAPES).forEach(function(id){
+        // Тень
+        g.appendChild(poly(SHAPES[id],'rgba(0,0,0,0.07)',null,null,2,2));
+        // Комната
+        g.appendChild(poly(SHAPES[id],'rgba(255,255,255,0.78)','rgba(160,180,215,0.60)',sw));
+    });
+
+    // Подписи комнат — по центру, с обводкой
+    Object.keys(ROOM_LABELS).forEach(function(id){
+        var lbl=ROOM_LABELS[id];
         var t=document.createElementNS(ns,'text');
-        t.setAttribute('x',r.x+r.w+2);t.setAttribute('y',r.y+r.h);
-        t.setAttribute('text-anchor','start');
-        t.setAttribute('fill','rgba(60,85,150,0.85)');
-        t.setAttribute('font-size',18/Math.min(sx,sy));
+        t.setAttribute('x',lbl.x);
+        t.setAttribute('y',lbl.y);
+        t.setAttribute('text-anchor','middle');
+        t.setAttribute('dominant-baseline','middle');
+        t.setAttribute('fill','rgba(50,75,140,0.90)');
+        t.setAttribute('font-size',20/sc);
         t.setAttribute('font-weight','800');
-        t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,sans-serif');
+        t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
         t.setAttribute('paint-order','stroke');
-        t.setAttribute('stroke','rgba(255,255,255,0.75)');
-        t.setAttribute('stroke-width',3/Math.min(sx,sy));
+        t.setAttribute('stroke','rgba(255,255,255,0.85)');
+        t.setAttribute('stroke-width',5/sc);
         t.setAttribute('pointer-events','none');
+        t.setAttribute('letter-spacing', 0.5/sc);
         t.style.userSelect='none';
-        t.textContent=r.id;
+        t.textContent=id;
         g.appendChild(t);
     });
+
     svg.appendChild(g);
     return svg;
 }
 
+// ── SVG для TV карты ──────────────────────────────────────────────────
+// TV карта: карточки лежат абсолютно в слое TVMapCanvas_devicesLayer.
+// Нужно узнать реальные позиции TV-карточек и подогнать SVG под них.
+function buildSVGTV(cw, ch, tvLayer){
+    var ns='http://www.w3.org/2000/svg';
+    var svg=document.createElementNS(ns,'svg');
+    svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
+    svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
+
+    // Собираем реальные позиции карточек в TV-слое
+    var xs=[], ys=[];
+    tvLayer.querySelectorAll('.DeviceItem_deviceContainer__jCrmD').forEach(function(el){
+        var l=parseFloat(el.style.left)||0;
+        var t=parseFloat(el.style.top)||0;
+        if(l>0||t>0){xs.push(l);ys.push(t);}
+    });
+
+    // Если карточек нет — используем POS как fallback
+    var minCx, maxCx, minCy, maxCy;
+    if(xs.length>2){
+        var CARD=25;
+        minCx=Math.min.apply(null,xs)+CARD;
+        maxCx=Math.max.apply(null,xs)+CARD;
+        minCy=Math.min.apply(null,ys)+CARD;
+        maxCy=Math.max.apply(null,ys)+CARD;
+    } else {
+        // Fallback к POS
+        var b=getPOSBounds();
+        var CARD=25;
+        minCx=b.minX+CARD; maxCx=b.maxX+CARD;
+        minCy=b.minY+CARD; maxCy=b.maxY+CARD;
+    }
+
+    var SVG_PAD=10;
+    var minSx=36-SVG_PAD, maxSx=702+SVG_PAD;
+    var minSy=15-SVG_PAD, maxSy=477+SVG_PAD;
+
+    var sx=(maxCx-minCx)/(maxSx-minSx);
+    var sy=(maxCy-minCy)/(maxSy-minSy);
+    var sc=Math.min(sx,sy);
+    var tx=minCx-minSx*sc;
+    var ty=minCy-minSy*sc;
+    var sw=1.5/sc;
+
+    var g=document.createElementNS(ns,'g');
+    g.setAttribute('transform','translate('+tx.toFixed(1)+','+ty.toFixed(1)+') scale('+sc.toFixed(4)+')');
+
+    function poly(pts,fill,stroke,strokeW,dx,dy){
+        var el=document.createElementNS(ns,'polygon');
+        el.setAttribute('points',pts);
+        el.setAttribute('fill',fill);
+        if(stroke){el.setAttribute('stroke',stroke);el.setAttribute('stroke-width',strokeW||sw);}
+        if(dx||dy)el.setAttribute('transform','translate('+(dx||0)+','+(dy||0)+')');
+        return el;
+    }
+
+    // Тёмный фон для TV
+    var bg=document.createElementNS(ns,'rect');
+    bg.setAttribute('x',0);bg.setAttribute('y',0);
+    bg.setAttribute('width',cw/sc+'');bg.setAttribute('height',ch/sc+'');
+    bg.setAttribute('fill','rgba(10,12,20,0.0)');
+    g.appendChild(bg);
+
+    // Тень пола
+    g.appendChild(poly(FLOOR,'rgba(0,0,0,0.30)',null,null,3,3));
+    // Пол
+    g.appendChild(poly(FLOOR,'rgba(30,40,65,0.70)','rgba(80,110,180,0.50)',sw));
+
+    // Комнаты
+    Object.keys(SHAPES).forEach(function(id){
+        g.appendChild(poly(SHAPES[id],'rgba(0,0,0,0.20)',null,null,2,2));
+        g.appendChild(poly(SHAPES[id],'rgba(20,30,55,0.75)','rgba(70,100,170,0.55)',sw));
+    });
+
+    // Подписи
+    Object.keys(ROOM_LABELS).forEach(function(id){
+        var lbl=ROOM_LABELS[id];
+        var t=document.createElementNS(ns,'text');
+        t.setAttribute('x',lbl.x);
+        t.setAttribute('y',lbl.y);
+        t.setAttribute('text-anchor','middle');
+        t.setAttribute('dominant-baseline','middle');
+        t.setAttribute('fill','rgba(140,180,255,0.90)');
+        t.setAttribute('font-size',20/sc);
+        t.setAttribute('font-weight','800');
+        t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
+        t.setAttribute('paint-order','stroke');
+        t.setAttribute('stroke','rgba(10,15,35,0.90)');
+        t.setAttribute('stroke-width',5/sc);
+        t.setAttribute('pointer-events','none');
+        t.style.userSelect='none';
+        t.textContent=id;
+        g.appendChild(t);
+    });
+
+    svg.appendChild(g);
+    return svg;
+}
+
+// ── Перемещение карточек CRM ──────────────────────────────────────────
 function repositionCards(layer){
     layer.querySelectorAll('.DeviceItem_deviceContainer__jCrmD').forEach(function(el){
         var nameEl=el.querySelector('.DeviceItem_deviceName__yC1tT');
@@ -119,18 +258,36 @@ function repositionCards(layer){
     });
 }
 
-// TV: та же логика — вставляем SVG в TVMapCanvas_devicesLayer__4NfZg
+// ── TV inject ─────────────────────────────────────────────────────────
 function injectTV(tvLayer){
     if(tvLayer._gmDone)return;
-    tvLayer._gmDone=true;
+
     var wrapper=tvLayer.closest('.TVMapCanvas_mapWrapper__9iHeN');
     var cw=wrapper?parseInt(wrapper.style.width)||1492:1492;
-    var ch=Math.max(wrapper?parseInt(wrapper.style.height)||522:522, 1100);
-    var svg=buildSVG(cw,ch);
+    var ch=wrapper?parseInt(wrapper.style.height)||800:800;
+    ch=Math.max(ch,800);
+
     tvLayer.style.position='relative';
-    tvLayer.insertBefore(svg,tvLayer.firstChild);
+
+    // Ждём появления карточек чтобы точно подогнать SVG
+    function doInject(){
+        if(tvLayer._gmDone)return;
+        var cards=tvLayer.querySelectorAll('.DeviceItem_deviceContainer__jCrmD');
+        if(cards.length<2){
+            setTimeout(doInject,300);
+            return;
+        }
+        tvLayer._gmDone=true;
+        var old=tvLayer.querySelector('svg[data-gm]');
+        if(old)old.remove();
+        var svg=buildSVGTV(cw,ch,tvLayer);
+        svg.setAttribute('data-gm','1');
+        tvLayer.insertBefore(svg,tvLayer.firstChild);
+    }
+    doInject();
 }
 
+// ── Главная карта inject ──────────────────────────────────────────────
 var _injected=false,_svg=null;
 
 function inject(){
@@ -138,13 +295,16 @@ function inject(){
     var layer=document.querySelector('.MapCanvas_devicesLayer__vzjYe');
     if(!layer||layer.getBoundingClientRect().width<10)return;
     _injected=true;
+
     var cw=parseInt(layer.style.width)||layer.offsetWidth||1492;
     var ch=Math.max(parseInt(layer.style.height)||layer.offsetHeight||522,1100);
     layer.style.height=ch+'px';
     layer.style.overflow='visible';
-    _svg=buildSVG(cw,ch);
+
+    _svg=buildSVGMain(cw,ch);
     layer.insertBefore(_svg,layer.firstChild);
     repositionCards(layer);
+
     var rt=null;
     new MutationObserver(function(muts){
         var d=false;
