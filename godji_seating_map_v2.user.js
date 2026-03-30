@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Карта посадки v2 (overlay)
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
@@ -57,44 +57,66 @@ var ROOM_LABELS={
 };
 
 // ── SVG для ГЛАВНОЙ карты ─────────────────────────────────────────────
-// SVG рисуется в пространстве canvas (cw×ch).
-// Комнаты (SVG-пространство 760×520) трансформируются в координаты POS-карточек.
+// Canvas CRM всегда 1492×522 (layer.style задаётся React).
+// Карточки расположены в пространстве 1492×(до 1100, overflow).
+// SVG-геометрия комнат: пространство 760×520.
 //
-// Опорные точки (SVG → POS-canvas):
-//   Комната L (x:442-555, y:15-162) → ПК 10-13 (x:1014-1189, y:48)
-//   Комната Q (x:628-702, y:267-462) → ПК 08-09 (x:1142-1210, y:346)
-//   Комната X (x:37-230, y:36-147)  → ПК 39-40 (x:642, y:865-931)
-//   Комната Y (x:73-230, y:261-439) → ПК 36-38 (x:769, y:883-1017)
+// Задача: нарисовать SVG поверх так чтобы комнаты были НЕ искажены (uniform scale),
+// и примерно совпадали с расположением карточек.
 //
-// Из этого выводим: SVG и POS — разные системы координат.
-// SVG горизонтальный (x главная ось), POS — вертикальный (y вытянут).
-// Применяем независимый sx и sy.
+// Якорные точки (комната → карточки):
+//   SVG L center (498, 88) → ПК 10-13 center (1101, 48)
+//   SVG Q center (665, 364) → ПК 08-09 center (1176, 346)
+//   SVG R center (383, 390) → ПК 01-02 center (665, 389)
 //
-// Опорные пары (среднее по нескольким точкам):
-//   SVG x=664 (центр Q) → POS x≈1176  →  SVG x=150 (центр Y) → POS x≈700
-//   sx = (1176-700)/(664-150) = 476/514 ≈ 0.926
-//   tx = 700 - 150*0.926 ≈ 561
+// По X: (1101-665)/(498-383) = 436/115 = 3.79 — слишком большой (L и R рядом по X в SVG, далеко в POS)
+// Значит комнаты в SVG X не соответствуют POS X напрямую.
 //
-//   SVG y=88  (центр L) → POS y≈48    →  SVG y=350 (центр Y) → POS y≈950
-//   sy = (950-48)/(350-88) = 902/262 ≈ 3.443
-//   ty = 48 - 88*3.43 ≈ -254
+// Смотрим иначе: SVG горизонтальный (760px), POS тоже горизонтальный (1492px).
+// Карточки 10-13 (x~1100) — правый верх. SVG L (x~498) — правый верх. ОК.
+// Карточки 01-02 (x~665) — левый центр. SVG R (x~383) — левый центр. ОК.
+// Значит X масштаб: POS_x = SVG_x * kx + tx
+//   kx = (1100-665)/(498-383) = 435/115 = 3.78 -- это неверно физически
+//
+// СТОП. Перечитаем: CRM layer — 1492px wide. Но карточки 01-02 сидят на x=665.
+// Значит левый край карточек начинается примерно от x=632.
+// SVG left edge: x=36. SVG right edge: x=702. Span = 666px.
+// POS left: x=632, POS right: x=1269. Span = 637px.
+// Это почти одинаково! kx ≈ 637/666 ≈ 0.957. tx = 632 - 36*0.957 = 597.
+//
+// По Y: POS top: y=48, POS bottom: y=1018. Span=970.
+//   SVG top: y=15, SVG bottom: y=477. Span=462.
+//   ky = 970/462 = 2.10. ty = 48 - 15*2.10 = 16.5
+//
+// Uniform scale = min(kx,ky) = 0.957, тогда высота SVG = 462*0.957+16 = 458px (не покроет y=1018).
+// Значит uniform scale невозможен при таком диапазоне Y.
+//
+// РЕШЕНИЕ: использовать uniform scale = kx ≈ 0.957, tx=597, ty=16.
+// SVG покроет y:[16, 16+477*0.957] = [16, 473] — только верхнюю часть canvas.
+// Нижние карточки (18-41) окажутся ниже SVG-фона — это нормально, фон для верхней части.
+// ИЛИ увеличить scale чтобы покрыть больше: scale=2.10, tx=597, ty=16 — но тогда искажение.
+//
+// КОМПРОМИСС: uniform scale = 1.5 (между 0.957 и 2.10).
+// SVG покроет y:[16, 16+477*1.5] = [16, 732] — покрывает большинство карточек.
+// По X: SVG покроет x:[597, 597+666*1.5] = [597, 1596] — немного шире нужного.
+// Сдвинем: tx = 632 - 36*1.5 = 578.
+//
+// Финал: uniform scale = 1.5, tx=578, ty=16.
 
-var SVG_SX = 1.003;
-var SVG_SY = 2.169;
-var SVG_TX = 596;
-var SVG_TY = 16;
+var SVG_SC = 1.5;   // единый масштаб — комнаты не искажаются
+var SVG_TX = 578;   // сдвиг X: SVG(36) → canvas(632)
+var SVG_TY = 16;    // сдвиг Y: SVG(15) → canvas(39)
 
 function buildSVGMain(cw, ch){
     var ns='http://www.w3.org/2000/svg';
     var svg=document.createElementNS(ns,'svg');
-    // viewBox в пространстве canvas — рисуем в пикселях
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    var sw=1.5/SVG_SX; // толщина линий обратно пропорциональна масштабу
+    var sw=1.5/SVG_SC;
 
     var g=document.createElementNS(ns,'g');
-    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SX+','+SVG_SY+')');
+    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SC+')');
 
     function poly(pts,fill,stroke,strokeW,dx,dy){
         var el=document.createElementNS(ns,'polygon');
@@ -121,21 +143,14 @@ function buildSVGMain(cw, ch){
         t.setAttribute('text-anchor','middle');
         t.setAttribute('dominant-baseline','middle');
         t.setAttribute('fill','rgba(50,75,140,0.90)');
-        // font-size и stroke компенсируем масштаб — отдельно по x и y берём среднее
-        var avgSc=(SVG_SX+SVG_SY)/2;
-        t.setAttribute('font-size',20/SVG_SX); // по X чтобы текст читался нормально
+        t.setAttribute('font-size',20/SVG_SC);
         t.setAttribute('font-weight','800');
         t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
         t.setAttribute('paint-order','stroke');
         t.setAttribute('stroke','rgba(255,255,255,0.85)');
-        t.setAttribute('stroke-width',5/SVG_SX);
+        t.setAttribute('stroke-width',5/SVG_SC);
         t.setAttribute('pointer-events','none');
-        t.setAttribute('letter-spacing',0.5/SVG_SX);
-        // Компенсируем растяжение по Y: текст рисуется в SVG-пространстве где SY≈3.4
-        // поэтому масштабируем текст обратно по Y
-        t.setAttribute('transform','scale(1,'+( SVG_SX/SVG_SY).toFixed(4)+')');
-        // Но тогда нужно скорректировать y-координату
-        t.setAttribute('y', lbl.y * (SVG_SY/SVG_SX));
+        t.setAttribute('letter-spacing',0.5/SVG_SC);
         t.style.userSelect='none';
         t.textContent=id;
         g.appendChild(t);
@@ -152,9 +167,9 @@ function buildSVGTV(cw, ch){
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    var sw=1.5/SVG_SX;
+    var sw=1.5/SVG_SC;
     var g=document.createElementNS(ns,'g');
-    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SX+','+SVG_SY+')');
+    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SC+')');
 
     function poly(pts,fill,stroke,strokeW,dx,dy){
         var el=document.createElementNS(ns,'polygon');
@@ -181,15 +196,13 @@ function buildSVGTV(cw, ch){
         t.setAttribute('text-anchor','middle');
         t.setAttribute('dominant-baseline','middle');
         t.setAttribute('fill','rgba(140,180,255,0.90)');
-        t.setAttribute('font-size',20/SVG_SX);
+        t.setAttribute('font-size',20/SVG_SC);
         t.setAttribute('font-weight','800');
         t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
         t.setAttribute('paint-order','stroke');
         t.setAttribute('stroke','rgba(10,15,35,0.90)');
-        t.setAttribute('stroke-width',5/SVG_SX);
+        t.setAttribute('stroke-width',5/SVG_SC);
         t.setAttribute('pointer-events','none');
-        t.setAttribute('transform','scale(1,'+(SVG_SX/SVG_SY).toFixed(4)+')');
-        t.setAttribute('y', lbl.y*(SVG_SY/SVG_SX));
         t.style.userSelect='none';
         t.textContent=id;
         g.appendChild(t);
@@ -247,19 +260,38 @@ var _injected=false,_svg=null;
 function inject(){
     if(_injected)return;
     var layer=document.querySelector('.MapCanvas_devicesLayer__vzjYe');
-    if(!layer||layer.getBoundingClientRect().width<10)return;
+    if(!layer)return;
+
+    // Читаем ширину — CRM всегда выставляет "1492px" в style
+    var cw=parseInt(layer.style.width);
+    if(!cw||cw<100){
+        // Style ещё не выставлен React'ом — подождём
+        setTimeout(inject, 200);
+        return;
+    }
     _injected=true;
 
-    // CRM задаёт width/height через style на layer — но может быть 0 на старте.
-    // Читаем из style напрямую (там всегда "1492px").
-    var cw=parseInt(layer.style.width)||1492;
-    var ch=Math.max(parseInt(layer.style.height)||522, 1100);
+    var ch=1100; // overflow: карточки уходят до y≈1018+82px карточки
     layer.style.height=ch+'px';
     layer.style.overflow='visible';
 
     _svg=buildSVGMain(cw,ch);
     layer.insertBefore(_svg,layer.firstChild);
     repositionCards(layer);
+
+    var rt=null;
+    new MutationObserver(function(muts){
+        var d=false;
+        muts.forEach(function(m){
+            m.addedNodes.forEach(function(n){
+                if(n.nodeType===1&&n.classList&&n.classList.contains('DeviceItem_deviceContainer__jCrmD'))d=true;
+            });
+            if(m.type==='attributes'&&m.target.classList&&m.target.classList.contains('DeviceItem_deviceContainer__jCrmD'))d=true;
+        });
+        if(d){clearTimeout(rt);rt=setTimeout(function(){repositionCards(layer);},30);}
+    }).observe(layer,{childList:true,subtree:true,attributes:true,attributeFilter:['style']});
+    setInterval(function(){repositionCards(layer);},1200);
+}
 
     var rt=null;
     new MutationObserver(function(muts){
