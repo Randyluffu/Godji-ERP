@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Карта посадки v2 (overlay)
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
@@ -57,46 +57,44 @@ var ROOM_LABELS={
 };
 
 // ── SVG для ГЛАВНОЙ карты ─────────────────────────────────────────────
-// Карточки POS лежат в пикселях CRM.
-// SVG floor: x:[36..702], y:[15..477] → нужно привести к диапазону POS.
-// Вычисляем bbox всех POS-точек:
-function getPOSBounds(){
-    var xs=Object.values(POS).map(function(p){return p.x;});
-    var ys=Object.values(POS).map(function(p){return p.y;});
-    return {
-        minX:Math.min.apply(null,xs), maxX:Math.max.apply(null,xs),
-        minY:Math.min.apply(null,ys), maxY:Math.max.apply(null,ys),
-    };
-}
+// SVG рисуется в пространстве canvas (cw×ch).
+// Комнаты (SVG-пространство 760×520) трансформируются в координаты POS-карточек.
+//
+// Опорные точки (SVG → POS-canvas):
+//   Комната L (x:442-555, y:15-162) → ПК 10-13 (x:1014-1189, y:48)
+//   Комната Q (x:628-702, y:267-462) → ПК 08-09 (x:1142-1210, y:346)
+//   Комната X (x:37-230, y:36-147)  → ПК 39-40 (x:642, y:865-931)
+//   Комната Y (x:73-230, y:261-439) → ПК 36-38 (x:769, y:883-1017)
+//
+// Из этого выводим: SVG и POS — разные системы координат.
+// SVG горизонтальный (x главная ось), POS — вертикальный (y вытянут).
+// Применяем независимый sx и sy.
+//
+// Опорные пары (среднее по нескольким точкам):
+//   SVG x=664 (центр Q) → POS x≈1176  →  SVG x=150 (центр Y) → POS x≈700
+//   sx = (1176-700)/(664-150) = 476/514 ≈ 0.926
+//   tx = 700 - 150*0.926 ≈ 561
+//
+//   SVG y=88  (центр L) → POS y≈48    →  SVG y=350 (центр Y) → POS y≈950
+//   sy = (950-48)/(350-88) = 902/262 ≈ 3.443
+//   ty = 48 - 88*3.43 ≈ -254
+
+var SVG_SX = 1.003;
+var SVG_SY = 2.169;
+var SVG_TX = 596;
+var SVG_TY = 16;
 
 function buildSVGMain(cw, ch){
     var ns='http://www.w3.org/2000/svg';
     var svg=document.createElementNS(ns,'svg');
+    // viewBox в пространстве canvas — рисуем в пикселях
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    // SVG bbox (с небольшим padding чтобы фон не обрезался)
-    var SVG_PAD=10;
-    var minSx=36-SVG_PAD, maxSx=702+SVG_PAD;
-    var minSy=15-SVG_PAD, maxSy=477+SVG_PAD;
-
-    // Целевой диапазон = bbox карточек POS (центр карточки ~25px)
-    var b=getPOSBounds();
-    var CARD=25; // половина карточки
-    var minCx=b.minX+CARD, maxCx=b.maxX+CARD;
-    var minCy=b.minY+CARD, maxCy=b.maxY+CARD;
-
-    // Масштаб — берём наименьший чтобы не растягивать
-    var sx=(maxCx-minCx)/(maxSx-minSx);
-    var sy=(maxCy-minCy)/(maxSy-minSy);
-    // Используем одинаковый масштаб (меньший) и центрируем
-    var sc=Math.min(sx,sy);
-    var tx=minCx-minSx*sc;
-    var ty=minCy-minSy*sc;
-    var sw=1.5/sc;
+    var sw=1.5/SVG_SX; // толщина линий обратно пропорциональна масштабу
 
     var g=document.createElementNS(ns,'g');
-    g.setAttribute('transform','translate('+tx.toFixed(1)+','+ty.toFixed(1)+') scale('+sc.toFixed(4)+')');
+    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SX+','+SVG_SY+')');
 
     function poly(pts,fill,stroke,strokeW,dx,dy){
         var el=document.createElementNS(ns,'polygon');
@@ -107,20 +105,14 @@ function buildSVGMain(cw, ch){
         return el;
     }
 
-    // Тень пола
     g.appendChild(poly(FLOOR,'rgba(0,0,0,0.12)',null,null,4,4));
-    // Пол
     g.appendChild(poly(FLOOR,'rgba(195,210,235,0.50)','rgba(130,155,200,0.45)',sw));
 
-    // Комнаты
     Object.keys(SHAPES).forEach(function(id){
-        // Тень
         g.appendChild(poly(SHAPES[id],'rgba(0,0,0,0.07)',null,null,2,2));
-        // Комната
         g.appendChild(poly(SHAPES[id],'rgba(255,255,255,0.78)','rgba(160,180,215,0.60)',sw));
     });
 
-    // Подписи комнат — по центру, с обводкой
     Object.keys(ROOM_LABELS).forEach(function(id){
         var lbl=ROOM_LABELS[id];
         var t=document.createElementNS(ns,'text');
@@ -129,14 +121,21 @@ function buildSVGMain(cw, ch){
         t.setAttribute('text-anchor','middle');
         t.setAttribute('dominant-baseline','middle');
         t.setAttribute('fill','rgba(50,75,140,0.90)');
-        t.setAttribute('font-size',20/sc);
+        // font-size и stroke компенсируем масштаб — отдельно по x и y берём среднее
+        var avgSc=(SVG_SX+SVG_SY)/2;
+        t.setAttribute('font-size',20/SVG_SX); // по X чтобы текст читался нормально
         t.setAttribute('font-weight','800');
         t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
         t.setAttribute('paint-order','stroke');
         t.setAttribute('stroke','rgba(255,255,255,0.85)');
-        t.setAttribute('stroke-width',5/sc);
+        t.setAttribute('stroke-width',5/SVG_SX);
         t.setAttribute('pointer-events','none');
-        t.setAttribute('letter-spacing', 0.5/sc);
+        t.setAttribute('letter-spacing',0.5/SVG_SX);
+        // Компенсируем растяжение по Y: текст рисуется в SVG-пространстве где SY≈3.4
+        // поэтому масштабируем текст обратно по Y
+        t.setAttribute('transform','scale(1,'+( SVG_SX/SVG_SY).toFixed(4)+')');
+        // Но тогда нужно скорректировать y-координату
+        t.setAttribute('y', lbl.y * (SVG_SY/SVG_SX));
         t.style.userSelect='none';
         t.textContent=id;
         g.appendChild(t);
@@ -147,51 +146,15 @@ function buildSVGMain(cw, ch){
 }
 
 // ── SVG для TV карты ──────────────────────────────────────────────────
-// TV карта: карточки лежат абсолютно в слое TVMapCanvas_devicesLayer.
-// Нужно узнать реальные позиции TV-карточек и подогнать SVG под них.
-function buildSVGTV(cw, ch, tvLayer){
+function buildSVGTV(cw, ch){
     var ns='http://www.w3.org/2000/svg';
     var svg=document.createElementNS(ns,'svg');
     svg.setAttribute('viewBox','0 0 '+cw+' '+ch);
     svg.style.cssText='position:absolute;top:0;left:0;width:'+cw+'px;height:'+ch+'px;pointer-events:none;z-index:0;overflow:visible;';
 
-    // Собираем реальные позиции карточек в TV-слое
-    var xs=[], ys=[];
-    tvLayer.querySelectorAll('.DeviceItem_deviceContainer__jCrmD').forEach(function(el){
-        var l=parseFloat(el.style.left)||0;
-        var t=parseFloat(el.style.top)||0;
-        if(l>0||t>0){xs.push(l);ys.push(t);}
-    });
-
-    // Если карточек нет — используем POS как fallback
-    var minCx, maxCx, minCy, maxCy;
-    if(xs.length>2){
-        var CARD=25;
-        minCx=Math.min.apply(null,xs)+CARD;
-        maxCx=Math.max.apply(null,xs)+CARD;
-        minCy=Math.min.apply(null,ys)+CARD;
-        maxCy=Math.max.apply(null,ys)+CARD;
-    } else {
-        // Fallback к POS
-        var b=getPOSBounds();
-        var CARD=25;
-        minCx=b.minX+CARD; maxCx=b.maxX+CARD;
-        minCy=b.minY+CARD; maxCy=b.maxY+CARD;
-    }
-
-    var SVG_PAD=10;
-    var minSx=36-SVG_PAD, maxSx=702+SVG_PAD;
-    var minSy=15-SVG_PAD, maxSy=477+SVG_PAD;
-
-    var sx=(maxCx-minCx)/(maxSx-minSx);
-    var sy=(maxCy-minCy)/(maxSy-minSy);
-    var sc=Math.min(sx,sy);
-    var tx=minCx-minSx*sc;
-    var ty=minCy-minSy*sc;
-    var sw=1.5/sc;
-
+    var sw=1.5/SVG_SX;
     var g=document.createElementNS(ns,'g');
-    g.setAttribute('transform','translate('+tx.toFixed(1)+','+ty.toFixed(1)+') scale('+sc.toFixed(4)+')');
+    g.setAttribute('transform','translate('+SVG_TX+','+SVG_TY+') scale('+SVG_SX+','+SVG_SY+')');
 
     function poly(pts,fill,stroke,strokeW,dx,dy){
         var el=document.createElementNS(ns,'polygon');
@@ -202,25 +165,14 @@ function buildSVGTV(cw, ch, tvLayer){
         return el;
     }
 
-    // Тёмный фон для TV
-    var bg=document.createElementNS(ns,'rect');
-    bg.setAttribute('x',0);bg.setAttribute('y',0);
-    bg.setAttribute('width',cw/sc+'');bg.setAttribute('height',ch/sc+'');
-    bg.setAttribute('fill','rgba(10,12,20,0.0)');
-    g.appendChild(bg);
-
-    // Тень пола
     g.appendChild(poly(FLOOR,'rgba(0,0,0,0.30)',null,null,3,3));
-    // Пол
     g.appendChild(poly(FLOOR,'rgba(30,40,65,0.70)','rgba(80,110,180,0.50)',sw));
 
-    // Комнаты
     Object.keys(SHAPES).forEach(function(id){
         g.appendChild(poly(SHAPES[id],'rgba(0,0,0,0.20)',null,null,2,2));
         g.appendChild(poly(SHAPES[id],'rgba(20,30,55,0.75)','rgba(70,100,170,0.55)',sw));
     });
 
-    // Подписи
     Object.keys(ROOM_LABELS).forEach(function(id){
         var lbl=ROOM_LABELS[id];
         var t=document.createElementNS(ns,'text');
@@ -229,13 +181,15 @@ function buildSVGTV(cw, ch, tvLayer){
         t.setAttribute('text-anchor','middle');
         t.setAttribute('dominant-baseline','middle');
         t.setAttribute('fill','rgba(140,180,255,0.90)');
-        t.setAttribute('font-size',20/sc);
+        t.setAttribute('font-size',20/SVG_SX);
         t.setAttribute('font-weight','800');
         t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
         t.setAttribute('paint-order','stroke');
         t.setAttribute('stroke','rgba(10,15,35,0.90)');
-        t.setAttribute('stroke-width',5/sc);
+        t.setAttribute('stroke-width',5/SVG_SX);
         t.setAttribute('pointer-events','none');
+        t.setAttribute('transform','scale(1,'+(SVG_SX/SVG_SY).toFixed(4)+')');
+        t.setAttribute('y', lbl.y*(SVG_SY/SVG_SX));
         t.style.userSelect='none';
         t.textContent=id;
         g.appendChild(t);
@@ -280,7 +234,7 @@ function injectTV(tvLayer){
         tvLayer._gmDone=true;
         var old=tvLayer.querySelector('svg[data-gm]');
         if(old)old.remove();
-        var svg=buildSVGTV(cw,ch,tvLayer);
+        var svg=buildSVGTV(cw,ch);
         svg.setAttribute('data-gm','1');
         tvLayer.insertBefore(svg,tvLayer.firstChild);
     }
@@ -296,8 +250,10 @@ function inject(){
     if(!layer||layer.getBoundingClientRect().width<10)return;
     _injected=true;
 
-    var cw=parseInt(layer.style.width)||layer.offsetWidth||1492;
-    var ch=Math.max(parseInt(layer.style.height)||layer.offsetHeight||522,1100);
+    // CRM задаёт width/height через style на layer — но может быть 0 на старте.
+    // Читаем из style напрямую (там всегда "1492px").
+    var cw=parseInt(layer.style.width)||1492;
+    var ch=Math.max(parseInt(layer.style.height)||522, 1100);
     layer.style.height=ch+'px';
     layer.style.overflow='visible';
 
