@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -394,7 +394,7 @@
         wrap.href = 'javascript:void(0)';
         wrap.style.cssText = [
             'position:fixed',
-            'top:380px',
+            'top:334px',
             'left:0',
             'z-index:150',
             'display:flex',
