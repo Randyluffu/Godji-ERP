@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -380,7 +380,7 @@ function svgIcon(key, size, color){
 // Модальное окно
 // ──────────────────────────────────────────────
 var _modal = null, _overlay = null, _isOpen = false;
-var _filterType = '', _filterText = '';
+var _filterType = '', _filterText = '', _filterNick = '', _filterDateFrom = 0, _filterDateTo = 0;
 
 function buildModal(){
     _modal = document.createElement('div');
@@ -395,7 +395,7 @@ function buildModal(){
     titleWrap.style.cssText = 'display:flex;align-items:center;gap:10px;';
 
     var titleIco = document.createElement('div');
-    titleIco.style.cssText = 'width:32px;height:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    titleIco.style.cssText = 'width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
     titleIco.innerHTML = svgIcon('journal', 16, '#fff');
 
     var titleTxt = document.createElement('span');
@@ -450,7 +450,31 @@ function buildModal(){
     searchInp.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;width:210px;';
     searchInp.addEventListener('input', function(){ _filterText = this.value.toLowerCase(); renderTable(); });
 
+    // Фильтр по нику
+    var nickInp = document.createElement('input');
+    nickInp.type = 'text';
+    nickInp.placeholder = 'Ник клиента...';
+    nickInp.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;width:130px;';
+    nickInp.addEventListener('input', function(){ _filterNick = this.value.toLowerCase(); renderTable(); });
+
+    // Фильтр по дате — от
+    var dateLabel = document.createElement('span');
+    dateLabel.style.cssText = 'font-size:12px;color:#888;font-weight:600;margin-left:4px;';
+    dateLabel.textContent = 'Период:';
+
+    var dateFrom = document.createElement('input');
+    dateFrom.type = 'date';
+    dateFrom.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;';
+    dateFrom.addEventListener('change', function(){ _filterDateFrom = this.value ? new Date(this.value).getTime() : 0; renderTable(); });
+
+    var dateTo = document.createElement('input');
+    dateTo.type = 'date';
+    dateTo.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;';
+    dateTo.addEventListener('change', function(){ _filterDateTo = this.value ? new Date(this.value).getTime() + 86399999 : 0; renderTable(); });
+
     filterBar.appendChild(selLabel); filterBar.appendChild(sel); filterBar.appendChild(searchInp);
+    filterBar.appendChild(nickInp);
+    filterBar.appendChild(dateLabel); filterBar.appendChild(dateFrom); filterBar.appendChild(dateTo);
 
     // Table wrap
     var tableWrap = document.createElement('div');
@@ -487,6 +511,13 @@ function renderTable(){
             return hay.indexOf(_filterText) !== -1;
         });
     }
+    if(_filterNick){
+        journal = journal.filter(function(r){
+            return (r.nick||'').toLowerCase().indexOf(_filterNick) !== -1;
+        });
+    }
+    if(_filterDateFrom) journal = journal.filter(function(r){ return r.ts >= _filterDateFrom; });
+    if(_filterDateTo)   journal = journal.filter(function(r){ return r.ts <= _filterDateTo; });
 
     if(journal.length === 0){
         wrap.innerHTML = '<div style="text-align:center;color:#aaa;padding:48px;font-size:14px;">Нет операций за последние 7 дней</div>';
@@ -540,9 +571,24 @@ function renderTable(){
                 tdPc.appendChild(pcBadge);
             }
             if(rec.nick){
-                var nickSpan = document.createElement('span');
-                nickSpan.style.cssText = 'color:#666;font-size:12px;';
+                var nickSpan = document.createElement('a');
+                nickSpan.href = 'javascript:void(0)';
+                nickSpan.style.cssText = 'color:#0066aa;font-size:12px;text-decoration:none;cursor:pointer;';
                 nickSpan.textContent = '@'+rec.nick;
+                nickSpan.title = 'Найти клиента @'+rec.nick;
+                nickSpan.addEventListener('click', function(e){
+                    e.stopPropagation();
+                    // Открываем поиск клиента
+                    var searchBtn = document.getElementById('godji-search-btn');
+                    if(searchBtn){ searchBtn.click();
+                        setTimeout(function(){
+                            var inp = document.getElementById('godji-search-input');
+                            if(inp){ inp.value = rec.nick; inp.dispatchEvent(new Event('input')); }
+                        }, 100);
+                    } else {
+                        window.location.href = '/clients?search='+encodeURIComponent(rec.nick);
+                    }
+                });
                 tdPc.appendChild(nickSpan);
             }
         } else {
@@ -614,10 +660,10 @@ function createBtn(){
     btn.id = 'godji-opj-btn';
     btn.className = 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href = 'javascript:void(0)';
-    btn.style.cssText = 'position:fixed;bottom:360px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    btn.style.cssText = 'position:fixed;bottom:380px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico = document.createElement('div');
-    ico.style.cssText = 'width:32px;height:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;';
+    ico.style.cssText = 'width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;';
     ico.innerHTML = svgIcon('journal', 16, '#fff');
 
     var lbl = document.createElement('span');
