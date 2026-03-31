@@ -152,6 +152,8 @@
     var modalVisible = false;
     var filterPc = '';
     var filterNick = '';
+    var _histDateFrom = 0;
+    var _histDateTo = 0;
 
     function createModal() {
         modal = document.createElement('div');
@@ -175,25 +177,75 @@
         ].join(';');
 
         var header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+
+        var titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+        var titleIco = document.createElement('div');
+        titleIco.style.cssText = 'width:32px;height:32px;border-radius:8px;background:#1565c0;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+        titleIco.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
 
         var title = document.createElement('span');
-        title.style.cssText = 'font-size:16px;font-weight:700;color:#1a1a1a;';
-        title.textContent = '\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0441\u0435\u0430\u043d\u0441\u043e\u0432 (\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 72 \u0447)';
+        title.style.cssText = 'font-size:15px;font-weight:700;color:#1a1a1a;';
+        title.textContent = '\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0441\u0435\u0430\u043d\u0441\u043e\u0432 (72 \u0447)';
+
+        titleWrap.appendChild(titleIco); titleWrap.appendChild(title);
 
         var closeBtn = document.createElement('button');
-        closeBtn.style.cssText = 'background:none;border:none;color:#999;font-size:20px;cursor:pointer;padding:0;line-height:1;';
-        closeBtn.textContent = '\u00d7';
+        closeBtn.style.cssText = 'background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
+        closeBtn.innerHTML = '&times;';
         closeBtn.addEventListener('click', hideModal);
 
-        header.appendChild(title);
+        header.appendChild(titleWrap);
         header.appendChild(closeBtn);
+
+        // Панель фильтров
+        var filterBar = document.createElement('div');
+        filterBar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fafafa;flex-wrap:wrap;';
+
+        var fLabel = document.createElement('span');
+        fLabel.style.cssText = 'font-size:12px;color:#888;font-weight:600;';
+        fLabel.textContent = 'Фильтр:';
+
+        var searchInp = document.createElement('input');
+        searchInp.type = 'text';
+        searchInp.placeholder = 'Ник, ПК, телефон...';
+        searchInp.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;width:170px;';
+        searchInp.addEventListener('input', function(){
+            filterNick = this.value.toLowerCase();
+            filterPc = '';
+            updateModal();
+        });
+
+        var dateFromLbl = document.createElement('span');
+        dateFromLbl.style.cssText = 'font-size:12px;color:#888;font-weight:600;margin-left:4px;';
+        dateFromLbl.textContent = 'С:';
+        var dateFrom = document.createElement('input');
+        dateFrom.type = 'date';
+        dateFrom.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;';
+
+        var dateTolbl = document.createElement('span');
+        dateTolbl.style.cssText = 'font-size:12px;color:#888;font-weight:600;';
+        dateTolbl.textContent = 'По:';
+        var dateTo = document.createElement('input');
+        dateTo.type = 'date';
+        dateTo.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;';
+
+        dateFrom.addEventListener('change', function(){ _histDateFrom = this.value ? new Date(this.value).getTime() : 0; updateModal(); });
+        dateTo.addEventListener('change', function(){ _histDateTo = this.value ? new Date(this.value).getTime()+86399999 : 0; updateModal(); });
+
+        filterBar.appendChild(fLabel);
+        filterBar.appendChild(searchInp);
+        filterBar.appendChild(dateFromLbl); filterBar.appendChild(dateFrom);
+        filterBar.appendChild(dateTolbl); filterBar.appendChild(dateTo);
 
         var tableWrap = document.createElement('div');
         tableWrap.id = 'godji-history-table-wrap';
         tableWrap.style.cssText = 'overflow-y:auto;flex:1;padding:0;';
 
         modal.appendChild(header);
+        modal.appendChild(filterBar);
         modal.appendChild(tableWrap);
         document.body.appendChild(modal);
 
@@ -223,7 +275,12 @@
 
         // Применяем фильтры
         if (filterPc) history = history.filter(function(r) { return r.pc === filterPc; });
-        if (filterNick) history = history.filter(function(r) { return r.nick === filterNick; });
+        if (filterNick) history = history.filter(function(r) {
+            var hay = [(r.nick||''), (r.pc||''), (r.phone||'')].join(' ').toLowerCase();
+            return hay.indexOf(filterNick) !== -1;
+        });
+        if (_histDateFrom) history = history.filter(function(r){ return r.ts >= _histDateFrom; });
+        if (_histDateTo)   history = history.filter(function(r){ return r.ts <= _histDateTo; });
 
         if (history.length === 0) {
             wrap.innerHTML = '<div style="text-align:center;color:#999;padding:40px;font-size:14px;">\u041d\u0435\u0442 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d\u043d\u044b\u0445 \u0441\u0435\u0430\u043d\u0441\u043e\u0432 \u0437\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 72 \u0447</div>';
@@ -394,7 +451,7 @@
         wrap.href = 'javascript:void(0)';
         wrap.style.cssText = [
             'position:fixed',
-            'top:334px',
+            'bottom:406px',
             'left:0',
             'z-index:150',
             'display:flex',
@@ -415,14 +472,14 @@
             'width:32px',
             'height:32px',
             'border-radius:8px',
-            'background:#cc0001',
+            'background:#1565c0',
             'display:flex',
             'align-items:center',
             'justify-content:center',
             'flex-shrink:0',
             'color:#ffffff',
         ].join(';');
-        iconWrap.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8l0 4l2 2"></path><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"></path></svg>';
+        iconWrap.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/><path d="M3 12h1m8-9v1m8 8h1m-9 8v1"/></svg>';
 
         var label = document.createElement('span');
         label.textContent = '\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0441\u0435\u0430\u043d\u0441\u043e\u0432';
