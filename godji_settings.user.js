@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Настройки
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_settings.user.js
