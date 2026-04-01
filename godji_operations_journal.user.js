@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -376,7 +376,7 @@ function buildModal(){
         l.style.cssText='font-size:11px;color:#999;font-weight:600;';
         l.textContent=lbl;
         var d=document.createElement('input');
-        d.type='date';
+        d.type='datetime-local';
         d.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:3px 5px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;flex-shrink:0;';
         d.addEventListener('change',function(){onChange(this.value?new Date(this.value).getTime():0);renderTable();});
         wrap.appendChild(l);wrap.appendChild(d);
@@ -578,7 +578,7 @@ function createBtn(){
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    btn.style.cssText='position:fixed;bottom:380px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    btn.style.cssText='position:fixed;top:426px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico=document.createElement('div');
     ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
