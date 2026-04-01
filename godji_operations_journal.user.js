@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -402,8 +402,20 @@ function buildModal(){
     var dateFrom=mkDate('С:',function(v){_fFrom=v;});
     var dateTo=mkDate('По:',function(v){_fTo=v?v+86399999:0;});
 
+    // Сброс фильтров
+    var resetBtn=document.createElement('button');
+    resetBtn.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;background:#fff;color:#888;outline:none;cursor:pointer;flex-shrink:0;white-space:nowrap;';
+    resetBtn.textContent='Сбросить';
+    resetBtn.addEventListener('click',function(){
+        _fType='';_fNick='';_fText='';_fFrom=0;_fTo=0;
+        fb.querySelectorAll('select').forEach(function(s){s.value='';});
+        fb.querySelectorAll('input[type="text"]').forEach(function(i){i.value='';});
+        fb.querySelectorAll('input[type="datetime-local"]').forEach(function(i){i.value='';});
+        renderTable();
+    });
     fb.appendChild(typeSel);fb.appendChild(nickSel);
     fb.appendChild(searchInp);fb.appendChild(dateFrom);fb.appendChild(dateTo);
+    fb.appendChild(resetBtn);
 
     // Таблица
     var tw=document.createElement('div');
