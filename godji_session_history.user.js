@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -15,7 +15,6 @@
 var STORAGE_KEY = 'godji_session_history';
 var MAX_MS = 72 * 3600000;
 
-// ── Хранилище ─────────────────────────────────
 function loadHistory(){
     try{
         var raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
@@ -26,91 +25,11 @@ function loadHistory(){
 function saveHistory(data){
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}catch(e){}
 }
-
-// ── Сканирование таблицы ──────────────────────
-var _state={};
-
-function getCell(row,idx){
-    return row.querySelector('td[data-index="'+idx+'"]')||
-           row.querySelector('td[style*="col-deviceName-size"]');
-}
-
-function scan(){
-    var rows=document.querySelectorAll('tr.mantine-Table-tr[data-index]');
-    if(!rows.length)return;
-    var now=Date.now();
-    var current={};
-
-    rows.forEach(function(row){
-        var pcCell=row.querySelector('td[data-index="0"]')||row.querySelector('td[style*="col-deviceName"]');
-        if(!pcCell)return;
-        var pc=pcCell.textContent.trim();
-        if(!pc||pc==='№ ПК')return;
-
-        // Статус сессии
-        var statusCell=row.querySelector('td[data-index="8"]')||row.querySelector('td[style*="col-sessionStatus"]');
-        var status=(statusCell&&statusCell.querySelector('.mantine-Badge-label'))?
-            statusCell.querySelector('.mantine-Badge-label').textContent.trim():
-            (statusCell?statusCell.textContent.trim():'');
-
-        // Клиент
-        var clientCell=row.querySelector('td[data-index="10"]')||row.querySelector('td[style*="col-clientName"]');
-        var client=clientCell?clientCell.textContent.trim():'';
-
-        // Ник
-        var nickCell=row.querySelector('td[data-index="11"]')||row.querySelector('td[style*="col-nickName"]');
-        var nick=nickCell?nickCell.textContent.trim().replace(/^@/,''):'';
-
-        // Телефон
-        var phoneCell=row.querySelector('td[data-index="12"]')||row.querySelector('td[style*="col-phone"]');
-        var phone=phoneCell?phoneCell.textContent.trim():'';
-
-        // Время сеанса
-        var timeCell=row.querySelector('td[data-index="6"]')||row.querySelector('td[style*="col-sessionPastTime"]');
-        var elapsed=timeCell?timeCell.textContent.trim():'';
-
-        if(pc&&status) current[pc]={status:status,client:client,nick:nick,phone:phone,elapsed:elapsed};
-    });
-
-    // Сравниваем с предыдущим состоянием
-    Object.keys(current).forEach(function(pc){
-        var cur=current[pc];
-        var prev=_state[pc]||{};
-
-        if(prev.status===cur.status)return; // Без изменений
-
-        var type='',label='';
-        if(!prev.status&&cur.status){
-            type='start';label='Запуск сеанса';
-        } else if(cur.status==='УШЁЛ'||cur.status==='ЗАВЕРШЁН'){
-            type='finish';label='Завершение сеанса';
-        } else if(cur.status==='ОЖИДАНИЕ'){
-            type='wait';label='Переход в ожидание';
-        } else {
-            type='change';label='Изменение: '+cur.status;
-        }
-
-        addEntry({ts:now,type:type,label:label,
-            pc:pc,client:cur.client,nick:cur.nick,phone:cur.phone,elapsed:cur.elapsed});
-    });
-
-    // Завершение — если ПК пропал из активных
-    Object.keys(_state).forEach(function(pc){
-        if(!current[pc]&&_state[pc].status&&_state[pc].status!=='УШЁЛ'&&_state[pc].status!=='ЗАВЕРШЁН'){
-            addEntry({ts:now,type:'finish',label:'Завершение сеанса',
-                pc:pc,client:_state[pc].client,nick:_state[pc].nick,
-                phone:_state[pc].phone,elapsed:_state[pc].elapsed});
-        }
-    });
-
-    _state=current;
-}
-
 function addEntry(entry){
     var history=loadHistory();
     var now=Date.now();
     var isDup=history.some(function(r){
-        return r.pc===entry.pc&&r.type===entry.type&&now-r.ts<8000;
+        return r.pc===entry.pc&&now-r.ts<10000;
     });
     if(isDup)return;
     history.unshift(entry);
@@ -118,9 +37,94 @@ function addEntry(entry){
     updateModalIfOpen();
 }
 
+// Кэш активных сеансов — данные сохраняем пока сеанс активен
+var _cache={};
+
+function scan(){
+    var rows=document.querySelectorAll('tr.mantine-Table-tr[data-index]');
+    if(!rows.length)return;
+    var now=Date.now();
+    var seen={};
+
+    rows.forEach(function(row){
+        // ПК
+        var pcCell=row.querySelector('td[data-index="0"]');
+        if(!pcCell)return;
+        var pc=pcCell.textContent.trim();
+        if(!pc||pc==='№ ПК')return;
+        seen[pc]=true;
+
+        // Статус сессии (col 8)
+        var stCell=row.querySelector('td[data-index="8"]');
+        var status='';
+        if(stCell){
+            var badge=stCell.querySelector('.mantine-Badge-label');
+            status=badge?badge.textContent.trim():stCell.textContent.trim();
+        }
+
+        // Клиент (col 10)
+        var clientCell=row.querySelector('td[data-index="10"]');
+        var client=clientCell?clientCell.textContent.trim():'';
+
+        // Ник (col 11)
+        var nickCell=row.querySelector('td[data-index="11"]');
+        var nick=nickCell?nickCell.textContent.trim().replace(/^@/,''):'';
+
+        // Телефон (col 12)
+        var phoneCell=row.querySelector('td[data-index="12"]');
+        var phone=phoneCell?phoneCell.textContent.trim():'';
+
+        // Тариф (col 9)
+        var tariffCell=row.querySelector('td[data-index="9"]');
+        var tariff=tariffCell?tariffCell.textContent.trim():'';
+
+        // Прошло (col 6)
+        var pastCell=row.querySelector('td[data-index="6"]');
+        var elapsed=pastCell?pastCell.textContent.trim():'';
+
+        // Старт (col 4)
+        var startCell=row.querySelector('td[data-index="4"]');
+        var startTime=startCell?startCell.textContent.trim():'';
+
+        // Кэшируем если есть данные
+        if(client||nick){
+            _cache[pc]={client:client,nick:nick,phone:phone,tariff:tariff,
+                        elapsed:elapsed,startTime:startTime,status:status};
+        }
+
+        // Если был активен — теперь УШЁЛ
+        var prev=_cache[pc]||{};
+        if((status==='УШЁЛ'||status==='ЗАВЕРШЁН')&&prev.status&&
+           prev.status!=='УШЁЛ'&&prev.status!=='ЗАВЕРШЁН'&&prev.status!==''){
+            var rec=_cache[pc]||{};
+            addEntry({ts:now,pc:pc,
+                client:rec.client||client,
+                nick:rec.nick||nick,
+                phone:rec.phone||phone,
+                tariff:rec.tariff||tariff,
+                elapsed:rec.elapsed||elapsed,
+                startTime:rec.startTime||startTime});
+        }
+    });
+
+    // ПК пропал из таблицы — сеанс завершён
+    Object.keys(_cache).forEach(function(pc){
+        if(!seen[pc]&&_cache[pc]&&_cache[pc].status&&
+           _cache[pc].status!=='УШЁЛ'&&_cache[pc].status!=='ЗАВЕРШЁН'){
+            var rec=_cache[pc];
+            if(rec.client||rec.nick){
+                addEntry({ts:now,pc:pc,
+                    client:rec.client,nick:rec.nick,phone:rec.phone,
+                    tariff:rec.tariff,elapsed:rec.elapsed,startTime:rec.startTime});
+            }
+            delete _cache[pc];
+        }
+    });
+}
+
 // ── Модалка ───────────────────────────────────
 var _modal=null,_overlay=null,_isOpen=false;
-var _fText='',_fNick='',_fFrom=0,_fTo=0;
+var _fNick='',_fPc='',_fText='',_fFrom=0,_fTo=0;
 
 function buildModal(){
     _overlay=document.createElement('div');
@@ -134,100 +138,98 @@ function buildModal(){
 
     // Шапка
     var hdr=document.createElement('div');
-    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
-    var titleWrap=document.createElement('div');
-    titleWrap.style.cssText='display:flex;align-items:center;gap:10px;';
-    var tIco=document.createElement('div');
-    tIco.style.cssText='width:32px;height:32px;border-radius:8px;background:#1565c0;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-    tIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
-    var tTxt=document.createElement('span');
-    tTxt.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
-    tTxt.textContent='История сеансов (72 ч)';
-    titleWrap.appendChild(tIco);titleWrap.appendChild(tTxt);
-    var closeBtn=document.createElement('button');
-    closeBtn.style.cssText='background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
-    closeBtn.innerHTML='&times;';
-    closeBtn.addEventListener('click',hideModal);
-    hdr.appendChild(titleWrap);hdr.appendChild(closeBtn);
+    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    var tw=document.createElement('div');tw.style.cssText='display:flex;align-items:center;gap:10px;';
+    var ti=document.createElement('div');
+    ti.style.cssText='width:32px;height:32px;border-radius:8px;background:#1565c0;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    ti.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+    var tt=document.createElement('span');
+    tt.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
+    tt.textContent='История сеансов (72 ч)';
+    tw.appendChild(ti);tw.appendChild(tt);
+    var cb=document.createElement('button');
+    cb.style.cssText='background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
+    cb.innerHTML='&times;';cb.addEventListener('click',hideModal);
+    hdr.appendChild(tw);hdr.appendChild(cb);
 
     // Фильтры — одна строка
     var fb=document.createElement('div');
-    fb.style.cssText='display:flex;align-items:center;gap:6px;padding:8px 16px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fafafa;white-space:nowrap;overflow-x:auto;';
+    fb.style.cssText='display:flex;align-items:center;gap:6px;padding:8px 16px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fafafa;overflow-x:auto;';
 
-    function mkInput(ph,w,fn){
-        var i=document.createElement('input');
-        i.type='text';i.placeholder=ph;
+    function mkSel(id,onChange){
+        var s=document.createElement('select');
+        s.id=id;
+        s.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;cursor:pointer;flex-shrink:0;max-width:135px;';
+        s.addEventListener('change',function(){onChange(this.value);renderTable();});
+        return s;
+    }
+    function mkInp(ph,w,fn){
+        var i=document.createElement('input');i.type='text';i.placeholder=ph;
         i.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;width:'+w+';flex-shrink:0;';
         i.addEventListener('input',function(){fn(this.value.toLowerCase());renderTable();});
         return i;
     }
-    function mkDate(lbl,fn){
-        var wrap=document.createElement('span');
-        wrap.style.cssText='display:flex;align-items:center;gap:4px;flex-shrink:0;';
+    function mkDT(lbl,fn){
+        var w=document.createElement('span');
+        w.style.cssText='display:flex;align-items:center;gap:3px;flex-shrink:0;';
         var l=document.createElement('span');
         l.style.cssText='font-size:11px;color:#999;font-weight:600;';l.textContent=lbl;
-        var d=document.createElement('input');
-        d.type='date';
-        d.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:3px 5px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;flex-shrink:0;';
+        var d=document.createElement('input');d.type='datetime-local';
+        d.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:3px 5px;font-size:11px;font-family:inherit;background:#fff;color:#444;outline:none;flex-shrink:0;';
         d.addEventListener('change',function(){fn(this.value?new Date(this.value).getTime():0);renderTable();});
-        wrap.appendChild(l);wrap.appendChild(d);return wrap;
+        w.appendChild(l);w.appendChild(d);return w;
     }
 
-    // Динамический ник-селектор
-    var nickSel=document.createElement('select');
-    nickSel.id='godji-hist-nick-sel';
-    nickSel.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;cursor:pointer;flex-shrink:0;max-width:130px;';
-    nickSel.addEventListener('change',function(){_fNick=this.value;renderTable();});
-
-    // ПК-селектор
-    var pcSel=document.createElement('select');
-    pcSel.id='godji-hist-pc-sel';
-    pcSel.style.cssText='border:1px solid #e0e0e0;border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;background:#fff;color:#444;outline:none;cursor:pointer;flex-shrink:0;width:70px;';
-    pcSel.addEventListener('change',function(){_fPc=this.value;renderTable();});
+    var nickSel=mkSel('godji-hist-nick',function(v){_fNick=v;});
+    var pcSel=mkSel('godji-hist-pc',function(v){_fPc=v;});
+    var searchInp=mkInp('Поиск...','100px',function(v){_fText=v;});
+    var dtFrom=mkDT('С:',function(v){_fFrom=v;});
+    var dtTo=mkDT('По:',function(v){_fTo=v;});
 
     fb.appendChild(nickSel);fb.appendChild(pcSel);
-    fb.appendChild(mkInput('Поиск...','120px',function(v){_fText=v;}));
-    fb.appendChild(mkDate('С:',function(v){_fFrom=v;}));
-    fb.appendChild(mkDate('По:',function(v){_fTo=v?v+86399999:0;}));
+    fb.appendChild(searchInp);fb.appendChild(dtFrom);fb.appendChild(dtTo);
 
-    // Таблица
-    var tw=document.createElement('div');
-    tw.id='godji-history-table-wrap';
-    tw.style.cssText='overflow-y:auto;flex:1;min-height:0;';
+    var tableWrap=document.createElement('div');
+    tableWrap.id='godji-history-table-wrap';
+    tableWrap.style.cssText='overflow-y:auto;flex:1;min-height:0;';
 
-    _modal.appendChild(hdr);_modal.appendChild(fb);_modal.appendChild(tw);
+    _modal.appendChild(hdr);_modal.appendChild(fb);_modal.appendChild(tableWrap);
     document.body.appendChild(_modal);
     document.addEventListener('keydown',function(e){if(e.key==='Escape'&&_isOpen)hideModal();});
 }
 
-var _fPc='';
-
-function updateSelectors(history){
-    // Ники
-    var ns=document.getElementById('godji-hist-nick-sel');
+function updateSelectors(data){
+    var ns=document.getElementById('godji-hist-nick');
     if(ns){
-        var curN=ns.value;
-        var nicks=[''];
-        history.forEach(function(r){if(r.nick&&nicks.indexOf(r.nick)===-1)nicks.push(r.nick);});
-        ns.innerHTML='';
-        var o0=document.createElement('option');o0.value='';o0.textContent='Все ники';ns.appendChild(o0);
-        nicks.slice(1).sort().forEach(function(n){
+        var cn=ns.value;var nicks=[];
+        data.forEach(function(r){if(r.nick&&nicks.indexOf(r.nick)===-1)nicks.push(r.nick);});
+        ns.innerHTML='<option value="">Все ники</option>';
+        nicks.sort().forEach(function(n){
             var o=document.createElement('option');o.value=n;o.textContent='@'+n;
-            if(n===curN)o.selected=true;ns.appendChild(o);
+            if(n===cn)o.selected=true;ns.appendChild(o);
         });
     }
-    // ПК
-    var ps=document.getElementById('godji-hist-pc-sel');
+    var ps=document.getElementById('godji-hist-pc');
     if(ps){
-        var curP=ps.value;
-        var pcs=[''];
-        history.forEach(function(r){if(r.pc&&pcs.indexOf(r.pc)===-1)pcs.push(r.pc);});
-        ps.innerHTML='';
-        var p0=document.createElement('option');p0.value='';p0.textContent='Все ПК';ps.appendChild(p0);
-        pcs.slice(1).sort().forEach(function(p){
+        var cp=ps.value;var pcs=[];
+        data.forEach(function(r){if(r.pc&&pcs.indexOf(r.pc)===-1)pcs.push(r.pc);});
+        ps.innerHTML='<option value="">Все ПК</option>';
+        pcs.sort().forEach(function(p){
             var o=document.createElement('option');o.value=p;o.textContent='ПК '+p;
-            if(p===curP)o.selected=true;ps.appendChild(o);
+            if(p===cp)o.selected=true;ps.appendChild(o);
         });
+    }
+}
+
+function openClient(nick){
+    // Открываем карточку клиента через поиск
+    var searchBtn=document.getElementById('godji-search-btn');
+    if(searchBtn){
+        searchBtn.click();
+        setTimeout(function(){
+            var inp=document.getElementById('godji-search-input');
+            if(inp){inp.value=nick;inp.dispatchEvent(new Event('input'));}
+        },100);
     }
 }
 
@@ -238,7 +240,7 @@ function renderTable(){
 
     var history=loadHistory();
 
-    // Для селекторов — только по дате
+    // Для селекторов — по текущему диапазону дат
     var forSel=history;
     if(_fFrom)forSel=forSel.filter(function(r){return r.ts>=_fFrom;});
     if(_fTo)forSel=forSel.filter(function(r){return r.ts<=_fTo;});
@@ -247,27 +249,19 @@ function renderTable(){
     // Все фильтры
     if(_fNick)history=history.filter(function(r){return (r.nick||'')===_fNick;});
     if(_fPc)history=history.filter(function(r){return (r.pc||'')===_fPc;});
+    if(_fFrom)history=history.filter(function(r){return r.ts>=_fFrom;});
+    if(_fTo)history=history.filter(function(r){return r.ts<=_fTo;});
     if(_fText){
         history=history.filter(function(r){
-            var h=[r.client,r.nick,r.pc,r.phone,r.label].join(' ').toLowerCase();
+            var h=[r.client,r.nick,r.pc,r.phone,r.tariff].join(' ').toLowerCase();
             return h.indexOf(_fText)!==-1;
         });
     }
-    if(_fFrom)history=history.filter(function(r){return r.ts>=_fFrom;});
-    if(_fTo)history=history.filter(function(r){return r.ts<=_fTo;});
 
     if(!history.length){
-        tw.innerHTML='<div style="text-align:center;color:#aaa;padding:48px;font-size:14px;">Нет сеансов за 72 часа</div>';
+        tw.innerHTML='<div style="text-align:center;color:#aaa;padding:48px;font-size:14px;">Нет завершённых сеансов за 72 ч</div>';
         return;
     }
-
-    // Цвета по типу
-    var TCLR={
-        'start':{bg:'#e0f0ff',color:'#0066cc'},
-        'finish':{bg:'#fde8e8',color:'#cc2200'},
-        'wait':{bg:'#f0f0f0',color:'#666666'},
-        'change':{bg:'#fff4e0',color:'#c87800'},
-    };
 
     var table=document.createElement('table');
     table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;color:#1a1a1a;';
@@ -275,7 +269,7 @@ function renderTable(){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Время','95px'],['Событие','160px'],['ПК','55px'],['Клиент','140px'],['Ник','120px'],['Телефон','115px'],['Прошло','80px']].forEach(function(c){
+    [['Дата и время','110px'],['ПК','55px'],['Клиент','150px'],['Ник','120px'],['Телефон','115px'],['Тариф','140px'],['Время сеанса','100px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0];hr.appendChild(th);
@@ -284,94 +278,75 @@ function renderTable(){
 
     var tbody=document.createElement('tbody');
     history.forEach(function(rec){
-        var cfg=TCLR[rec.type]||{bg:'#f5f5f5',color:'#555'};
         var tr=document.createElement('tr');
         tr.style.cssText='border-bottom:1px solid #f5f5f5;transition:background 0.1s;';
         tr.addEventListener('mouseenter',function(){tr.style.background='#f7f9ff';});
         tr.addEventListener('mouseleave',function(){tr.style.background='';});
 
-        function td(content,style,isEl){
-            var cell=document.createElement('td');
-            cell.style.cssText='padding:9px 12px;'+(style||'');
-            if(isEl) cell.appendChild(content);
-            else cell.textContent=content||'—';
-            return cell;
+        function mkTd(content,style){
+            var td=document.createElement('td');
+            td.style.cssText='padding:9px 12px;'+(style||'');
+            if(typeof content==='string') td.textContent=content||'—';
+            else if(content) td.appendChild(content);
+            else { td.textContent='—'; td.style.color='#ccc'; }
+            return td;
         }
 
         // Время
         var d=new Date(rec.ts);
         var timeStr=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+
             ' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
-        tr.appendChild(td(timeStr,'color:#999;font-size:12px;white-space:nowrap;'));
-
-        // Событие
-        var badge=document.createElement('span');
-        badge.style.cssText='background:'+cfg.bg+';color:'+cfg.color+';border-radius:5px;padding:3px 7px;font-size:11px;font-weight:700;white-space:nowrap;';
-        badge.textContent=rec.label||rec.type;
-        tr.appendChild(td(badge,'',true));
+        tr.appendChild(mkTd(timeStr,'color:#999;font-size:12px;white-space:nowrap;'));
 
         // ПК
         if(rec.pc){
             var pcB=document.createElement('span');
             pcB.style.cssText='background:rgba(0,160,230,0.12);color:#0066aa;border-radius:4px;padding:2px 6px;font-weight:700;font-size:12px;';
             pcB.textContent=rec.pc;
-            tr.appendChild(td(pcB,'',true));
-        } else tr.appendChild(td('','color:#ccc;'));
+            tr.appendChild(mkTd(pcB));
+        } else tr.appendChild(mkTd(''));
 
         // Клиент
-        tr.appendChild(td(rec.client||'','font-size:13px;'));
+        tr.appendChild(mkTd(rec.client||'','font-size:13px;'));
 
-        // Ник — кликабельный
+        // Ник — кликабельный → открывает карточку клиента
         if(rec.nick){
             var na=document.createElement('a');
             na.href='javascript:void(0)';
-            na.style.cssText='color:#0066aa;font-size:12px;text-decoration:none;cursor:pointer;';
+            na.style.cssText='color:#0066aa;font-size:12px;text-decoration:none;cursor:pointer;font-weight:600;';
             na.textContent='@'+rec.nick;
-            na.addEventListener('click',function(e){
-                e.stopPropagation();
-                var sb=document.getElementById('godji-search-btn');
-                if(sb){sb.click();setTimeout(function(){
-                    var inp=document.getElementById('godji-search-input');
-                    if(inp){inp.value=rec.nick;inp.dispatchEvent(new Event('input'));}
-                },100);}
-            });
-            tr.appendChild(td(na,'',true));
-        } else tr.appendChild(td('','color:#ccc;'));
+            (function(nick){
+                na.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    openClient(nick);
+                });
+            })(rec.nick);
+            tr.appendChild(mkTd(na));
+        } else tr.appendChild(mkTd(''));
 
-        // Телефон
-        tr.appendChild(td(rec.phone||'','color:#666;font-size:12px;'));
-        // Прошло
-        tr.appendChild(td(rec.elapsed||'','color:#888;font-size:12px;'));
+        tr.appendChild(mkTd(rec.phone||'','color:#666;font-size:12px;'));
+        tr.appendChild(mkTd(rec.tariff||'','font-size:12px;color:#555;'));
+        tr.appendChild(mkTd(rec.elapsed||'','color:#888;font-size:12px;'));
 
         tbody.appendChild(tr);
     });
-    table.appendChild(tbody);
-    tw.innerHTML='';tw.appendChild(table);
+    table.appendChild(tbody);tw.innerHTML='';tw.appendChild(table);
 }
 
-function showModal(){
-    if(!_modal)buildModal();
-    renderTable();
-    _modal.style.display='flex';
-    _overlay.style.display='block';
-    _isOpen=true;
-}
-function hideModal(){
-    if(!_modal)return;
-    _modal.style.display='none';
-    _overlay.style.display='none';
-    _isOpen=false;
-}
+function showModal(){if(!_modal)buildModal();renderTable();_modal.style.display='flex';_overlay.style.display='block';_isOpen=true;}
+function hideModal(){if(!_modal)return;_modal.style.display='none';_overlay.style.display='none';_isOpen=false;}
 function updateModalIfOpen(){if(_isOpen)renderTable();}
 
-// ── Кнопка сайдбара ───────────────────────────
+// ── Кнопка ───────────────────────────────────
 function createBtn(){
     if(document.getElementById('godji-history-btn'))return;
     var btn=document.createElement('a');
     btn.id='godji-history-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    btn.style.cssText='position:fixed;bottom:426px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    // Позиция управляется из godji_client_search через updateHistoryPos
+    // Ставим начальное значение top:380px
+    btn.style.cssText='position:fixed;top:380px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico=document.createElement('div');
     ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#1565c0;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
@@ -390,17 +365,12 @@ function createBtn(){
     });
 }
 
-// ── Init ─────────────────────────────────────
-function tryInit(){
-    if(document.querySelector('tr.mantine-Table-tr[data-index]'))scan();
-}
-
 new MutationObserver(function(){
     if(!document.getElementById('godji-history-btn'))createBtn();
 }).observe(document.body||document.documentElement,{childList:true,subtree:false});
 
 setTimeout(createBtn,500);
-setTimeout(tryInit,3000);
+setTimeout(function(){if(document.querySelector('tr.mantine-Table-tr[data-index]'))scan();},3000);
 setInterval(scan,2000);
 
 })();
