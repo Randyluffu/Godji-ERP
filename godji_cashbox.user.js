@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -14,8 +14,6 @@
 
 var STORAGE_KEY = 'godji_cashbox';
 var SHIFTS_KEY  = 'godji_shifts';
-// Диагностический лог — сохраняем последние 50 перехваченных запросов
-var DIAG_KEY    = 'godji_cashbox_diag';
 
 // Структура смены:
 // { id, openedAt, openedBy, cash, card, manual, withdrawal,
@@ -25,9 +23,6 @@ function loadCurrent(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)
 function saveCurrent(s){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(s)); }catch(e){} }
 function loadShifts(){ try{ return JSON.parse(localStorage.getItem(SHIFTS_KEY)||'[]'); }catch(e){return[];} }
 function saveShifts(s){ try{ localStorage.setItem(SHIFTS_KEY,JSON.stringify(s)); }catch(e){} }
-function loadDiag(){ try{ return JSON.parse(localStorage.getItem(DIAG_KEY)||'[]'); }catch(e){return[];} }
-function saveDiag(d){ try{ localStorage.setItem(DIAG_KEY,JSON.stringify(d.slice(0,50))); }catch(e){} }
-
 function fmtDate(ts){
     var d=new Date(ts);
     return ('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear()+
@@ -35,7 +30,12 @@ function fmtDate(ts){
 }
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
-// ── Перехват fetch + XHR ──────────────────────────────────
+// ── Снапшот кошельков: walletId → amount ─────────────────
+// ERP шлёт getDashboardDevices каждые ~30 сек через fetch.
+// Наш скрипт подменяет window.fetch до загрузки ERP (document-start),
+// поэтому getDashboardDevices мы ловим. Пополнения фиксируем через diff.
+var _walletSnap = {}; // walletId → {amount, nick, pc}
+
 var _origFetch = window.fetch;
 window.fetch = function(url, options){
     if(options&&options.headers){
@@ -48,7 +48,7 @@ window.fetch = function(url, options){
         p = p.then(function(resp){
             var clone=resp.clone();
             clone.json().then(function(data){
-                try{ onApi(reqBody, data, 'fetch'); }catch(e){}
+                try{ onDashboard(data); }catch(e){}
             }).catch(function(){});
             return resp;
         });
@@ -56,116 +56,123 @@ window.fetch = function(url, options){
     return p;
 };
 
+function onDashboard(data){
+    if(!data||!data.data) return;
+    var devices = (data.data.getDashboardDevices&&data.data.getDashboardDevices.devices) || [];
+    if(!devices.length) return;
+
+    var shift = loadCurrent();
+
+    devices.forEach(function(dev){
+        (dev.sessions||[]).forEach(function(s){
+            if(!s.user||!s.user.wallet) return;
+            var wid   = String(s.user.wallet.id);
+            var amt   = s.user.wallet.amount||0;   // текущий баланс
+            var nick  = s.user.nickname||s.user.name||'';
+            var pc    = dev.name||'';
+
+            if(_walletSnap[wid] !== undefined){
+                var prev = _walletSnap[wid].amount;
+                var diff = amt - prev;
+                // Порог +1₽ чтобы не реагировать на флуктуации
+                if(diff >= 1 && shift){
+                    // isCash определяем из последнего перехваченного payload (см. ниже)
+                    // Если есть кэш флага — используем, иначе считаем наличными
+                    var isCard = (_lastDepositFlag[wid] === false); // isCash:false → карта
+                    if(isCard){ shift.card = (shift.card||0) + diff; }
+                    else       { shift.cash = (shift.cash||0) + diff; }
+                    saveCurrent(shift);
+                    updateBtnBadge();
+                    updateModalIfOpen();
+                    // Сбрасываем флаг
+                    delete _lastDepositFlag[wid];
+                }
+            }
+            _walletSnap[wid] = {amount: amt, nick: nick, pc: pc};
+        });
+    });
+}
+
+// ── Перехват isCash флага из DepositBalanceWithCash ───────
+// Мутацию мы не ловим напрямую, но пробуем поймать через fetch
+// на случай если ERP всё-таки пойдёт через наш перехват.
+// Также вешаем XHR на случай если Apollo использует его.
+var _lastDepositFlag = {}; // walletId → isCash boolean
+
+function tryParseDeposit(reqBody){
+    try{
+        var b = typeof reqBody==='string' ? JSON.parse(reqBody) : reqBody;
+        if(!b||!b.variables) return;
+        var vars = b.variables;
+        var op   = b.operationName||'';
+        if(op==='DepositBalanceWithCash' || (b.query&&b.query.indexOf('walletDepositWithCash')!==-1)){
+            var wid = String(vars.walletId||'');
+            if(wid) _lastDepositFlag[wid] = (vars.isCash !== false);
+        }
+    }catch(e){}
+}
+
+// Пробуем поймать через XHR тоже
 var _origXHROpen = XMLHttpRequest.prototype.open;
 var _origXHRSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open = function(m,url){
-    this._gUrl=url; this._gMethod=m;
-    return _origXHROpen.apply(this,arguments);
+    this._gUrl=url; return _origXHROpen.apply(this,arguments);
 };
 XMLHttpRequest.prototype.send = function(body){
     var self=this;
     if(self._gUrl && self._gUrl.indexOf('hasura.godji.cloud')!==-1){
-        var savedBody = body;
-        self.addEventListener('load',function(){
-            var resp={};
-            try{ resp=JSON.parse(self.responseText); }catch(e){}
-            // Логируем ВСЕ XHR запросы на hasura для диагностики
-            try{
-                var reqParsed={};
-                try{ reqParsed=JSON.parse(savedBody||''); }catch(e){}
-                var diag=loadDiag();
-                diag.unshift({
-                    ts:Date.now(), src:'xhr',
-                    op:reqParsed.operationName||'(no opName)',
-                    dKeys:Object.keys((resp.data)||{}),
-                    vars:JSON.stringify(reqParsed.variables||{}).substring(0,400)
-                });
-                saveDiag(diag);
-            }catch(e){}
-            try{ onApi(savedBody||'', resp, 'xhr'); }catch(e){}
-        });
+        tryParseDeposit(body||'');
     }
     return _origXHRSend.apply(this,arguments);
 };
 
-// ── Разбор ответов API ────────────────────────────────────
-function onApi(reqBody, data, source){
+// ── Открытие/закрытие смены через ERP ────────────────────
+// Ловим через fetch (GetDashboardTable содержит сессии,
+// а shift-мутации идут через тот же fetch — пробуем)
+var _origFetch2 = window.fetch; // уже наш перехват сверху — дополняем через onDashboard
+// openShift/closeShift ловим отдельно в том же fetch перехвате:
+var __realFetch = _origFetch; // сохранили до подмены
+// Добавляем второй слой для shift-мутаций
+(function(){
+    var _prev = window.fetch;
+    window.fetch = function(url, options){
+        var p = _prev.apply(this, arguments);
+        if(url && typeof url==='string' && url.indexOf('hasura.godji.cloud')!==-1){
+            var reqBody=''; try{ reqBody=(options&&options.body)||''; }catch(e){}
+            tryParseDeposit(reqBody);
+            p = p.then(function(resp){
+                var clone=resp.clone();
+                clone.json().then(function(data){
+                    try{ onShiftMutation(reqBody, data); }catch(e){}
+                }).catch(function(){});
+                return resp;
+            });
+        }
+        return p;
+    };
+})();
+
+function onShiftMutation(reqBody, data){
     if(!data||!data.data) return;
     var d=data.data;
-    var body={}, vars={}, opName='';
-    try{
-        if(typeof reqBody==='string') body=JSON.parse(reqBody);
-        else if(reqBody) body=reqBody;
-        vars=body.variables||{};
-        opName=body.operationName||'';
-    }catch(e){ return; }
+    var body={};
+    try{ body=typeof reqBody==='string'?JSON.parse(reqBody):reqBody; }catch(e){ return; }
+    var op=body.operationName||'';
 
-    // ── Диагностический лог — все запросы через fetch на hasura ──
-    // (XHR логируется отдельно в перехватчике выше)
-    if(source === 'fetch'){
-        var dKeys=Object.keys(d);
-        var diag=loadDiag();
-        diag.unshift({
-            ts:Date.now(), src:source, op:opName,
-            dKeys:dKeys,
-            vars: JSON.stringify(vars).substring(0,400)
-        });
-        saveDiag(diag);
-    }
-
-    // ── Открытие смены через ERP ──
-    if(d.openShift||d.createShift||d.startShift){
+    if(d.openShift||d.createShift||d.startShift||op.indexOf('OpenShift')!==-1||op.indexOf('StartShift')!==-1){
         if(!loadCurrent()){
-            var s2=d.openShift||d.createShift||d.startShift;
-            saveCurrent({id:(s2&&s2.id)||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',
+            var s2=d.openShift||d.createShift||d.startShift||{};
+            saveCurrent({id:(s2.id)||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',
                          cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
+            _walletSnap={};
             updateBtnBadge(); updateModalIfOpen();
         }
-        return;
     }
-
-    // ── Закрытие смены через ERP ──
-    if(d.closeShift||d.finishShift||d.endShift){
+    if(d.closeShift||d.finishShift||d.endShift||op.indexOf('CloseShift')!==-1||op.indexOf('EndShift')!==-1){
         var cur2=loadCurrent(); if(cur2) closeShift(cur2,'erp');
-        return;
-    }
-
-    var shift=loadCurrent();
-    if(!shift) return;
-
-    // ── Пополнение (пробуем все известные имена мутации и поля суммы) ──
-    var depositResult = d.walletDepositWithCash || d.walletDeposit ||
-                        d.depositCash || d.addBalance || d.topUpWallet ||
-                        d.walletTopUp || d.replenishWallet;
-    if(depositResult){
-        // Ищем сумму во всех возможных полях
-        var amt = vars.amount ?? vars.sum ?? vars.value ?? vars.money ??
-                  (depositResult.amount) ?? null;
-        if(typeof amt === 'string') amt = parseFloat(amt);
-        if(typeof amt === 'number' && !isNaN(amt) && amt > 0){
-            // Карта или наличные
-            var isCard = vars.paymentType==='card' || vars.paymentType==='CARD' ||
-                         vars.method==='card' || vars.type==='card' ||
-                         opName.toLowerCase().indexOf('card')!==-1 ||
-                         (vars.comment&&vars.comment.toLowerCase().indexOf('карт')!==-1);
-            if(isCard){ shift.card=(shift.card||0)+amt; }
-            else       { shift.cash=(shift.cash||0)+amt; }
-            saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
-        }
-    }
-
-    // ── Отдельная мутация по карте ──
-    var cardResult = d.walletDepositWithCard || d.depositWithCard ||
-                     d.payByCard || d.cardDeposit || d.walletDepositCard;
-    if(cardResult){
-        var amt2 = vars.amount ?? vars.sum ?? vars.value ?? null;
-        if(typeof amt2==='string') amt2=parseFloat(amt2);
-        if(typeof amt2==='number' && !isNaN(amt2) && amt2>0){
-            shift.card=(shift.card||0)+amt2;
-            saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
-        }
     }
 }
+
 
 // ── Ручное внесение / выемка ──────────────────────────────
 function addManual(amount, comment){
@@ -257,7 +264,7 @@ function renderModal(){
     // ── Табы ──
     var tabs=document.createElement('div');
     tabs.style.cssText='display:flex;border-bottom:1px solid #f0f0f0;flex-shrink:0;padding:0 20px;gap:2px;background:#fff;';
-    [['current','Текущая смена'],['history','Журнал смен'],['diag','Диагностика']].forEach(function(t){
+    [['current','Текущая смена'],['history','Журнал смен']].forEach(function(t){
         var tb=document.createElement('button');
         tb.style.cssText='border:none;background:none;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:#aaa;font-family:inherit;transition:all 0.15s;';
         tb.textContent=t[1];
@@ -272,8 +279,7 @@ function renderModal(){
     _modal.appendChild(body);
 
     if(_tab==='current') renderCurrentTab(body, shift);
-    else if(_tab==='history') renderHistoryTab(body);
-    else renderDiagTab(body);
+    else renderHistoryTab(body);
 }
 
 // ── Текущая смена ─────────────────────────────────────────
@@ -532,40 +538,6 @@ function showShiftDetail(s){
 }
 
 // ── Диагностика ───────────────────────────────────────────
-function renderDiagTab(body){
-    var diag=loadDiag();
-    var wrap=document.createElement('div');
-    wrap.style.cssText='padding:12px 20px;';
-
-    var info=document.createElement('div');
-    info.style.cssText='font-size:12px;color:#888;margin-bottom:10px;';
-    info.textContent='Последние '+diag.length+' перехваченных финансовых запросов. Используй для диагностики имён мутаций.';
-    wrap.appendChild(info);
-
-    var clearBtn=document.createElement('button');
-    clearBtn.style.cssText='padding:5px 12px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;font-size:12px;cursor:pointer;margin-bottom:10px;font-family:inherit;';
-    clearBtn.textContent='Очистить лог';
-    clearBtn.addEventListener('click',function(){ saveDiag([]); renderModal(); });
-    wrap.appendChild(clearBtn);
-
-    if(!diag.length){
-        wrap.innerHTML+='<div style="color:#ccc;text-align:center;padding:40px;">Нет данных — сделай пополнение клиенту</div>';
-        body.appendChild(wrap); return;
-    }
-
-    diag.forEach(function(item){
-        var row=document.createElement('div');
-        row.style.cssText='background:#f9f9f9;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;border:1px solid #eee;';
-        row.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
-            +'<span style="font-weight:700;color:#1a1a1a;">'+(item.op||'(нет operationName)')+'</span>'
-            +'<span style="color:#aaa;">'+fmtDate(item.ts)+' via '+item.src+'</span></div>'
-            +'<div style="color:#555;margin-bottom:3px;"><b>data keys:</b> '+item.dKeys.join(', ')+'</div>'
-            +'<div style="color:#888;word-break:break-all;"><b>vars:</b> '+item.vars+'</div>';
-        wrap.appendChild(row);
-    });
-    body.appendChild(wrap);
-}
-
 // ── Показ/скрытие модалки ────────────────────────────────
 function showModal(){ if(!_modal)buildModal(); renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; }
 function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; }
