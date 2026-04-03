@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -14,15 +14,19 @@
 
 var STORAGE_KEY = 'godji_cashbox';
 var SHIFTS_KEY  = 'godji_shifts';
+// Диагностический лог — сохраняем последние 50 перехваченных запросов
+var DIAG_KEY    = 'godji_cashbox_diag';
 
 // Структура смены:
-// { id, openedAt, openedBy, cash, card, manual, manualEntries:[{ts,amount,comment}] }
-// manualEntries — ручные внесения, только для истории внутри смены
+// { id, openedAt, openedBy, cash, card, manual, withdrawal,
+//   manualEntries:[{ts, amount, comment, type:'in'|'out'}] }
 
 function loadCurrent(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); }catch(e){return null;} }
 function saveCurrent(s){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(s)); }catch(e){} }
 function loadShifts(){ try{ return JSON.parse(localStorage.getItem(SHIFTS_KEY)||'[]'); }catch(e){return[];} }
 function saveShifts(s){ try{ localStorage.setItem(SHIFTS_KEY,JSON.stringify(s)); }catch(e){} }
+function loadDiag(){ try{ return JSON.parse(localStorage.getItem(DIAG_KEY)||'[]'); }catch(e){return[];} }
+function saveDiag(d){ try{ localStorage.setItem(DIAG_KEY,JSON.stringify(d.slice(0,50))); }catch(e){} }
 
 function fmtDate(ts){
     var d=new Date(ts);
@@ -43,7 +47,9 @@ window.fetch = function(url, options){
         var reqBody=''; try{ reqBody=(options&&options.body)||''; }catch(e){}
         p = p.then(function(resp){
             var clone=resp.clone();
-            clone.json().then(function(data){ try{onApi(reqBody,data);}catch(e){} }).catch(function(){});
+            clone.json().then(function(data){
+                try{ onApi(reqBody, data, 'fetch'); }catch(e){}
+            }).catch(function(){});
             return resp;
         });
     }
@@ -52,75 +58,120 @@ window.fetch = function(url, options){
 
 var _origXHROpen = XMLHttpRequest.prototype.open;
 var _origXHRSend = XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.open = function(m,url){ this._gUrl=url; return _origXHROpen.apply(this,arguments); };
+XMLHttpRequest.prototype.open = function(m,url){
+    this._gUrl=url; return _origXHROpen.apply(this,arguments);
+};
 XMLHttpRequest.prototype.send = function(body){
     var self=this;
     if(self._gUrl && self._gUrl.indexOf('hasura.godji.cloud')!==-1){
+        var savedBody = body;
         self.addEventListener('load',function(){
-            try{ onApi(body||'', JSON.parse(self.responseText)); }catch(e){}
+            try{ onApi(savedBody||'', JSON.parse(self.responseText), 'xhr'); }catch(e){}
         });
     }
     return _origXHRSend.apply(this,arguments);
 };
 
-function onApi(reqBody, data){
+// ── Разбор ответов API ────────────────────────────────────
+function onApi(reqBody, data, source){
     if(!data||!data.data) return;
     var d=data.data;
-    var body={}, vars={};
-    try{ body=JSON.parse(reqBody); vars=body.variables||{}; }catch(e){ return; }
+    var body={}, vars={}, opName='';
+    try{
+        if(typeof reqBody==='string') body=JSON.parse(reqBody);
+        else if(reqBody) body=reqBody;
+        vars=body.variables||{};
+        opName=body.operationName||'';
+    }catch(e){ return; }
 
-    // Открытие смены через ERP
+    // ── Диагностический лог всех финансовых мутаций ──
+    var finKeys=['walletDeposit','Deposit','deposit','Cash','cash','Card','card','Bonus','bonus',
+                 'Shift','shift','Prolong','prolong','Reservation','reservation'];
+    var dKeys=Object.keys(d);
+    var isFinancial = dKeys.some(function(k){
+        return finKeys.some(function(f){ return k.toLowerCase().indexOf(f.toLowerCase())!==-1; });
+    });
+    if(isFinancial || opName){
+        var diag=loadDiag();
+        diag.unshift({
+            ts:Date.now(), src:source, op:opName,
+            dKeys:dKeys,
+            vars: JSON.stringify(vars).substring(0,400)
+        });
+        saveDiag(diag);
+    }
+
+    // ── Открытие смены через ERP ──
     if(d.openShift||d.createShift||d.startShift){
-        var s=d.openShift||d.createShift||d.startShift;
         if(!loadCurrent()){
-            saveCurrent({id:(s&&s.id)||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',cash:0,card:0,manual:0,manualEntries:[]});
+            var s2=d.openShift||d.createShift||d.startShift;
+            saveCurrent({id:(s2&&s2.id)||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',
+                         cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
             updateBtnBadge(); updateModalIfOpen();
         }
         return;
     }
 
-    // Закрытие смены через ERP
+    // ── Закрытие смены через ERP ──
     if(d.closeShift||d.finishShift||d.endShift){
-        var cur=loadCurrent(); if(cur) closeShift(cur,'erp');
+        var cur2=loadCurrent(); if(cur2) closeShift(cur2,'erp');
         return;
     }
 
     var shift=loadCurrent();
     if(!shift) return;
 
-    // Пополнение наличными
-    if(d.walletDepositWithCash){
-        var amt=vars.amount;
-        if(typeof amt!=='number'||amt<=0) return;
-        var isCard = vars.paymentType==='card'||vars.paymentType==='CARD'||vars.method==='card'||
-                     (vars.comment&&vars.comment.toLowerCase().indexOf('карт')!==-1);
-        if(isCard){ shift.card=(shift.card||0)+amt; }
-        else       { shift.cash=(shift.cash||0)+amt; }
-        saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
+    // ── Пополнение (пробуем все известные имена мутации и поля суммы) ──
+    var depositResult = d.walletDepositWithCash || d.walletDeposit ||
+                        d.depositCash || d.addBalance || d.topUpWallet ||
+                        d.walletTopUp || d.replenishWallet;
+    if(depositResult){
+        // Ищем сумму во всех возможных полях
+        var amt = vars.amount ?? vars.sum ?? vars.value ?? vars.money ??
+                  (depositResult.amount) ?? null;
+        if(typeof amt === 'string') amt = parseFloat(amt);
+        if(typeof amt === 'number' && !isNaN(amt) && amt > 0){
+            // Карта или наличные
+            var isCard = vars.paymentType==='card' || vars.paymentType==='CARD' ||
+                         vars.method==='card' || vars.type==='card' ||
+                         opName.toLowerCase().indexOf('card')!==-1 ||
+                         (vars.comment&&vars.comment.toLowerCase().indexOf('карт')!==-1);
+            if(isCard){ shift.card=(shift.card||0)+amt; }
+            else       { shift.cash=(shift.cash||0)+amt; }
+            saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
+        }
     }
 
-    // Отдельная мутация по карте (если есть)
-    if(d.walletDepositWithCard||d.depositWithCard||d.payByCard){
-        var amt2=vars.amount;
-        if(typeof amt2==='number'&&amt2>0){
+    // ── Отдельная мутация по карте ──
+    var cardResult = d.walletDepositWithCard || d.depositWithCard ||
+                     d.payByCard || d.cardDeposit || d.walletDepositCard;
+    if(cardResult){
+        var amt2 = vars.amount ?? vars.sum ?? vars.value ?? null;
+        if(typeof amt2==='string') amt2=parseFloat(amt2);
+        if(typeof amt2==='number' && !isNaN(amt2) && amt2>0){
             shift.card=(shift.card||0)+amt2;
             saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
         }
     }
 }
 
-// ── Ручное внесение (только касса, без API) ───────────────
+// ── Ручное внесение / выемка ──────────────────────────────
 function addManual(amount, comment){
-    var shift=loadCurrent();
-    if(!shift) return;
-    amount=parseFloat(amount)||0;
-    if(!amount) return;
+    var shift=loadCurrent(); if(!shift) return;
+    amount=parseFloat(amount)||0; if(!amount) return;
     shift.manual=(shift.manual||0)+amount;
     shift.manualEntries=shift.manualEntries||[];
-    shift.manualEntries.unshift({ts:Date.now(),amount:amount,comment:comment||''});
-    saveCurrent(shift);
-    updateBtnBadge();
-    updateModalIfOpen();
+    shift.manualEntries.unshift({ts:Date.now(),amount:amount,comment:comment||'',type:'in'});
+    saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
+}
+
+function addWithdrawal(amount, comment){
+    var shift=loadCurrent(); if(!shift) return;
+    amount=parseFloat(amount)||0; if(!amount) return;
+    shift.withdrawal=(shift.withdrawal||0)+amount;
+    shift.manualEntries=shift.manualEntries||[];
+    shift.manualEntries.unshift({ts:Date.now(),amount:amount,comment:comment||'',type:'out'});
+    saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
 }
 
 function closeShift(shift, source){
@@ -135,7 +186,8 @@ function closeShift(shift, source){
 
 function openShiftManual(){
     if(loadCurrent()) return;
-    saveCurrent({id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'manual',cash:0,card:0,manual:0,manualEntries:[]});
+    saveCurrent({id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'manual',
+                 cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
     updateBtnBadge(); updateModalIfOpen();
 }
 
@@ -150,7 +202,7 @@ function buildModal(){
 
     _modal=document.createElement('div');
     _modal.id='godji-cashbox-modal';
-    _modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99998;width:640px;max-width:96vw;max-height:88vh;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.22);display:none;flex-direction:column;font-family:inherit;overflow:hidden;';
+    _modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99998;width:640px;max-width:96vw;max-height:90vh;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.22);display:none;flex-direction:column;font-family:inherit;overflow:hidden;';
     document.body.appendChild(_modal);
 
     document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&_isOpen) hideModal(); });
@@ -161,34 +213,43 @@ function renderModal(){
     _modal.innerHTML='';
     var shift=loadCurrent();
 
-    // Шапка
+    // ── Шапка ──
     var hdr=document.createElement('div');
     hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
-    var tw=document.createElement('div'); tw.style.cssText='display:flex;align-items:center;gap:10px;';
+    var tw=document.createElement('div'); tw.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
     var tIco=document.createElement('div');
-    tIco.style.cssText='width:32px;height:32px;border-radius:8px;background:#1a7a3c;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-    tIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>';
-    var tTxt=document.createElement('span'); tTxt.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;'; tTxt.textContent='Касса смены';
-    var badge=document.createElement('span');
-    badge.style.cssText=shift
-        ?'font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#e6f9ee;color:#1a7a3c;'
-        :'font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#fde8e8;color:#cc2200;';
-    badge.textContent=shift?'● Смена открыта':'○ Смена закрыта';
-    tw.appendChild(tIco); tw.appendChild(tTxt); tw.appendChild(badge);
-    var closeBtn=document.createElement('button');
-    closeBtn.style.cssText='background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
-    closeBtn.innerHTML='&times;'; closeBtn.addEventListener('click',hideModal);
-    hdr.appendChild(tw); hdr.appendChild(closeBtn);
+    tIco.style.cssText='width:32px;height:32px;border-radius:8px;background:#166534;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    tIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+    var tTxt=document.createElement('span');
+    tTxt.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
+    tTxt.textContent='Касса смены';
+    var sBadge=document.createElement('span');
+    sBadge.style.cssText=shift
+        ?'font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#dcfce7;color:#166534;'
+        :'font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#fee2e2;color:#991b1b;';
+    sBadge.textContent=shift?'● Открыта':'○ Закрыта';
+    tw.appendChild(tIco); tw.appendChild(tTxt); tw.appendChild(sBadge);
+    if(shift){
+        var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
+        var tBadge=document.createElement('span');
+        tBadge.style.cssText='font-size:18px;font-weight:800;color:#1a1a1a;margin-left:2px;';
+        tBadge.textContent=fmtAmtAbs(total);
+        tw.appendChild(tBadge);
+    }
+    var xBtn=document.createElement('button');
+    xBtn.style.cssText='background:none;border:none;color:#bbb;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0;';
+    xBtn.innerHTML='&times;'; xBtn.addEventListener('click',hideModal);
+    hdr.appendChild(tw); hdr.appendChild(xBtn);
     _modal.appendChild(hdr);
 
-    // Табы
+    // ── Табы ──
     var tabs=document.createElement('div');
-    tabs.style.cssText='display:flex;border-bottom:1px solid #f0f0f0;flex-shrink:0;padding:0 20px;gap:4px;';
-    [['current','Текущая смена'],['history','Журнал смен']].forEach(function(t){
+    tabs.style.cssText='display:flex;border-bottom:1px solid #f0f0f0;flex-shrink:0;padding:0 20px;gap:2px;background:#fff;';
+    [['current','Текущая смена'],['history','Журнал смен'],['diag','Диагностика']].forEach(function(t){
         var tb=document.createElement('button');
-        tb.style.cssText='border:none;background:none;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:#999;font-family:inherit;';
+        tb.style.cssText='border:none;background:none;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:#aaa;font-family:inherit;transition:all 0.15s;';
         tb.textContent=t[1];
-        if(_tab===t[0]){ tb.style.color='#1a7a3c'; tb.style.borderBottomColor='#1a7a3c'; }
+        if(_tab===t[0]){ tb.style.color='#166534'; tb.style.borderBottomColor='#166534'; }
         tb.addEventListener('click',function(){ _tab=t[0]; renderModal(); });
         tabs.appendChild(tb);
     });
@@ -199,128 +260,153 @@ function renderModal(){
     _modal.appendChild(body);
 
     if(_tab==='current') renderCurrentTab(body, shift);
-    else renderHistoryTab(body);
+    else if(_tab==='history') renderHistoryTab(body);
+    else renderDiagTab(body);
 }
 
+// ── Текущая смена ─────────────────────────────────────────
 function renderCurrentTab(body, shift){
     if(!shift){
         var empty=document.createElement('div');
         empty.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;';
-        var msg=document.createElement('div'); msg.style.cssText='font-size:15px;color:#aaa;'; msg.textContent='Нет активной смены';
+        empty.innerHTML='<div style="font-size:15px;color:#aaa;">Нет активной смены</div>';
         var openBtn=document.createElement('button');
-        openBtn.style.cssText='padding:10px 24px;background:#1a7a3c;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
+        openBtn.style.cssText='padding:10px 24px;background:#166534;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
         openBtn.textContent='Открыть смену вручную';
         openBtn.addEventListener('click',function(){ openShiftManual(); renderModal(); });
-        empty.appendChild(msg); empty.appendChild(openBtn);
+        empty.appendChild(openBtn);
         body.appendChild(empty);
         return;
     }
 
-    // ── Три карточки: Наличные / Карта / Ручное внесение ──
+    // 4 карточки 2×2
     var cards=document.createElement('div');
-    cards.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:20px;';
+    cards.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px 20px 12px;';
 
     function mkCard(label, value, color, bg, icoSvg){
         var c=document.createElement('div');
-        c.style.cssText='background:'+bg+';border-radius:10px;padding:16px;';
-        var top=document.createElement('div'); top.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+        c.style.cssText='background:'+bg+';border-radius:10px;padding:14px 16px;';
+        var top=document.createElement('div');
+        top.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:8px;';
         var i=document.createElement('div');
-        i.style.cssText='width:28px;height:28px;border-radius:6px;background:'+color+';display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+        i.style.cssText='width:26px;height:26px;border-radius:6px;background:'+color+';display:flex;align-items:center;justify-content:center;flex-shrink:0;';
         i.innerHTML=icoSvg;
-        var lbl=document.createElement('span'); lbl.style.cssText='font-size:11px;font-weight:700;color:'+color+';text-transform:uppercase;letter-spacing:0.5px;'; lbl.textContent=label;
+        var lbl=document.createElement('span');
+        lbl.style.cssText='font-size:10px;font-weight:700;color:'+color+';text-transform:uppercase;letter-spacing:0.5px;';
+        lbl.textContent=label;
         top.appendChild(i); top.appendChild(lbl);
-        var val=document.createElement('div'); val.style.cssText='font-size:26px;font-weight:800;color:#1a1a1a;'; val.textContent=value;
+        var val=document.createElement('div');
+        val.style.cssText='font-size:22px;font-weight:800;color:#1a1a1a;';
+        val.textContent=value;
         c.appendChild(top); c.appendChild(val);
         return c;
     }
 
-    var cashIco='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>';
-    var cardIco='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>';
-    var manIco='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    var ICO={
+        cash:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>',
+        card:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+        plus:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+        out:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+    };
 
-    cards.appendChild(mkCard('Наличные', fmtAmtAbs(shift.cash), '#1a7a3c', '#e6f9ee', cashIco));
-    cards.appendChild(mkCard('Карта', fmtAmtAbs(shift.card), '#0066cc', '#e0f0ff', cardIco));
-    cards.appendChild(mkCard('Ручное внесение', fmtAmtAbs(shift.manual), '#6633cc', '#f0eaff', manIco));
+    cards.appendChild(mkCard('Наличные',    fmtAmtAbs(shift.cash),       '#166534','#dcfce7', ICO.cash));
+    cards.appendChild(mkCard('Карта',       fmtAmtAbs(shift.card),       '#1d4ed8','#dbeafe', ICO.card));
+    cards.appendChild(mkCard('Внесение',    fmtAmtAbs(shift.manual),     '#7c3aed','#ede9fe', ICO.plus));
+    cards.appendChild(mkCard('Выемка',      fmtAmtAbs(shift.withdrawal), '#b45309','#fef3c7', ICO.out));
     body.appendChild(cards);
 
-    // Итого + инфо о смене
+    // Итого
+    var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
     var infoRow=document.createElement('div');
-    infoRow.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:0 20px 14px;';
-    var infoLeft=document.createElement('div');
-    infoLeft.style.cssText='font-size:12px;color:#aaa;';
-    infoLeft.textContent='Открыта: '+fmtDate(shift.openedAt);
-    var infoRight=document.createElement('div');
-    infoRight.style.cssText='font-size:14px;font-weight:800;color:#1a1a1a;';
-    infoRight.textContent='Итого: '+fmtAmtAbs((shift.cash||0)+(shift.card||0)+(shift.manual||0));
-    infoRow.appendChild(infoLeft); infoRow.appendChild(infoRight);
+    infoRow.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:0 20px 12px;border-bottom:1px solid #f0f0f0;';
+    var infoL=document.createElement('div');
+    infoL.style.cssText='font-size:12px;color:#aaa;';
+    infoL.textContent='Открыта: '+fmtDate(shift.openedAt);
+    var infoR=document.createElement('div');
+    infoR.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
+    infoR.textContent='В кассе: '+fmtAmtAbs(total);
+    infoRow.appendChild(infoL); infoRow.appendChild(infoR);
     body.appendChild(infoRow);
 
-    // ── Форма ручного внесения ──
-    var manSection=document.createElement('div');
-    manSection.style.cssText='margin:0 20px 16px;padding:14px 16px;background:#f9f5ff;border-radius:10px;border:1px solid #e0d0ff;';
-    var manTitle=document.createElement('div');
-    manTitle.style.cssText='font-size:12px;font-weight:700;color:#6633cc;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;';
-    manTitle.textContent='Ручное внесение в кассу';
-    var manRow=document.createElement('div');
-    manRow.style.cssText='display:flex;gap:8px;';
+    // Формы: внесение + выемка рядом
+    var twoCol=document.createElement('div');
+    twoCol.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 20px;';
 
-    var amtInp=document.createElement('input');
-    amtInp.type='number'; amtInp.placeholder='Сумма, ₽'; amtInp.min='0';
-    amtInp.style.cssText='flex:1;border:1px solid #d0bbff;border-radius:7px;padding:8px 10px;font-size:13px;font-family:inherit;background:#fff;color:#1a1a1a;outline:none;';
-    amtInp.addEventListener('focus',function(){amtInp.style.borderColor='#6633cc';});
-    amtInp.addEventListener('blur',function(){amtInp.style.borderColor='#d0bbff';});
+    function mkForm(title, color, borderColor, bg, btnColor, btnTxt, onSubmit){
+        var sec=document.createElement('div');
+        sec.style.cssText='padding:12px 14px;background:'+bg+';border-radius:10px;border:1px solid '+borderColor+';';
+        var ttl=document.createElement('div');
+        ttl.style.cssText='font-size:11px;font-weight:700;color:'+color+';margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;';
+        ttl.textContent=title;
+        sec.appendChild(ttl);
 
-    var cmtInp=document.createElement('input');
-    cmtInp.type='text'; cmtInp.placeholder='Комментарий (необязательно)';
-    cmtInp.style.cssText='flex:2;border:1px solid #d0bbff;border-radius:7px;padding:8px 10px;font-size:13px;font-family:inherit;background:#fff;color:#1a1a1a;outline:none;';
-    cmtInp.addEventListener('focus',function(){cmtInp.style.borderColor='#6633cc';});
-    cmtInp.addEventListener('blur',function(){cmtInp.style.borderColor='#d0bbff';});
+        function mkInp(ph){
+            var inp=document.createElement('input');
+            inp.type=(ph==='Сумма, ₽')?'number':'text';
+            if(ph==='Сумма, ₽') inp.min='0';
+            inp.placeholder=ph;
+            inp.style.cssText='width:100%;box-sizing:border-box;border:1px solid '+borderColor+';border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;background:#fff;color:#1a1a1a;outline:none;margin-bottom:6px;';
+            inp.addEventListener('focus',function(){inp.style.borderColor=color;});
+            inp.addEventListener('blur',function(){inp.style.borderColor=borderColor;});
+            return inp;
+        }
+        var amtI=mkInp('Сумма, ₽');
+        var cmtI=mkInp('Комментарий');
+        sec.appendChild(amtI); sec.appendChild(cmtI);
 
-    var addBtn=document.createElement('button');
-    addBtn.style.cssText='padding:8px 16px;background:#6633cc;color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;';
-    addBtn.textContent='Внести';
-    addBtn.addEventListener('click',function(){
-        var v=parseFloat(amtInp.value);
-        if(!v||v<=0){ amtInp.style.borderColor='#cc0000'; return; }
-        addManual(v, cmtInp.value.trim());
-        amtInp.value=''; cmtInp.value='';
-    });
-
-    manRow.appendChild(amtInp); manRow.appendChild(cmtInp); manRow.appendChild(addBtn);
-    manSection.appendChild(manTitle); manSection.appendChild(manRow);
-
-    // Мини-лог ручных внесений (если есть)
-    var entries=shift.manualEntries||[];
-    if(entries.length){
-        var manLog=document.createElement('div');
-        manLog.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;';
-        entries.forEach(function(e){
-            var row=document.createElement('div');
-            row.style.cssText='display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#555;padding:4px 2px;border-bottom:1px solid #ece4ff;';
-            var lft=document.createElement('span'); lft.style.cssText='color:#999;'; lft.textContent=fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
-            var rgt=document.createElement('span'); rgt.style.cssText='font-weight:700;color:#6633cc;'; rgt.textContent='+'+fmtAmtAbs(e.amount);
-            row.appendChild(lft); row.appendChild(rgt);
-            manLog.appendChild(row);
+        var btn=document.createElement('button');
+        btn.style.cssText='width:100%;padding:8px;background:'+btnColor+';color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;';
+        btn.textContent=btnTxt;
+        btn.addEventListener('click',function(){
+            var v=parseFloat(amtI.value);
+            if(!v||v<=0){ amtI.style.borderColor='#ef4444'; return; }
+            onSubmit(v, cmtI.value.trim());
+            amtI.value=''; cmtI.value='';
         });
-        manSection.appendChild(manLog);
+        sec.appendChild(btn);
+        return sec;
     }
 
-    body.appendChild(manSection);
+    twoCol.appendChild(mkForm('Внесение в кассу','#7c3aed','#c4b5fd','#f5f3ff','#7c3aed','+ Внести',addManual));
+    twoCol.appendChild(mkForm('Выемка из кассы', '#b45309','#fcd34d','#fffbeb','#b45309','− Выемка',addWithdrawal));
+    body.appendChild(twoCol);
 
-    // ── Кнопка закрытия смены ──
+    // Лог ручных операций
+    var entries=shift.manualEntries||[];
+    if(entries.length){
+        var logWrap=document.createElement('div');
+        logWrap.style.cssText='margin:0 20px 12px;border-radius:8px;overflow:hidden;border:1px solid #f0f0f0;max-height:160px;overflow-y:auto;';
+        entries.forEach(function(e){
+            var isOut=e.type==='out';
+            var row=document.createElement('div');
+            row.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-bottom:1px solid #f8f8f8;font-size:12px;';
+            var lft=document.createElement('span');
+            lft.style.cssText='color:#888;';
+            lft.textContent=fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
+            var rgt=document.createElement('span');
+            rgt.style.cssText='font-weight:700;color:'+(isOut?'#b45309':'#7c3aed')+';';
+            rgt.textContent=(isOut?'−':'+')+fmtAmtAbs(e.amount);
+            row.appendChild(lft); row.appendChild(rgt);
+            logWrap.appendChild(row);
+        });
+        body.appendChild(logWrap);
+    }
+
+    // Кнопка закрытия смены
     var actions=document.createElement('div');
     actions.style.cssText='padding:0 20px 20px;';
-    var closeShiftBtn=document.createElement('button');
-    closeShiftBtn.style.cssText='padding:9px 20px;background:#cc2200;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;';
-    closeShiftBtn.textContent='Закрыть смену';
-    closeShiftBtn.addEventListener('click',function(){
+    var closeBtn=document.createElement('button');
+    closeBtn.style.cssText='padding:9px 20px;background:#dc2626;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;';
+    closeBtn.textContent='Закрыть смену';
+    closeBtn.addEventListener('click',function(){
         if(!confirm('Закрыть смену? Данные сохранятся в журнал.')) return;
         closeShift(loadCurrent(),'manual'); renderModal();
     });
-    actions.appendChild(closeShiftBtn);
+    actions.appendChild(closeBtn);
     body.appendChild(actions);
 }
 
+// ── Журнал смен ───────────────────────────────────────────
 function renderHistoryTab(body){
     var shifts=loadShifts();
     if(!shifts.length){
@@ -333,9 +419,9 @@ function renderHistoryTab(body){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Открыта','125px'],['Закрыта','125px'],['Наличные','90px'],['Карта','90px'],['Ручное','90px'],['Итого','90px']].forEach(function(c){
+    [['Открыта','115px'],['Закрыта','115px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['В кассе','80px']].forEach(function(c){
         var th=document.createElement('th');
-        th.style.cssText='padding:9px 14px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
+        th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
     });
     thead.appendChild(hr); table.appendChild(thead);
@@ -348,16 +434,19 @@ function renderHistoryTab(body){
         tr.addEventListener('mouseleave',function(){tr.style.background='';});
         tr.addEventListener('click',function(){ showShiftDetail(s); });
 
-        var total=(s.cash||0)+(s.card||0)+(s.manual||0);
+        var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0);
         [
-            [fmtDate(s.openedAt),    'padding:9px 14px;font-size:12px;color:#555;white-space:nowrap;'],
-            [s.closedAt?fmtDate(s.closedAt):'—', 'padding:9px 14px;font-size:12px;color:#888;white-space:nowrap;'],
-            [fmtAmtAbs(s.cash),  'padding:9px 14px;color:#1a7a3c;font-weight:600;'],
-            [fmtAmtAbs(s.card),  'padding:9px 14px;color:#0066cc;font-weight:600;'],
-            [fmtAmtAbs(s.manual),'padding:9px 14px;color:#6633cc;font-weight:600;'],
-            [fmtAmtAbs(total),   'padding:9px 14px;font-weight:800;color:#1a1a1a;'],
+            [fmtDate(s.openedAt),                'color:#555;'],
+            [s.closedAt?fmtDate(s.closedAt):'—', 'color:#999;'],
+            [fmtAmtAbs(s.cash),                  'color:#166534;font-weight:600;'],
+            [fmtAmtAbs(s.card),                  'color:#1d4ed8;font-weight:600;'],
+            [fmtAmtAbs(s.manual),                'color:#7c3aed;font-weight:600;'],
+            [fmtAmtAbs(s.withdrawal),            'color:#b45309;font-weight:600;'],
+            [fmtAmtAbs(total),                   'font-weight:800;color:#1a1a1a;'],
         ].forEach(function(col){
-            var td=document.createElement('td'); td.style.cssText=col[1]; td.textContent=col[0]; tr.appendChild(td);
+            var td=document.createElement('td');
+            td.style.cssText='padding:9px 12px;font-size:12px;white-space:nowrap;'+col[1];
+            td.textContent=col[0]; tr.appendChild(td);
         });
         tbody.appendChild(tr);
     });
@@ -365,6 +454,7 @@ function renderHistoryTab(body){
     body.appendChild(table);
 }
 
+// ── Детальная карточка смены ──────────────────────────────
 function showShiftDetail(s){
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;';
@@ -376,69 +466,116 @@ function showShiftDetail(s){
 
     var hdr=document.createElement('div');
     hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
-    var htxt=document.createElement('span'); htxt.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
-    htxt.textContent='Смена: '+fmtDate(s.openedAt)+' → '+(s.closedAt?fmtDate(s.closedAt):'открыта');
-    var hcls=document.createElement('button'); hcls.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#aaa;'; hcls.textContent='×'; hcls.addEventListener('click',function(){ov.remove();});
-    hdr.appendChild(htxt); hdr.appendChild(hcls);
+    var ht=document.createElement('span');
+    ht.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
+    ht.textContent='Смена: '+fmtDate(s.openedAt)+' → '+(s.closedAt?fmtDate(s.closedAt):'открыта');
+    var hc=document.createElement('button');
+    hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;';
+    hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
+    hdr.appendChild(ht); hdr.appendChild(hc);
     box.appendChild(hdr);
 
-    // Итоги
-    var sumRow=document.createElement('div');
-    sumRow.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
-    var total=(s.cash||0)+(s.card||0)+(s.manual||0);
-    [['Наличные',fmtAmtAbs(s.cash),'#1a7a3c','#e6f9ee'],
-     ['Карта',fmtAmtAbs(s.card),'#0066cc','#e0f0ff'],
-     ['Ручное',fmtAmtAbs(s.manual),'#6633cc','#f0eaff'],
-     ['Итого',fmtAmtAbs(total),'#1a1a1a','#f5f5f5']].forEach(function(r){
+    var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0);
+    var grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    [['Наличные',fmtAmtAbs(s.cash),'#166534','#dcfce7'],
+     ['Карта',fmtAmtAbs(s.card),'#1d4ed8','#dbeafe'],
+     ['Внесение',fmtAmtAbs(s.manual),'#7c3aed','#ede9fe'],
+     ['Выемка',fmtAmtAbs(s.withdrawal),'#b45309','#fef3c7'],
+     ['В кассе',fmtAmtAbs(total),'#1a1a1a','#f5f5f5']].forEach(function(r){
         var c=document.createElement('div');
         c.style.cssText='background:'+r[3]+';border-radius:8px;padding:10px 12px;';
-        c.innerHTML='<div style="font-size:10px;color:'+r[2]+';font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">'+r[0]+'</div>'+
-                    '<div style="font-size:18px;font-weight:800;color:#1a1a1a;">'+r[1]+'</div>';
-        sumRow.appendChild(c);
+        c.innerHTML='<div style="font-size:9px;color:'+r[2]+';font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">'+r[0]+'</div>'+
+                    '<div style="font-size:16px;font-weight:800;color:#1a1a1a;">'+r[1]+'</div>';
+        grid.appendChild(c);
     });
-    box.appendChild(sumRow);
+    box.appendChild(grid);
 
-    // Лог ручных внесений
-    var tw=document.createElement('div'); tw.style.cssText='overflow-y:auto;flex:1;min-height:0;padding:12px 20px;';
+    var tw=document.createElement('div');
+    tw.style.cssText='overflow-y:auto;flex:1;min-height:0;padding:12px 20px;';
     var entries=s.manualEntries||[];
     if(entries.length){
-        var ltitle=document.createElement('div');
-        ltitle.style.cssText='font-size:11px;font-weight:700;color:#6633cc;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
-        ltitle.textContent='Ручные внесения';
-        tw.appendChild(ltitle);
+        var lt=document.createElement('div');
+        lt.style.cssText='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
+        lt.textContent='Ручные операции';
+        tw.appendChild(lt);
         entries.forEach(function(e){
+            var isOut=e.type==='out';
             var row=document.createElement('div');
             row.style.cssText='display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:13px;';
             var l=document.createElement('span'); l.style.cssText='color:#888;'; l.textContent=fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
-            var r=document.createElement('span'); r.style.cssText='font-weight:700;color:#6633cc;'; r.textContent='+'+fmtAmtAbs(e.amount);
+            var r=document.createElement('span'); r.style.cssText='font-weight:700;color:'+(isOut?'#b45309':'#7c3aed')+';';
+            r.textContent=(isOut?'−':'+')+fmtAmtAbs(e.amount);
             row.appendChild(l); row.appendChild(r); tw.appendChild(row);
         });
     } else {
-        tw.innerHTML='<div style="color:#ccc;font-size:13px;text-align:center;padding:20px;">Ручных внесений не было</div>';
+        tw.innerHTML='<div style="color:#ccc;font-size:13px;text-align:center;padding:24px;">Ручных операций не было</div>';
     }
     box.appendChild(tw);
-
     ov.appendChild(box);
-    document.addEventListener('keydown',function eh(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}});
+
+    document.addEventListener('keydown',function eh(e){
+        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}
+    });
 }
 
+// ── Диагностика ───────────────────────────────────────────
+function renderDiagTab(body){
+    var diag=loadDiag();
+    var wrap=document.createElement('div');
+    wrap.style.cssText='padding:12px 20px;';
+
+    var info=document.createElement('div');
+    info.style.cssText='font-size:12px;color:#888;margin-bottom:10px;';
+    info.textContent='Последние '+diag.length+' перехваченных финансовых запросов. Используй для диагностики имён мутаций.';
+    wrap.appendChild(info);
+
+    var clearBtn=document.createElement('button');
+    clearBtn.style.cssText='padding:5px 12px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;font-size:12px;cursor:pointer;margin-bottom:10px;font-family:inherit;';
+    clearBtn.textContent='Очистить лог';
+    clearBtn.addEventListener('click',function(){ saveDiag([]); renderModal(); });
+    wrap.appendChild(clearBtn);
+
+    if(!diag.length){
+        wrap.innerHTML+='<div style="color:#ccc;text-align:center;padding:40px;">Нет данных — сделай пополнение клиенту</div>';
+        body.appendChild(wrap); return;
+    }
+
+    diag.forEach(function(item){
+        var row=document.createElement('div');
+        row.style.cssText='background:#f9f9f9;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;border:1px solid #eee;';
+        row.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
+            +'<span style="font-weight:700;color:#1a1a1a;">'+(item.op||'(нет operationName)')+'</span>'
+            +'<span style="color:#aaa;">'+fmtDate(item.ts)+' via '+item.src+'</span></div>'
+            +'<div style="color:#555;margin-bottom:3px;"><b>data keys:</b> '+item.dKeys.join(', ')+'</div>'
+            +'<div style="color:#888;word-break:break-all;"><b>vars:</b> '+item.vars+'</div>';
+        wrap.appendChild(row);
+    });
+    body.appendChild(wrap);
+}
+
+// ── Показ/скрытие модалки ────────────────────────────────
 function showModal(){ if(!_modal)buildModal(); renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; }
 function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; }
 function updateModalIfOpen(){ if(_isOpen)renderModal(); }
 
-// ── Кнопка в footer ───────────────────────────────────────
+// ── Кнопка (NavLink стиль, перед divider) ────────────────
 function updateBtnBadge(){
     var btn=document.getElementById('godji-cashbox-btn');
     if(!btn) return;
     var shift=loadCurrent();
     var dot=btn.querySelector('.gcb-dot');
-    if(dot) dot.style.background=shift?'#1a7a3c':'#cc2200';
-    var sum=btn.querySelector('.gcb-sum');
-    if(sum){
+    if(dot) dot.style.background=shift?'#22c55e':'#ef4444';
+    var sumEl=btn.querySelector('.gcb-sum');
+    if(sumEl){
         if(shift){
-            var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0);
-            sum.textContent=total>0?fmtAmtAbs(total):'Открыта';
-        } else { sum.textContent='Закрыта'; }
+            var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
+            sumEl.textContent=fmtAmtAbs(total);
+            sumEl.style.color=total>0?'rgba(134,239,172,0.9)':'rgba(255,255,255,0.35)';
+        } else {
+            sumEl.textContent='Закрыта';
+            sumEl.style.color='rgba(255,255,255,0.3)';
+        }
     }
 }
 
@@ -446,26 +583,47 @@ function createBtn(){
     if(document.getElementById('godji-cashbox-btn')) return;
     var footer=document.querySelector('.Sidebar_footer__1BA98');
     if(!footer) return;
+    var divider=footer.querySelector('.mantine-Divider-root');
+    if(!divider) return;
 
-    var btn=document.createElement('button');
-    btn.id='godji-cashbox-btn'; btn.type='button'; btn.title='Касса смены';
-    btn.style.cssText='position:absolute;left:10px;top:50%;transform:translateY(-50%);height:30px;border-radius:7px;border:none;background:rgba(255,255,255,0.07);display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(255,255,255,0.7);transition:background 0.15s;z-index:200;padding:0 8px;font-family:inherit;max-width:130px;overflow:hidden;flex-shrink:0;';
+    var btn=document.createElement('a');
+    btn.id='godji-cashbox-btn';
+    btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    btn.href='javascript:void(0)';
+    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
+    // ThemeIcon зелёный
+    var ico=document.createElement('div');
+    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
+    ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#166534;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+
+    // Статус-точка
     var dot=document.createElement('span');
     dot.className='gcb-dot';
-    dot.style.cssText='width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#cc2200;';
+    dot.style.cssText='position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;border:2px solid var(--mantine-color-body,#1a1b2e);';
+    ico.appendChild(dot);
 
-    var sum=document.createElement('span');
-    sum.className='gcb-sum';
-    sum.style.cssText='font-size:11px;font-weight:600;color:rgba(255,255,255,0.6);white-space:nowrap;';
+    // Текст + сумма
+    var bodyDiv=document.createElement('div');
+    bodyDiv.className='m_f07af9d2 mantine-NavLink-body';
+    var lbl=document.createElement('span');
+    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
+    lbl.style.cssText='font-size:14px;font-weight:600;color:var(--mantine-color-white,#fff);white-space:nowrap;';
+    lbl.textContent='Касса смены';
+    var sumEl=document.createElement('span');
+    sumEl.className='gcb-sum m_57492dcc mantine-NavLink-description';
+    sumEl.style.cssText='font-size:11px;white-space:nowrap;font-weight:500;';
+    bodyDiv.appendChild(lbl); bodyDiv.appendChild(sumEl);
 
-    btn.appendChild(dot); btn.appendChild(sum);
-    btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.13)';});
-    btn.addEventListener('mouseleave',function(){btn.style.background='rgba(255,255,255,0.07)';});
+    btn.appendChild(ico); btn.appendChild(bodyDiv);
+    btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.05)';});
+    btn.addEventListener('mouseleave',function(){btn.style.background='';});
     btn.addEventListener('click',function(e){ e.stopPropagation(); if(_isOpen)hideModal(); else showModal(); });
 
-    footer.style.position='relative';
-    footer.appendChild(btn);
+    // Вставляем ПЕРЕД divider
+    footer.insertBefore(btn, divider);
     updateBtnBadge();
 }
 
@@ -484,6 +642,7 @@ function watchErpShiftBtn(){
     });
 }
 
+// ── MutationObserver + init ───────────────────────────────
 var _obs=new MutationObserver(function(){
     if(!document.getElementById('godji-cashbox-btn')) createBtn();
     watchErpShiftBtn();
