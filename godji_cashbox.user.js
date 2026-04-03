@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -59,14 +59,30 @@ window.fetch = function(url, options){
 var _origXHROpen = XMLHttpRequest.prototype.open;
 var _origXHRSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open = function(m,url){
-    this._gUrl=url; return _origXHROpen.apply(this,arguments);
+    this._gUrl=url; this._gMethod=m;
+    return _origXHROpen.apply(this,arguments);
 };
 XMLHttpRequest.prototype.send = function(body){
     var self=this;
     if(self._gUrl && self._gUrl.indexOf('hasura.godji.cloud')!==-1){
         var savedBody = body;
         self.addEventListener('load',function(){
-            try{ onApi(savedBody||'', JSON.parse(self.responseText), 'xhr'); }catch(e){}
+            var resp={};
+            try{ resp=JSON.parse(self.responseText); }catch(e){}
+            // Логируем ВСЕ XHR запросы на hasura для диагностики
+            try{
+                var reqParsed={};
+                try{ reqParsed=JSON.parse(savedBody||''); }catch(e){}
+                var diag=loadDiag();
+                diag.unshift({
+                    ts:Date.now(), src:'xhr',
+                    op:reqParsed.operationName||'(no opName)',
+                    dKeys:Object.keys((resp.data)||{}),
+                    vars:JSON.stringify(reqParsed.variables||{}).substring(0,400)
+                });
+                saveDiag(diag);
+            }catch(e){}
+            try{ onApi(savedBody||'', resp, 'xhr'); }catch(e){}
         });
     }
     return _origXHRSend.apply(this,arguments);
@@ -84,14 +100,10 @@ function onApi(reqBody, data, source){
         opName=body.operationName||'';
     }catch(e){ return; }
 
-    // ── Диагностический лог всех финансовых мутаций ──
-    var finKeys=['walletDeposit','Deposit','deposit','Cash','cash','Card','card','Bonus','bonus',
-                 'Shift','shift','Prolong','prolong','Reservation','reservation'];
-    var dKeys=Object.keys(d);
-    var isFinancial = dKeys.some(function(k){
-        return finKeys.some(function(f){ return k.toLowerCase().indexOf(f.toLowerCase())!==-1; });
-    });
-    if(isFinancial || opName){
+    // ── Диагностический лог — все запросы через fetch на hasura ──
+    // (XHR логируется отдельно в перехватчике выше)
+    if(source === 'fetch'){
+        var dKeys=Object.keys(d);
         var diag=loadDiag();
         diag.unshift({
             ts:Date.now(), src:source, op:opName,
