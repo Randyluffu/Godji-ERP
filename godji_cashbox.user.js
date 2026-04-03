@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -30,146 +30,88 @@ function fmtDate(ts){
 }
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
-// ── Снапшот кошельков: walletId → amount ─────────────────
-// ERP шлёт getDashboardDevices каждые ~30 сек через fetch.
-// Наш скрипт подменяет window.fetch до загрузки ERP (document-start),
-// поэтому getDashboardDevices мы ловим. Пополнения фиксируем через diff.
-var _walletSnap = {}; // walletId → {amount, nick, pc}
+// ── Перехват через inline <script> ────────────────────────
+// Apollo сохраняет ссылку на fetch при инициализации модуля.
+// Единственный способ перехватить ДО этого — вставить inline script
+// синхронно в document.documentElement (существует на document-start).
+// Данные передаём через window.__gcbQueue.
 
-var _origFetch = window.fetch;
-window.fetch = function(url, options){
-    if(options&&options.headers){
-        if(options.headers.authorization) window._godjiAuthToken = options.headers.authorization;
-        if(options.headers['x-hasura-role']) window._godjiHasuraRole = options.headers['x-hasura-role'];
-    }
-    var p = _origFetch.apply(this, arguments);
-    if(url && typeof url==='string' && url.indexOf('hasura.godji.cloud')!==-1){
-        var reqBody=''; try{ reqBody=(options&&options.body)||''; }catch(e){}
-        p = p.then(function(resp){
-            var clone=resp.clone();
-            clone.json().then(function(data){
-                try{ onDashboard(data); }catch(e){}
-            }).catch(function(){});
-            return resp;
-        });
-    }
-    return p;
-};
-
-function onDashboard(data){
-    if(!data||!data.data) return;
-    var devices = (data.data.getDashboardDevices&&data.data.getDashboardDevices.devices) || [];
-    if(!devices.length) return;
-
-    var shift = loadCurrent();
-
-    devices.forEach(function(dev){
-        (dev.sessions||[]).forEach(function(s){
-            if(!s.user||!s.user.wallet) return;
-            var wid   = String(s.user.wallet.id);
-            var amt   = s.user.wallet.amount||0;   // текущий баланс
-            var nick  = s.user.nickname||s.user.name||'';
-            var pc    = dev.name||'';
-
-            if(_walletSnap[wid] !== undefined){
-                var prev = _walletSnap[wid].amount;
-                var diff = amt - prev;
-                // Порог +1₽ чтобы не реагировать на флуктуации
-                if(diff >= 1 && shift){
-                    // isCash определяем из последнего перехваченного payload (см. ниже)
-                    // Если есть кэш флага — используем, иначе считаем наличными
-                    var isCard = (_lastDepositFlag[wid] === false); // isCash:false → карта
-                    if(isCard){ shift.card = (shift.card||0) + diff; }
-                    else       { shift.cash = (shift.cash||0) + diff; }
-                    saveCurrent(shift);
-                    updateBtnBadge();
-                    updateModalIfOpen();
-                    // Сбрасываем флаг
-                    delete _lastDepositFlag[wid];
-                }
-            }
-            _walletSnap[wid] = {amount: amt, nick: nick, pc: pc};
-        });
-    });
-}
-
-// ── Перехват isCash флага из DepositBalanceWithCash ───────
-// Мутацию мы не ловим напрямую, но пробуем поймать через fetch
-// на случай если ERP всё-таки пойдёт через наш перехват.
-// Также вешаем XHR на случай если Apollo использует его.
-var _lastDepositFlag = {}; // walletId → isCash boolean
-
-function tryParseDeposit(reqBody){
-    try{
-        var b = typeof reqBody==='string' ? JSON.parse(reqBody) : reqBody;
-        if(!b||!b.variables) return;
-        var vars = b.variables;
-        var op   = b.operationName||'';
-        if(op==='DepositBalanceWithCash' || (b.query&&b.query.indexOf('walletDepositWithCash')!==-1)){
-            var wid = String(vars.walletId||'');
-            if(wid) _lastDepositFlag[wid] = (vars.isCash !== false);
-        }
-    }catch(e){}
-}
-
-// Пробуем поймать через XHR тоже
-var _origXHROpen = XMLHttpRequest.prototype.open;
-var _origXHRSend = XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.open = function(m,url){
-    this._gUrl=url; return _origXHROpen.apply(this,arguments);
-};
-XMLHttpRequest.prototype.send = function(body){
-    var self=this;
-    if(self._gUrl && self._gUrl.indexOf('hasura.godji.cloud')!==-1){
-        tryParseDeposit(body||'');
-    }
-    return _origXHRSend.apply(this,arguments);
-};
-
-// ── Открытие/закрытие смены через ERP ────────────────────
-// Ловим через fetch (GetDashboardTable содержит сессии,
-// а shift-мутации идут через тот же fetch — пробуем)
-var _origFetch2 = window.fetch; // уже наш перехват сверху — дополняем через onDashboard
-// openShift/closeShift ловим отдельно в том же fetch перехвате:
-var __realFetch = _origFetch; // сохранили до подмены
-// Добавляем второй слой для shift-мутаций
 (function(){
-    var _prev = window.fetch;
-    window.fetch = function(url, options){
-        var p = _prev.apply(this, arguments);
-        if(url && typeof url==='string' && url.indexOf('hasura.godji.cloud')!==-1){
-            var reqBody=''; try{ reqBody=(options&&options.body)||''; }catch(e){}
-            tryParseDeposit(reqBody);
-            p = p.then(function(resp){
-                var clone=resp.clone();
-                clone.json().then(function(data){
-                    try{ onShiftMutation(reqBody, data); }catch(e){}
-                }).catch(function(){});
-                return resp;
-            });
-        }
-        return p;
-    };
+    var inlineCode = '(function(){'
+        + 'window.__gcbQueue=[];'
+        + 'var _f=window.fetch;'
+        + 'window.fetch=function(url,opts){'
+        +   'var p=_f.apply(this,arguments);'
+        +   'if(url&&typeof url==="string"&&url.indexOf("hasura.godji.cloud")!==-1){'
+        +     'var b="";try{b=(opts&&opts.body)||"";}catch(e){}'
+        +     'p=p.then(function(r){'
+        +       'r.clone().json().then(function(d){'
+        +         'window.__gcbQueue.push({req:b,data:d});'
+        +       '}).catch(function(){});'
+        +       'return r;'
+        +     '});'
+        +   '}'
+        +   'return p;'
+        + '};'
+        + '})();';
+
+    var s = document.createElement('script');
+    s.textContent = inlineCode;
+    document.documentElement.appendChild(s);
+    s.remove();
 })();
 
-function onShiftMutation(reqBody, data){
-    if(!data||!data.data) return;
-    var d=data.data;
-    var body={};
-    try{ body=typeof reqBody==='string'?JSON.parse(reqBody):reqBody; }catch(e){ return; }
-    var op=body.operationName||'';
+// Читаем очередь каждые 300мс и обрабатываем перехваченные запросы
+setInterval(function(){
+    var q = window.__gcbQueue;
+    if(!q||!q.length) return;
+    var items = q.splice(0, q.length);
+    items.forEach(function(item){ try{ onApi(item.req, item.data); }catch(e){} });
+}, 300);
 
-    if(d.openShift||d.createShift||d.startShift||op.indexOf('OpenShift')!==-1||op.indexOf('StartShift')!==-1){
+function onApi(reqBody, data){
+    if(!data||!data.data) return;
+    var d = data.data;
+    var body={}, vars={}, op='';
+    try{
+        body = typeof reqBody==='string' ? JSON.parse(reqBody) : (reqBody||{});
+        vars = body.variables||{};
+        op   = body.operationName||'';
+    }catch(e){ return; }
+
+    // ── Пополнение баланса ────────────────────────────────
+    if(d.walletDepositWithCash){
+        var shift = loadCurrent();
+        if(!shift) return;
+        var amt = vars.amount;
+        if(typeof amt==='string') amt=parseFloat(amt);
+        if(typeof amt!=='number'||isNaN(amt)||amt<=0) return;
+        // isCash:true → наличные, isCash:false → карта
+        if(vars.isCash === false){
+            shift.card = (shift.card||0) + amt;
+        } else {
+            shift.cash = (shift.cash||0) + amt;
+        }
+        saveCurrent(shift);
+        updateBtnBadge();
+        updateModalIfOpen();
+    }
+
+    // ── Открытие смены ────────────────────────────────────
+    if(d.openShift||d.createShift||d.startShift||
+       op.indexOf('OpenShift')!==-1||op.indexOf('StartShift')!==-1){
         if(!loadCurrent()){
             var s2=d.openShift||d.createShift||d.startShift||{};
-            saveCurrent({id:(s2.id)||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',
+            saveCurrent({id:s2.id||('s_'+Date.now()),openedAt:Date.now(),openedBy:'erp',
                          cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
-            _walletSnap={};
             updateBtnBadge(); updateModalIfOpen();
         }
     }
-    if(d.closeShift||d.finishShift||d.endShift||op.indexOf('CloseShift')!==-1||op.indexOf('EndShift')!==-1){
-        var cur2=loadCurrent(); if(cur2) closeShift(cur2,'erp');
+
+    // ── Закрытие смены ────────────────────────────────────
+    if(d.closeShift||d.finishShift||d.endShift||
+       op.indexOf('CloseShift')!==-1||op.indexOf('EndShift')!==-1){
+        var cur=loadCurrent(); if(cur) closeShift(cur,'erp');
     }
 }
 
