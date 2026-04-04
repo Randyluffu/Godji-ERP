@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
 // @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
-// @grant        none
-// @run-at       document-idle
+// @grant        unsafeWindow
+// @run-at       document-start
 // ==/UserScript==
 (function(){
 'use strict';
@@ -30,94 +30,79 @@ function fmtDate(ts){
 }
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
-// ── Отслеживание пополнений через DOM ────────────────────
-// ERP обновляет таблицу после каждой операции через React.
-// Читаем userWalletAmount из getDashboardTableSessions строк,
-// сравниваем снапшоты — разница = пополнение.
-// Также читаем isCash из DOM невозможно, поэтому перехватываем
-// через XHR/fetch на уровне страницы через window.XMLHttpRequest.
+// ── Перехват fetch через unsafeWindow ────────────────────
+// @grant unsafeWindow даёт доступ к реальному window страницы.
+// Подменяем fetch ДО инициализации Apollo через unsafeWindow.fetch.
+// Все hasura-запросы попадают в onApi моментально.
 
-var _snap = {}; // nickOrId → amount
-var _pendingIsCash = {}; // walletId → isCash (из XHR перехвата)
+var _UW = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+var _origFetch = _UW.fetch;
 
-// Перехватываем XHR — Next.js/Apollo иногда использует его для мутаций
-// (не для polling queries). Это работает т.к. мы перехватываем прототип
-// до создания любых XHR объектов страницей.
-(function(){
-    var origOpen = XMLHttpRequest.prototype.open;
-    var origSend = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function(m, url){
-        this._gcbUrl = url;
-        return origOpen.apply(this, arguments);
-    };
-    XMLHttpRequest.prototype.send = function(body){
-        var self = this;
-        if(self._gcbUrl && self._gcbUrl.indexOf('hasura') !== -1){
-            try{
-                var b = JSON.parse(body||'{}');
-                if(b.operationName === 'DepositBalanceWithCash' && b.variables){
-                    _pendingIsCash[String(b.variables.walletId)] = b.variables.isCash !== false;
-                }
-            }catch(e){}
+_UW.fetch = function(url, options){
+    var p = _origFetch.apply(this, arguments);
+    if(url && typeof url === 'string' && url.indexOf('hasura.godji.cloud') !== -1){
+        var reqBody = '';
+        try{ reqBody = (options && options.body) || ''; }catch(e){}
+        p = p.then(function(resp){
+            resp.clone().json().then(function(data){
+                try{ onApi(reqBody, data); }catch(e){}
+            }).catch(function(){});
+            return resp;
+        });
+    }
+    return p;
+};
+
+function onApi(reqBody, data){
+    if(!data || !data.data) return;
+    var d = data.data;
+    var body = {}, vars = {}, op = '';
+    try{
+        body = typeof reqBody === 'string' ? JSON.parse(reqBody) : (reqBody || {});
+        vars = body.variables || {};
+        op   = body.operationName || '';
+    }catch(e){ return; }
+
+    // ── Пополнение наличными/картой ───────────────────────
+    // operationName: DepositBalanceWithCash
+    // vars: { amount, walletId, isCash }
+    // isCash:true → наличные, isCash:false → карта
+    if(d.walletDepositWithCash){
+        var shift = loadCurrent();
+        if(!shift) return;
+        var amt = vars.amount;
+        if(typeof amt === 'string') amt = parseFloat(amt);
+        if(typeof amt !== 'number' || isNaN(amt) || amt <= 0) return;
+        if(vars.isCash === false){
+            shift.card = (shift.card || 0) + amt;
+        } else {
+            shift.cash = (shift.cash || 0) + amt;
         }
-        return origSend.apply(this, arguments);
-    };
-})();
+        saveCurrent(shift);
+        updateBtnBadge();
+        updateModalIfOpen();
+    }
 
-// Сканируем DOM таблицы каждые 2 секунды
-function scanWallets(){
-    var shift = loadCurrent();
-    var rows = document.querySelectorAll('tr.mantine-Table-tr');
-    if(!rows.length) return;
-
-    rows.forEach(function(row){
-        // userWalletAmount в col-userWalletAmount-size или data-index="13"
-        var walletCell = row.querySelector('td[style*="col-userWalletAmount-size"]') ||
-                         row.querySelector('td[data-index="13"]');
-        var nickCell   = row.querySelector('td[style*="col-userNickname-size"]') ||
-                         row.querySelector('td[data-index="11"]');
-        if(!walletCell) return;
-
-        var amtText = walletCell.textContent.trim().replace(/[^\d.-]/g,'');
-        var amt = parseFloat(amtText);
-        if(isNaN(amt)) return;
-
-        // Ключ — ник или текст ячейки
-        var nick = nickCell ? nickCell.textContent.trim().replace(/^@/,'') : '';
-        if(!nick) return;
-
-        var key = nick;
-        var prev = _snap[key];
-
-        if(prev !== undefined){
-            var diff = amt - prev;
-            if(diff >= 1 && shift){
-                // Пробуем определить тип по _pendingIsCash
-                // walletId нам из DOM недоступен, но можем найти в кэше по нику
-                var isCashFlag = true; // по умолчанию наличные
-                // Ищем в pending по любому walletId
-                var keys = Object.keys(_pendingIsCash);
-                if(keys.length){
-                    isCashFlag = _pendingIsCash[keys[0]];
-                    delete _pendingIsCash[keys[0]];
-                }
-                if(isCashFlag){
-                    shift.cash = (shift.cash||0) + diff;
-                } else {
-                    shift.card = (shift.card||0) + diff;
-                }
-                saveCurrent(shift);
-                updateBtnBadge();
-                updateModalIfOpen();
-            }
+    // ── Открытие смены ────────────────────────────────────
+    if(d.openShift || d.createShift || d.startShift ||
+       op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
+        if(!loadCurrent()){
+            var s2 = d.openShift || d.createShift || d.startShift || {};
+            saveCurrent({id: s2.id || ('s_' + Date.now()), openedAt: Date.now(),
+                         openedBy: 'erp', cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
+            updateBtnBadge(); updateModalIfOpen();
         }
-        _snap[key] = amt;
-    });
+    }
+
+    // ── Закрытие смены ────────────────────────────────────
+    if(d.closeShift || d.finishShift || d.endShift ||
+       op.indexOf('CloseShift') !== -1 || op.indexOf('EndShift') !== -1){
+        var cur = loadCurrent();
+        if(cur) closeShift(cur, 'erp');
+    }
 }
 
-setInterval(scanWallets, 2000);
-
-// Открытие/закрытие смены — слушаем клик на ERP кнопку
+// ── Слушаем кнопку "Открыть смену" в ERP (фоллбэк) ───────
 function watchShiftBtn(){
     var hdr = document.querySelector('.Sidebar_header__dm6Ua');
     if(!hdr) return;
@@ -129,9 +114,8 @@ function watchShiftBtn(){
             if(txt.indexOf('открыт') !== -1 && txt.indexOf('смен') !== -1){
                 setTimeout(function(){
                     if(!loadCurrent()){
-                        saveCurrent({id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'erp',
-                                     cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
-                        _snap = {};
+                        saveCurrent({id:'s_'+Date.now(), openedAt:Date.now(), openedBy:'erp',
+                                     cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
                         updateBtnBadge(); updateModalIfOpen();
                     }
                 }, 1000);
