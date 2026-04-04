@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
 // @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
-// @grant        unsafeWindow
+// @grant        none
 // @run-at       document-start
 // ==/UserScript==
 (function(){
@@ -30,124 +30,162 @@ function fmtDate(ts){
 }
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
-// ── Перехват: unsafeWindow.fetch + DOM-сканирование ───────
-// Два метода одновременно. Дедупликация по ts+walletId.
+// ── Перехват fetch через inline <script> + CustomEvent ────
+// Apollo захватывает fetch до document-start, поэтому единственный
+// способ перехватить его — вставить <script> синхронно в DOM
+// (он выполняется в page context, до любых модулей).
+// Данные передаём в userscript context через CustomEvent.
 
-var _UW = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
-var _origFetch = _UW.fetch;
-var _recentOps = []; // {ts, walletId, amount, isCash} — дедуп окно 5 сек
+(function injectPageScript(){
+    var code = [
+        '(function(){',
+        '  if(window.__gcbInjected) return; window.__gcbInjected=true;',
+        '  var _f = window.fetch;',
+        '  window.fetch = function(url, opts){',
+        '    var p = _f.apply(this, arguments);',
+        '    if(url && typeof url==="string" && url.indexOf("hasura.godji.cloud")!==-1){',
+        '      var b=""; try{b=(opts&&opts.body)||"";}catch(e){}',
+        '      var hdrs={}; try{hdrs=(opts&&opts.headers)||{};}catch(e){}',
+        '      p = p.then(function(r){',
+        '        r.clone().json().then(function(d){',
+        '          document.dispatchEvent(new CustomEvent("__gcb__",{detail:{req:b,res:d,auth:hdrs.authorization||"",role:hdrs["x-hasura-role"]||""}}));',
+        '        }).catch(function(){});',
+        '        return r;',
+        '      });',
+        '    }',
+        '    return p;',
+        '  };',
+        '})();'
+    ].join('\n');
+    var s = document.createElement('script');
+    s.textContent = code;
+    (document.head || document.documentElement).appendChild(s);
+    s.remove();
+})();
 
-function _isDup(walletId, amount){
-    var now = Date.now();
-    _recentOps = _recentOps.filter(function(o){ return now - o.ts < 5000; });
-    return _recentOps.some(function(o){ return o.walletId===walletId && o.amount===amount; });
-}
-function _markOp(walletId, amount){
-    _recentOps.push({ts:Date.now(), walletId:walletId, amount:amount});
-}
+// Слушаем события из page context
+var _authToken = null;
+var _hasuraRole = 'club_admin';
 
-// Метод 1: unsafeWindow.fetch — ловим мутацию напрямую если успели
-_UW.fetch = function(url, options){
-    var p = _origFetch.apply(this, arguments);
-    if(url && typeof url === 'string' && url.indexOf('hasura.godji.cloud') !== -1){
-        var reqBody = '';
-        try{ reqBody = (options && options.body) || ''; }catch(e){}
-        p = p.then(function(resp){
-            resp.clone().json().then(function(data){
-                try{ onApi(reqBody, data); }catch(e){}
-            }).catch(function(){});
-            return resp;
-        });
-    }
-    return p;
-};
+document.addEventListener('__gcb__', function(e){
+    try{
+        var detail = e.detail;
+        if(detail.auth) _authToken = detail.auth;
+        if(detail.role) _hasuraRole = detail.role;
+        onApi(detail.req, detail.res);
+    }catch(err){}
+});
 
+// ── Обработка ответов API ─────────────────────────────────
 function onApi(reqBody, data){
     if(!data || !data.data) return;
     var d = data.data;
-    var body = {}, vars = {}, op = '';
+    var body = {}, op = '';
     try{
         body = typeof reqBody === 'string' ? JSON.parse(reqBody) : (reqBody || {});
-        vars = body.variables || {};
         op   = body.operationName || '';
     }catch(e){ return; }
 
-    if(d.walletDepositWithCash){
-        var shift = loadCurrent();
-        if(!shift) return;
-        var amt = vars.amount;
-        if(typeof amt === 'string') amt = parseFloat(amt);
-        if(typeof amt !== 'number' || isNaN(amt) || amt <= 0) return;
-        var wid = String(vars.walletId || '');
-        if(_isDup(wid, amt)) return;
-        _markOp(wid, amt);
-        if(vars.isCash === false){ shift.card = (shift.card||0) + amt; }
-        else                     { shift.cash = (shift.cash||0) + amt; }
-        saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
+    // ── Пополнения — ловим wallet_operations из любого ответа ──
+    if(d.wallet_operations && Array.isArray(d.wallet_operations)){
+        processWalletOps(d.wallet_operations);
     }
 
+    // ── Мутация пополнения — сразу после неё запрашиваем новые ops ──
+    if(d.walletDepositWithCash || d.walletDeposit){
+        setTimeout(fetchLatestOps, 300);
+    }
+
+    // ── Открытие смены ────────────────────────────────────
     if(d.openShift || d.createShift || d.startShift ||
        op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
         if(!loadCurrent()){
             var s2 = d.openShift || d.createShift || d.startShift || {};
             saveCurrent({id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
-                         cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
+                         cash:0, card:0, manual:0, withdrawal:0, manualEntries:[],
+                         seenOpIds:[]});
+            setTimeout(fetchLatestOps, 500);
             updateBtnBadge(); updateModalIfOpen();
         }
     }
+
+    // ── Закрытие смены ────────────────────────────────────
     if(d.closeShift || d.finishShift || d.endShift ||
        op.indexOf('CloseShift') !== -1 || op.indexOf('EndShift') !== -1){
         var cur = loadCurrent(); if(cur) closeShift(cur, 'erp');
     }
 }
 
-// Метод 2: DOM-сканирование — фоллбэк, срабатывает если fetch не поймали
-// Хранит снапшот балансов из таблицы, при росте фиксирует пополнение.
-// isCash в этом методе неизвестен — пишем как наличные (корректируем вручную).
-var _snap = {}; // nick → {amount, walletId}
+// ── Активный запрос новых операций ───────────────────────
+var GQL_OPS = 'query GCBOps($since:timestamptz!,$clubId:Int!){wallet_operations(where:{created_at:{_gte:$since},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}}){id operation_type amount_type money_type amount created_at}}';
 
-function scanWallets(){
+function fetchLatestOps(){
     var shift = loadCurrent();
-    var rows = document.querySelectorAll('tr.mantine-Table-tr');
-    rows.forEach(function(row){
-        var walletCell = row.querySelector('td[style*="col-userWalletAmount-size"]') ||
-                         row.querySelector('td[data-index="13"]');
-        var nickCell   = row.querySelector('td[style*="col-userNickname-size"]') ||
-                         row.querySelector('td[data-index="11"]');
-        if(!walletCell || !nickCell) return;
-
-        var amtText = walletCell.textContent.trim().replace(/[^\d.-]/g,'');
-        var amt = parseFloat(amtText);
-        if(isNaN(amt)) return;
-
-        var nick = nickCell.textContent.trim().replace(/^@/,'');
-        if(!nick) return;
-
-        var prev = _snap[nick];
-        if(prev !== undefined){
-            var diff = Math.round((amt - prev) * 100) / 100;
-            if(diff >= 1 && shift){
-                // Проверяем дедуп — если fetch уже поймал эту операцию, пропускаем
-                if(!_isDup('dom_'+nick, diff)){
-                    _markOp('dom_'+nick, diff);
-                    // В DOM не знаем isCash — пишем в наличные как фоллбэк
-                    shift.cash = (shift.cash||0) + diff;
-                    saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
-                }
-            }
+    if(!shift || !_authToken) return;
+    var since = new Date(shift.openedAt).toISOString();
+    window.fetch('https://hasura.godji.cloud/v1/graphql', {
+        method: 'POST',
+        headers: {
+            'authorization': _authToken,
+            'content-type': 'application/json',
+            'x-hasura-role': _hasuraRole
+        },
+        body: JSON.stringify({
+            operationName: 'GCBOps',
+            variables: { since: since, clubId: 14 },
+            query: GQL_OPS
+        })
+    }).then(function(r){ return r.json(); })
+    .then(function(data){
+        if(data && data.data && data.data.wallet_operations){
+            processWalletOps(data.data.wallet_operations);
         }
-        _snap[nick] = amt;
-    });
+    }).catch(function(){});
 }
 
-// Запускаем DOM-сканер только после загрузки DOM
-function startDomScan(){
-    setInterval(scanWallets, 2000);
-}
-if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', startDomScan);
-} else {
-    startDomScan();
+// Polling каждые 10 сек как запасной вариант
+setInterval(fetchLatestOps, 10000);
+
+function processWalletOps(ops){
+    var shift = loadCurrent();
+    if(!shift) return;
+
+    // seenOpIds — Set уже учтённых id операций в этой смене
+    shift.seenOpIds = shift.seenOpIds || [];
+    var seenSet = {};
+    shift.seenOpIds.forEach(function(id){ seenSet[id] = true; });
+
+    var changed = false;
+    var shiftOpenedAt = new Date(shift.openedAt).toISOString();
+
+    ops.forEach(function(op){
+        // Считаем только пополнения денег (не бонусов)
+        if(op.operation_type !== 'deposit') return;
+        if(op.amount_type !== 'money') return;
+        if(op.amount <= 0) return;
+
+        // Только операции после открытия смены
+        if(op.created_at < shiftOpenedAt) return;
+
+        // Дедуп по id
+        if(seenSet[op.id]) return;
+        seenSet[op.id] = true;
+        shift.seenOpIds.push(op.id);
+
+        if(op.money_type === 'cash'){
+            shift.cash = (shift.cash||0) + op.amount;
+        } else {
+            // non_cash = карта/безнал
+            shift.card = (shift.card||0) + op.amount;
+        }
+        changed = true;
+    });
+
+    if(changed){
+        saveCurrent(shift);
+        updateBtnBadge();
+        updateModalIfOpen();
+    }
 }
 
 // ── Слушаем кнопку "Открыть смену" в ERP ─────────────────
