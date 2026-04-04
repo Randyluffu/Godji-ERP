@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -30,14 +30,23 @@ function fmtDate(ts){
 }
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
-// ── Перехват fetch через unsafeWindow ────────────────────
-// @grant unsafeWindow даёт доступ к реальному window страницы.
-// Подменяем fetch ДО инициализации Apollo через unsafeWindow.fetch.
-// Все hasura-запросы попадают в onApi моментально.
+// ── Перехват: unsafeWindow.fetch + DOM-сканирование ───────
+// Два метода одновременно. Дедупликация по ts+walletId.
 
 var _UW = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
 var _origFetch = _UW.fetch;
+var _recentOps = []; // {ts, walletId, amount, isCash} — дедуп окно 5 сек
 
+function _isDup(walletId, amount){
+    var now = Date.now();
+    _recentOps = _recentOps.filter(function(o){ return now - o.ts < 5000; });
+    return _recentOps.some(function(o){ return o.walletId===walletId && o.amount===amount; });
+}
+function _markOp(walletId, amount){
+    _recentOps.push({ts:Date.now(), walletId:walletId, amount:amount});
+}
+
+// Метод 1: unsafeWindow.fetch — ловим мутацию напрямую если успели
 _UW.fetch = function(url, options){
     var p = _origFetch.apply(this, arguments);
     if(url && typeof url === 'string' && url.indexOf('hasura.godji.cloud') !== -1){
@@ -63,46 +72,85 @@ function onApi(reqBody, data){
         op   = body.operationName || '';
     }catch(e){ return; }
 
-    // ── Пополнение наличными/картой ───────────────────────
-    // operationName: DepositBalanceWithCash
-    // vars: { amount, walletId, isCash }
-    // isCash:true → наличные, isCash:false → карта
     if(d.walletDepositWithCash){
         var shift = loadCurrent();
         if(!shift) return;
         var amt = vars.amount;
         if(typeof amt === 'string') amt = parseFloat(amt);
         if(typeof amt !== 'number' || isNaN(amt) || amt <= 0) return;
-        if(vars.isCash === false){
-            shift.card = (shift.card || 0) + amt;
-        } else {
-            shift.cash = (shift.cash || 0) + amt;
-        }
-        saveCurrent(shift);
-        updateBtnBadge();
-        updateModalIfOpen();
+        var wid = String(vars.walletId || '');
+        if(_isDup(wid, amt)) return;
+        _markOp(wid, amt);
+        if(vars.isCash === false){ shift.card = (shift.card||0) + amt; }
+        else                     { shift.cash = (shift.cash||0) + amt; }
+        saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
     }
 
-    // ── Открытие смены ────────────────────────────────────
     if(d.openShift || d.createShift || d.startShift ||
        op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
         if(!loadCurrent()){
             var s2 = d.openShift || d.createShift || d.startShift || {};
-            saveCurrent({id: s2.id || ('s_' + Date.now()), openedAt: Date.now(),
-                         openedBy: 'erp', cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
+            saveCurrent({id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
+                         cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
             updateBtnBadge(); updateModalIfOpen();
         }
     }
-
-    // ── Закрытие смены ────────────────────────────────────
     if(d.closeShift || d.finishShift || d.endShift ||
        op.indexOf('CloseShift') !== -1 || op.indexOf('EndShift') !== -1){
-        var cur = loadCurrent();
-        if(cur) closeShift(cur, 'erp');
+        var cur = loadCurrent(); if(cur) closeShift(cur, 'erp');
     }
 }
 
-// ── Слушаем кнопку "Открыть смену" в ERP (фоллбэк) ───────
+// Метод 2: DOM-сканирование — фоллбэк, срабатывает если fetch не поймали
+// Хранит снапшот балансов из таблицы, при росте фиксирует пополнение.
+// isCash в этом методе неизвестен — пишем как наличные (корректируем вручную).
+var _snap = {}; // nick → {amount, walletId}
+
+function scanWallets(){
+    var shift = loadCurrent();
+    var rows = document.querySelectorAll('tr.mantine-Table-tr');
+    rows.forEach(function(row){
+        var walletCell = row.querySelector('td[style*="col-userWalletAmount-size"]') ||
+                         row.querySelector('td[data-index="13"]');
+        var nickCell   = row.querySelector('td[style*="col-userNickname-size"]') ||
+                         row.querySelector('td[data-index="11"]');
+        if(!walletCell || !nickCell) return;
+
+        var amtText = walletCell.textContent.trim().replace(/[^\d.-]/g,'');
+        var amt = parseFloat(amtText);
+        if(isNaN(amt)) return;
+
+        var nick = nickCell.textContent.trim().replace(/^@/,'');
+        if(!nick) return;
+
+        var prev = _snap[nick];
+        if(prev !== undefined){
+            var diff = Math.round((amt - prev) * 100) / 100;
+            if(diff >= 1 && shift){
+                // Проверяем дедуп — если fetch уже поймал эту операцию, пропускаем
+                if(!_isDup('dom_'+nick, diff)){
+                    _markOp('dom_'+nick, diff);
+                    // В DOM не знаем isCash — пишем в наличные как фоллбэк
+                    shift.cash = (shift.cash||0) + diff;
+                    saveCurrent(shift); updateBtnBadge(); updateModalIfOpen();
+                }
+            }
+        }
+        _snap[nick] = amt;
+    });
+}
+
+// Запускаем DOM-сканер только после загрузки DOM
+function startDomScan(){
+    setInterval(scanWallets, 2000);
+}
+if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', startDomScan);
+} else {
+    startDomScan();
+}
+
+// ── Слушаем кнопку "Открыть смену" в ERP ─────────────────
 function watchShiftBtn(){
     var hdr = document.querySelector('.Sidebar_header__dm6Ua');
     if(!hdr) return;
