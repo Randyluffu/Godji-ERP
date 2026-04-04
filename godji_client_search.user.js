@@ -4,8 +4,8 @@
 // @version      5.16
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERM/main/godji_client_search.user.js
-// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERM/main/godji_client_search.user.js
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_client_search.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_client_search.user.js
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
