@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Карта посадки v2 (overlay)
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_seating_map_v2.user.js
@@ -278,20 +278,6 @@ function inject(){
     _svg=buildSVGMain(cw,ch);
     layer.insertBefore(_svg,layer.firstChild);
     repositionCards(layer);
-
-    var rt=null;
-    new MutationObserver(function(muts){
-        var d=false;
-        muts.forEach(function(m){
-            m.addedNodes.forEach(function(n){
-                if(n.nodeType===1&&n.classList&&n.classList.contains('DeviceItem_deviceContainer__jCrmD'))d=true;
-            });
-            if(m.type==='attributes'&&m.target.classList&&m.target.classList.contains('DeviceItem_deviceContainer__jCrmD'))d=true;
-        });
-        if(d){clearTimeout(rt);rt=setTimeout(function(){repositionCards(layer);},30);}
-    }).observe(layer,{childList:true,subtree:true,attributes:true,attributeFilter:['style']});
-    setInterval(function(){repositionCards(layer);},1200);
-}
 
     var rt=null;
     new MutationObserver(function(muts){
