@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Настройки
 // @namespace    http://tampermonkey.net/
-// @version      3.3
+// @version      3.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_settings.user.js
@@ -28,10 +28,13 @@ function processButtons(){
     if(!hasSidebar()) return;
     MOVED_IDS.forEach(function(id){
         var el = document.getElementById(id);
-        if(!el || el._godjiSettingsMoved) return;
-        el._godjiSettingsMoved = true;
+        if(!el) return;
+        // Скрываем оригинал
         el.style.setProperty('display','none','important');
-        if(_panelInner) addToPanel(el);
+        // Добавляем в панель если ещё нет
+        if(_panelInner && !document.getElementById('_sc_'+id)){
+            addToPanel(el);
+        }
     });
 }
 
