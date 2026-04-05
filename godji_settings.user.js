@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Настройки
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_settings.user.js
@@ -149,7 +149,6 @@ function openPanel(){
     var btn = document.getElementById('godji-settings-btn');
     if(btn) btn.style.background = 'rgba(204,0,1,0.2)';
 }
-
 function closePanel(){
     if(_panel) _panel.style.display = 'none';
     _open = false;
@@ -204,12 +203,21 @@ window.addEventListener('resize', alignPanel);
 if(document.body){
     _obs.observe(document.body,{childList:true,subtree:false});
     setTimeout(createBtn,1000); setTimeout(createBtn,3000);
-    setInterval(processButtons, 1000);
+    // Строим панель сразу и регулярно ищем кнопки для переноса
+    setTimeout(buildPanel, 500);
+    setInterval(function(){
+        buildPanel();
+        processButtons();
+    }, 800);
 } else {
     document.addEventListener('DOMContentLoaded',function(){
         _obs.observe(document.body,{childList:true,subtree:false});
         setTimeout(createBtn,1000);
-        setInterval(processButtons, 1000);
+        setTimeout(buildPanel, 500);
+        setInterval(function(){
+            buildPanel();
+            processButtons();
+        }, 800);
     });
 }
 
