@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -347,34 +347,73 @@ function hideModal(){
     modalVisible=false;
 }
 
-// ── Кнопка — позиция управляется client_search ────────────
+// ── Кнопка в сайдбаре (перед блоком времени) ─────────────
+function hasSidebar(){
+    return !!document.querySelector('.Sidebar_footer__1BA98');
+}
+
+function getAnchorEl(){
+    // Вставляем перед godji-opj-btn если он есть, иначе перед блоком времени
+    var opj = document.getElementById('godji-opj-btn');
+    if(opj) return opj;
+    // Ищем блок со временем
+    var nav = document.querySelector('.mantine-AppShell-navbar');
+    if(!nav) return null;
+    var sections = nav.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i = sections.length - 1; i >= 0; i--){
+        if(!sections[i].classList.contains('Sidebar_footer__1BA98') &&
+           !sections[i].classList.contains('Sidebar_links__o1FyV') &&
+           !sections[i].classList.contains('Sidebar_header__dm6Ua')){
+            if(sections[i].querySelector('button') || sections[i].textContent.trim()){
+                return sections[i];
+            }
+        }
+    }
+    return null;
+}
+
 function createSidebarButton(){
-    if(document.getElementById('godji-history-btn'))return;
+    if(!hasSidebar()) return;
+    if(document.getElementById('godji-history-btn')) return;
+    var anchor = getAnchorEl();
+    if(!anchor) return;
+
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
     wrap.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     wrap.href='javascript:void(0)';
-    wrap.style.cssText='position:fixed;top:380px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    wrap.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 12px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico=document.createElement('div');
+    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
     ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#1565c0;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
     ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
 
     var lbl=document.createElement('span');
     lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.style.cssText='font-size:14px;font-weight:600;color:#fff;white-space:nowrap;letter-spacing:0.1px;';
+    lbl.style.cssText='font-size:14px;font-weight:600;color:var(--mantine-color-white,#fff);white-space:nowrap;';
     lbl.textContent='История сеансов';
 
-    wrap.appendChild(ico);wrap.appendChild(lbl);
-    document.body.appendChild(wrap);
+    wrap.appendChild(ico); wrap.appendChild(lbl);
+    wrap.addEventListener('mouseenter',function(){wrap.style.background='rgba(255,255,255,0.05)';});
+    wrap.addEventListener('mouseleave',function(){wrap.style.background='';});
     wrap.addEventListener('click',function(e){
         e.preventDefault();
         if(modalVisible)hideModal();else showModal();
     });
+
+    // Вставляем перед anchor (godji-opj-btn или блоком времени)
+    anchor.parentNode.insertBefore(wrap, anchor);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
-setTimeout(createSidebarButton,500);
+setTimeout(createSidebarButton,1000);
+setTimeout(createSidebarButton,2500);
+setTimeout(createSidebarButton,5000);
+new MutationObserver(function(){
+    if(!document.getElementById('godji-history-btn')) createSidebarButton();
+}).observe(document.body||document.documentElement,{childList:true,subtree:false});
 
 })();
