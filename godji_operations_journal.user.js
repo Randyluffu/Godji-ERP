@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -584,35 +584,16 @@ function updateModalIfOpen(){
 }
 
 // ── Кнопка сайдбара ──────────────────────────────────────
-// ── Кнопка в сайдбаре (перед блоком времени/даты) ────────
+// ── Кнопка в сайдбаре (внутри Sidebar_linksInner) ────────
 function hasSidebar(){
-    return !!document.querySelector('.Sidebar_footer__1BA98');
-}
-
-// Находим блок со временем — это .mantine-AppShell-section без footer-класса,
-// расположенный перед Sidebar_footer
-function getTimeBlock(){
-    var nav = document.querySelector('.mantine-AppShell-navbar');
-    if(!nav) return null;
-    var sections = nav.querySelectorAll(':scope > .mantine-AppShell-section');
-    for(var i = sections.length - 1; i >= 0; i--){
-        if(!sections[i].classList.contains('Sidebar_footer__1BA98') &&
-           !sections[i].classList.contains('Sidebar_links__o1FyV') &&
-           !sections[i].classList.contains('Sidebar_header__dm6Ua')){
-            // Проверяем что это блок с временем (содержит кнопку открытия смены или время)
-            if(sections[i].querySelector('button') || sections[i].textContent.trim()){
-                return sections[i];
-            }
-        }
-    }
-    return null;
+    return !!document.querySelector('.Sidebar_linksInner__oTy_4');
 }
 
 function createBtn(){
     if(!hasSidebar()) return;
     if(document.getElementById('godji-opj-btn')) return;
-    var timeBlock = getTimeBlock();
-    if(!timeBlock) return;
+    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
@@ -639,8 +620,7 @@ function createBtn(){
         if(_isOpen)hideModal();else showModal();
     });
 
-    // Вставляем перед блоком времени/даты
-    timeBlock.parentNode.insertBefore(btn, timeBlock);
+    sb.appendChild(btn);
 }
 
 new MutationObserver(function(){
