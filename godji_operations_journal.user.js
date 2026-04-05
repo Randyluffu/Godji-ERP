@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -584,34 +584,68 @@ function updateModalIfOpen(){
 }
 
 // ── Кнопка сайдбара ──────────────────────────────────────
+// ── Кнопка в сайдбаре (перед блоком времени/даты) ────────
+function hasSidebar(){
+    return !!document.querySelector('.Sidebar_footer__1BA98');
+}
+
+// Находим блок со временем — это .mantine-AppShell-section без footer-класса,
+// расположенный перед Sidebar_footer
+function getTimeBlock(){
+    var nav = document.querySelector('.mantine-AppShell-navbar');
+    if(!nav) return null;
+    var sections = nav.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i = sections.length - 1; i >= 0; i--){
+        if(!sections[i].classList.contains('Sidebar_footer__1BA98') &&
+           !sections[i].classList.contains('Sidebar_links__o1FyV') &&
+           !sections[i].classList.contains('Sidebar_header__dm6Ua')){
+            // Проверяем что это блок с временем (содержит кнопку открытия смены или время)
+            if(sections[i].querySelector('button') || sections[i].textContent.trim()){
+                return sections[i];
+            }
+        }
+    }
+    return null;
+}
+
 function createBtn(){
-    if(document.getElementById('godji-opj-btn'))return;
+    if(!hasSidebar()) return;
+    if(document.getElementById('godji-opj-btn')) return;
+    var timeBlock = getTimeBlock();
+    if(!timeBlock) return;
+
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    btn.style.cssText='position:fixed;top:426px;left:0;z-index:150;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 12px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico=document.createElement('div');
+    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
     ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
     ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4m0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>';
 
     var lbl=document.createElement('span');
     lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.style.cssText='font-size:14px;font-weight:600;color:#fff;white-space:nowrap;letter-spacing:0.1px;';
+    lbl.style.cssText='font-size:14px;font-weight:600;color:var(--mantine-color-white,#fff);white-space:nowrap;';
     lbl.textContent='История операций';
 
-    btn.appendChild(ico);btn.appendChild(lbl);
-    document.body.appendChild(btn);
+    btn.appendChild(ico); btn.appendChild(lbl);
+    btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.05)';});
+    btn.addEventListener('mouseleave',function(){btn.style.background='';});
     btn.addEventListener('click',function(e){
         e.preventDefault();
         if(_isOpen)hideModal();else showModal();
     });
+
+    // Вставляем перед блоком времени/даты
+    timeBlock.parentNode.insertBefore(btn, timeBlock);
 }
 
 new MutationObserver(function(){
     if(!document.getElementById('godji-opj-btn'))createBtn();
 }).observe(document.body||document.documentElement,{childList:true,subtree:false});
-setTimeout(createBtn,800);setTimeout(createBtn,2500);
+setTimeout(createBtn,1000);setTimeout(createBtn,2500);setTimeout(createBtn,5000);
 
 })();
