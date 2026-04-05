@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -31,11 +31,6 @@ function fmtDate(ts){
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
 // ── Перехват fetch через inline <script> + CustomEvent ────
-// Apollo захватывает fetch до document-start, поэтому единственный
-// способ перехватить его — вставить <script> синхронно в DOM
-// (он выполняется в page context, до любых модулей).
-// Данные передаём в userscript context через CustomEvent.
-
 (function injectPageScript(){
     var code = [
         '(function(){',
@@ -63,9 +58,10 @@ function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
     s.remove();
 })();
 
-// Слушаем события из page context
 var _authToken = null;
 var _hasuraRole = 'club_admin';
+// Время последней проверки wallet_operations — чтобы не тащить историю
+var _lastChecked = Date.now();
 
 document.addEventListener('__gcb__', function(e){
     try{
@@ -86,43 +82,49 @@ function onApi(reqBody, data){
         op   = body.operationName || '';
     }catch(e){ return; }
 
-    // ── Пополнения — ловим wallet_operations из любого ответа ──
-    if(d.wallet_operations && Array.isArray(d.wallet_operations)){
+    // wallet_operations — только из НАШЕГО запроса GCBOps, не из GetClientPurchases
+    // Различаем по operationName
+    if(op === 'GCBOps' && d.wallet_operations && Array.isArray(d.wallet_operations)){
         processWalletOps(d.wallet_operations);
     }
 
-    // ── Мутация пополнения — сразу после неё запрашиваем новые ops ──
+    // Мутация пополнения — триггерим немедленный запрос
     if(d.walletDepositWithCash || d.walletDeposit){
-        setTimeout(fetchLatestOps, 300);
+        setTimeout(fetchLatestOps, 400);
     }
 
-    // ── Открытие смены ────────────────────────────────────
+    // Открытие смены
     if(d.openShift || d.createShift || d.startShift ||
        op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
         if(!loadCurrent()){
             var s2 = d.openShift || d.createShift || d.startShift || {};
+            _lastChecked = Date.now(); // сбрасываем — считаем с этого момента
             saveCurrent({id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
                          cash:0, card:0, manual:0, withdrawal:0, manualEntries:[],
                          seenOpIds:[]});
-            setTimeout(fetchLatestOps, 500);
             updateBtnBadge(); updateModalIfOpen();
         }
     }
 
-    // ── Закрытие смены ────────────────────────────────────
+    // Закрытие смены
     if(d.closeShift || d.finishShift || d.endShift ||
        op.indexOf('CloseShift') !== -1 || op.indexOf('EndShift') !== -1){
         var cur = loadCurrent(); if(cur) closeShift(cur, 'erp');
     }
 }
 
-// ── Активный запрос новых операций ───────────────────────
-var GQL_OPS = 'query GCBOps($since:timestamptz!,$clubId:Int!){wallet_operations(where:{created_at:{_gte:$since},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}}){id operation_type amount_type money_type amount created_at}}';
+// ── Запрос новых операций ─────────────────────────────────
+var GQL_OPS = 'query GCBOps($since:timestamptz!,$clubId:Int!){wallet_operations(where:{created_at:{_gte:$since},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}}){id money_type amount created_at}}';
 
 function fetchLatestOps(){
+    if(!_authToken) return;
     var shift = loadCurrent();
-    if(!shift || !_authToken) return;
-    var since = new Date(shift.openedAt).toISOString();
+    if(!shift) return;
+    // since = максимум из: момент открытия смены и время последней проверки
+    // Это гарантирует что мы не тащим исторические данные
+    var sinceTs = Math.max(shift.openedAt, _lastChecked - 2000); // -2сек на случай задержки
+    var since = new Date(sinceTs).toISOString();
+    _lastChecked = Date.now();
     window.fetch('https://hasura.godji.cloud/v1/graphql', {
         method: 'POST',
         headers: {
@@ -143,39 +145,25 @@ function fetchLatestOps(){
     }).catch(function(){});
 }
 
-// Polling каждые 10 сек как запасной вариант
-setInterval(fetchLatestOps, 10000);
+// Polling каждые 15 сек
+setInterval(fetchLatestOps, 15000);
 
 function processWalletOps(ops){
     var shift = loadCurrent();
     if(!shift) return;
-
-    // seenOpIds — Set уже учтённых id операций в этой смене
     shift.seenOpIds = shift.seenOpIds || [];
     var seenSet = {};
     shift.seenOpIds.forEach(function(id){ seenSet[id] = true; });
-
     var changed = false;
-    var shiftOpenedAt = new Date(shift.openedAt).toISOString();
 
     ops.forEach(function(op){
-        // Считаем только пополнения денег (не бонусов)
-        if(op.operation_type !== 'deposit') return;
-        if(op.amount_type !== 'money') return;
         if(op.amount <= 0) return;
-
-        // Только операции после открытия смены
-        if(op.created_at < shiftOpenedAt) return;
-
-        // Дедуп по id
         if(seenSet[op.id]) return;
         seenSet[op.id] = true;
         shift.seenOpIds.push(op.id);
-
         if(op.money_type === 'cash'){
             shift.cash = (shift.cash||0) + op.amount;
         } else {
-            // non_cash = карта/безнал
             shift.card = (shift.card||0) + op.amount;
         }
         changed = true;
@@ -187,6 +175,54 @@ function processWalletOps(ops){
         updateModalIfOpen();
     }
 }
+
+// ── Напоминание о закрытии смены (21:00 и 09:00) ─────────
+// Мигаем кнопкой в сайдбаре, не показываем всплывашки
+var _reminderActive = false;
+var _reminderInterval = null;
+
+function checkShiftReminder(){
+    var h = new Date().getHours();
+    var m = new Date().getMinutes();
+    var isReminderTime = (h === 21 && m === 0) || (h === 9 && m === 0);
+    var shift = loadCurrent();
+
+    if(isReminderTime && shift && !_reminderActive){
+        _reminderActive = true;
+        startBtnPulse();
+    } else if(!isReminderTime && _reminderActive){
+        _reminderActive = false;
+        stopBtnPulse();
+    }
+}
+
+function startBtnPulse(){
+    stopBtnPulse();
+    var btn = document.getElementById('godji-cashbox-btn');
+    if(!btn) return;
+    var ico = btn.querySelector('div[style*="background"]');
+    var phase = false;
+    _reminderInterval = setInterval(function(){
+        var b = document.getElementById('godji-cashbox-btn');
+        if(!b){ stopBtnPulse(); return; }
+        var i = b.querySelector('div[style*="background:#166"]') ||
+                b.querySelector('.LinksGroup_themeIcon__E9SRO');
+        if(!i) return;
+        phase = !phase;
+        i.style.background = phase ? '#dc2626' : '#166534';
+        i.style.boxShadow  = phase ? '0 0 10px rgba(220,38,38,0.7)' : '';
+    }, 700);
+}
+
+function stopBtnPulse(){
+    if(_reminderInterval){ clearInterval(_reminderInterval); _reminderInterval = null; }
+    var btn = document.getElementById('godji-cashbox-btn');
+    if(!btn) return;
+    var i = btn.querySelector('.LinksGroup_themeIcon__E9SRO');
+    if(i){ i.style.background='#166534'; i.style.boxShadow=''; }
+}
+
+setInterval(checkShiftReminder, 30000); // проверяем каждые 30 сек
 
 // ── Слушаем кнопку "Открыть смену" в ERP ─────────────────
 function watchShiftBtn(){
@@ -323,13 +359,40 @@ function renderModal(){
 function renderCurrentTab(body, shift){
     if(!shift){
         var empty=document.createElement('div');
-        empty.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;';
-        empty.innerHTML='<div style="font-size:15px;color:#aaa;">Нет активной смены</div>';
+        empty.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;gap:20px;';
+
+        // Иконка
+        var eIco=document.createElement('div');
+        eIco.style.cssText='width:56px;height:56px;border-radius:14px;background:#fee2e2;display:flex;align-items:center;justify-content:center;';
+        eIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+
+        var eTxt=document.createElement('div');
+        eTxt.style.cssText='text-align:center;';
+        eTxt.innerHTML='<div style="font-size:16px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">Смена не открыта</div>'+
+                       '<div style="font-size:13px;color:#aaa;">Откройте смену через ERP или вручную,<br>чтобы начать учёт кассы</div>';
+
+        var btnWrap=document.createElement('div');
+        btnWrap.style.cssText='display:flex;gap:10px;flex-wrap:wrap;justify-content:center;';
+
+        // Кнопка ручного открытия
         var openBtn=document.createElement('button');
-        openBtn.style.cssText='padding:10px 24px;background:#166534;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
-        openBtn.textContent='Открыть смену вручную';
-        openBtn.addEventListener('click',function(){ openShiftManual(); renderModal(); });
-        empty.appendChild(openBtn);
+        openBtn.style.cssText='padding:10px 24px;background:#166534;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;';
+        openBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Открыть смену вручную';
+        openBtn.addEventListener('click',function(){
+            openShiftManual();
+            renderModal();
+        });
+
+        // Подсказка что смену можно открыть через ERP
+        var erpHint=document.createElement('div');
+        erpHint.style.cssText='font-size:11px;color:#bbb;text-align:center;';
+        erpHint.innerHTML='Или нажмите <b style="color:#888">«Открыть смену»</b> в сайдбаре ERP — касса синхронизируется автоматически';
+
+        empty.appendChild(eIco);
+        empty.appendChild(eTxt);
+        btnWrap.appendChild(openBtn);
+        empty.appendChild(btnWrap);
+        empty.appendChild(erpHint);
         body.appendChild(empty);
         return;
     }
