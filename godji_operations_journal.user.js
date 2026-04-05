@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.5
+// @version      3.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_operations_journal.user.js
@@ -584,7 +584,7 @@ function updateModalIfOpen(){
 }
 
 // ── Кнопка сайдбара ──────────────────────────────────────
-// ── Кнопка в сайдбаре (внутри Sidebar_linksInner) ────────
+// ── Кнопка в сайдбаре ────────────────────────────────────
 function hasSidebar(){
     return !!document.querySelector('.Sidebar_linksInner__oTy_4');
 }
@@ -620,12 +620,17 @@ function createBtn(){
         if(_isOpen)hideModal();else showModal();
     });
 
-    sb.appendChild(btn);
+    // Вставляем после последнего нативного NavLink (не нашего)
+    var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+    var last = nativeLinks[nativeLinks.length - 1];
+    if(last && last.nextSibling) sb.insertBefore(btn, last.nextSibling);
+    else sb.appendChild(btn);
 }
 
-new MutationObserver(function(){
-    if(!document.getElementById('godji-opj-btn'))createBtn();
-}).observe(document.body||document.documentElement,{childList:true,subtree:false});
+var _sbObs2 = new MutationObserver(function(){
+    if(!document.getElementById('godji-opj-btn')) createBtn();
+});
+if(document.body) _sbObs2.observe(document.body, {childList:true, subtree:false});
 setTimeout(createBtn,1000);setTimeout(createBtn,2500);setTimeout(createBtn,5000);
 
 })();
