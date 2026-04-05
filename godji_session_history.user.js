@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.5
+// @version      4.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -347,7 +347,7 @@ function hideModal(){
     modalVisible=false;
 }
 
-// ── Кнопка в сайдбаре (внутри Sidebar_linksInner) ────────
+// ── Кнопка в сайдбаре ────────────────────────────────────
 function hasSidebar(){
     return !!document.querySelector('.Sidebar_linksInner__oTy_4');
 }
@@ -383,10 +383,17 @@ function createSidebarButton(){
         if(modalVisible)hideModal();else showModal();
     });
 
-    // Вставляем перед godji-opj-btn если он есть, иначе в конец
+    // Вставляем перед godji-opj-btn если он есть,
+    // иначе после последнего нативного NavLink
     var opj = sb.querySelector('#godji-opj-btn');
-    if(opj) sb.insertBefore(wrap, opj);
-    else sb.appendChild(wrap);
+    if(opj){
+        sb.insertBefore(wrap, opj);
+    } else {
+        var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+        var last = nativeLinks[nativeLinks.length - 1];
+        if(last && last.nextSibling) sb.insertBefore(wrap, last.nextSibling);
+        else sb.appendChild(wrap);
+    }
 }
 
 setTimeout(tryInit,5000);
