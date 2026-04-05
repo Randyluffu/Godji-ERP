@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.4
+// @version      4.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -347,36 +347,16 @@ function hideModal(){
     modalVisible=false;
 }
 
-// ── Кнопка в сайдбаре (перед блоком времени) ─────────────
+// ── Кнопка в сайдбаре (внутри Sidebar_linksInner) ────────
 function hasSidebar(){
-    return !!document.querySelector('.Sidebar_footer__1BA98');
-}
-
-function getAnchorEl(){
-    // Вставляем перед godji-opj-btn если он есть, иначе перед блоком времени
-    var opj = document.getElementById('godji-opj-btn');
-    if(opj) return opj;
-    // Ищем блок со временем
-    var nav = document.querySelector('.mantine-AppShell-navbar');
-    if(!nav) return null;
-    var sections = nav.querySelectorAll(':scope > .mantine-AppShell-section');
-    for(var i = sections.length - 1; i >= 0; i--){
-        if(!sections[i].classList.contains('Sidebar_footer__1BA98') &&
-           !sections[i].classList.contains('Sidebar_links__o1FyV') &&
-           !sections[i].classList.contains('Sidebar_header__dm6Ua')){
-            if(sections[i].querySelector('button') || sections[i].textContent.trim()){
-                return sections[i];
-            }
-        }
-    }
-    return null;
+    return !!document.querySelector('.Sidebar_linksInner__oTy_4');
 }
 
 function createSidebarButton(){
     if(!hasSidebar()) return;
     if(document.getElementById('godji-history-btn')) return;
-    var anchor = getAnchorEl();
-    if(!anchor) return;
+    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
@@ -403,8 +383,10 @@ function createSidebarButton(){
         if(modalVisible)hideModal();else showModal();
     });
 
-    // Вставляем перед anchor (godji-opj-btn или блоком времени)
-    anchor.parentNode.insertBefore(wrap, anchor);
+    // Вставляем перед godji-opj-btn если он есть, иначе в конец
+    var opj = sb.querySelector('#godji-opj-btn');
+    if(opj) sb.insertBefore(wrap, opj);
+    else sb.appendChild(wrap);
 }
 
 setTimeout(tryInit,5000);
