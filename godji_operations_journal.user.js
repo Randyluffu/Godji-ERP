@@ -17,6 +17,7 @@ var SAFE_KEY     = 'godji_opjournal_safe';
 var MAX_DAYS     = 7;
 
 // ── Inline script — перехват fetch до Apollo ──────────────
+// Точная копия подхода из godji_cashbox который точно работает
 (function injectHook() {
     var code = [
         '(function(){',
@@ -38,10 +39,15 @@ var MAX_DAYS     = 7;
         '  };',
         '})();'
     ].join('\n');
-    var s = document.createElement('script');
-    s.textContent = code;
-    (document.head || document.documentElement).appendChild(s);
-    s.remove();
+    function doInject() {
+        var root = document.head || document.documentElement;
+        if (!root) { setTimeout(doInject, 10); return; }
+        var s = document.createElement('script');
+        s.textContent = code;
+        root.appendChild(s);
+        s.remove();
+    }
+    doInject();
 })();
 
 // ── localStorage ──────────────────────────────────────────
