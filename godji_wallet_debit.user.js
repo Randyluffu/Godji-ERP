@@ -75,46 +75,29 @@
         });
     }
 
-    // ── Получить свободные ПК с тарифами ─────────────────────
+    // ── Тариф из кэша (записывает godji_free_time) ───────────
+    var TARIFF_CACHE_KEY = 'godji_tariff_cache';
+    var TARIFF_CACHE_MAX_AGE = 4 * 3600 * 1000; // 4 часа
+
+    function getTariffFromCache() {
+        try {
+            var raw = JSON.parse(localStorage.getItem(TARIFF_CACHE_KEY));
+            if (!raw || !raw.costPerMin || !raw.tariffId) return null;
+            if (Date.now() - raw.ts > TARIFF_CACHE_MAX_AGE) return null;
+            return raw;
+        } catch(e) { return null; }
+    }
+
+    // ── Получить свободные ПК ────────────────────────────────
     function getFreePCs() {
         return gql(
-            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name sessions { id status } tariffs { id name cost_per_minute } } } }',
+            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name status } } }',
             { clubId: CLUB_ID },
             'GetDashboardFree'
         ).then(function (data) {
             var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
             if (!devices) return [];
-            // Свободные — у которых нет активных сессий
-            return devices.filter(function (d) {
-                if (!d.sessions || d.sessions.length === 0) return true;
-                // Проверяем что нет сессии со статусом не "finished"
-                var active = d.sessions.some(function (s) {
-                    return s.status && s.status !== 'finished' && s.status !== 'canceled';
-                });
-                return !active;
-            });
-        });
-    }
-
-    // ── Получить доступные тарифы для посадки ────────────────
-    function getTariffsForDevice(deviceName) {
-        // Используем тот же подход что free_time — getAvailableTariffsForProlongation
-        // Но для посадки нам нужны тарифы устройства.
-        // Запросим через getDashboardDevices с тарифами
-        return gql(
-            'query GetDeviceTariffs($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name tariffs { id name cost_per_minute } } } }',
-            { clubId: CLUB_ID },
-            'GetDeviceTariffs'
-        ).then(function (data) {
-            var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
-            if (!devices) return null;
-            var device = devices.find(function (d) { return d.name === deviceName; });
-            if (!device || !device.tariffs || !device.tariffs.length) return null;
-            // Берём тариф с минимальной стоимостью в минуту
-            var sorted = device.tariffs.slice().sort(function (a, b) {
-                return (a.cost_per_minute || 0) - (b.cost_per_minute || 0);
-            });
-            return sorted[0];
+            return devices.filter(function (d) { return d.status === 'available'; });
         });
     }
 
@@ -175,42 +158,18 @@
             throw new Error('Нет свободных ПК. Дождитесь освобождения места и попробуйте снова.');
         }
 
-        // Шаг 2: получить тарифы — пробуем ПК по очереди пока не найдём с тарифом
-        statusCallback('Получаем тарифы…');
-        var chosenPC = null;
-        var chosenTariff = null;
-
-        // Сначала попробуем взять тарифы из getDashboardDevices одним запросом
-        var devData = await gql(
-            'query GetDashboardFreeWithTariffs($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name tariffs { id name cost_per_minute } sessions { id status } } } }',
-            { clubId: CLUB_ID },
-            'GetDashboardFreeWithTariffs'
-        );
-
-        var allDevices = devData.data && devData.data.getDashboardDevices && devData.data.getDashboardDevices.devices;
-        if (!allDevices) throw new Error('Не удалось получить данные устройств');
-
-        // Фильтруем свободные с тарифами
-        var freeWithTariffs = allDevices.filter(function (d) {
-            var active = d.sessions && d.sessions.some(function (s) {
-                return s.status && s.status !== 'finished' && s.status !== 'canceled';
-            });
-            return !active && d.tariffs && d.tariffs.length > 0;
-        });
-
-        if (!freeWithTariffs.length) {
-            throw new Error('Нет свободных ПК с доступными тарифами.');
+        // Шаг 2: получить тариф из кэша (записывается godji_free_time при работе с сессиями)
+        statusCallback('Получаем тариф…');
+        var cachedTariff = getTariffFromCache();
+        if (!cachedTariff) {
+            throw new Error('Тариф не определён. Откройте дашборд и добавьте бесплатное время любому клиенту — это обновит кэш тарифов. Затем попробуйте снова.');
         }
 
-        // Берём первый свободный ПК, тариф с минимальной стоимостью/мин
-        chosenPC = freeWithTariffs[0];
-        var sortedTariffs = chosenPC.tariffs.slice().sort(function (a, b) {
-            return (a.cost_per_minute || 0) - (b.cost_per_minute || 0);
-        });
-        chosenTariff = sortedTariffs[0];
+        var chosenPC = freePCs[0];
+        var chosenTariff = cachedTariff;
 
-        if (!chosenTariff.cost_per_minute || chosenTariff.cost_per_minute <= 0) {
-            throw new Error('Не удалось определить стоимость тарифа для ПК ' + chosenPC.name);
+        if (!chosenTariff.costPerMin || chosenTariff.costPerMin <= 0) {
+            throw new Error('Некорректные данные тарифа в кэше. Обновите кэш через дашборд.');
         }
 
         // Шаг 3: рассчитать сумму посадки с учётом бонусов
@@ -218,16 +177,16 @@
         // Чтобы списать ровно `amount` рублей и получить обратно `amount` бонусов:
         // нужно посадить на (amount + bonus) чтобы покрыть существующие бонусы + нужную сумму
         var totalAmount = amount + (bonus || 0);
-        var minutes = calcMinutes(totalAmount, chosenTariff.cost_per_minute);
+        var minutes = calcMinutes(totalAmount, chosenTariff.costPerMin);
         if (!minutes) throw new Error('Ошибка расчёта минут');
 
         // Реальная стоимость (округление вверх может дать чуть больше)
-        var realCost = Math.round(chosenTariff.cost_per_minute * minutes * 100) / 100;
+        var realCost = Math.round(chosenTariff.costPerMin * minutes * 100) / 100;
 
         statusCallback('Запускаем сеанс на ПК ' + chosenPC.name + ' (' + minutes + ' мин)…');
 
         // Шаг 4: запустить сеанс
-        var startResult = await startSession(clientId, chosenPC.name, chosenTariff.id, minutes);
+        var startResult = await startSession(clientId, chosenPC.name, chosenTariff.tariffId, minutes);
         if (!startResult || !startResult.data || startResult.errors) {
             var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
             throw new Error('Не удалось запустить сеанс: ' + errMsg);
