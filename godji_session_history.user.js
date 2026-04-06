@@ -54,7 +54,7 @@ function getTableState(){
         // Ник — берём href из ссылки (как в v3.4)
         var nickCell=rows[i].querySelector('td[style*="col-userNickname-size"]');
         var nickLink=nickCell?nickCell.querySelector('a'):null;
-        var nick=nickLink?nickLink.textContent.trim():'';
+        var nick=nickLink?nickLink.textContent.trim().replace(/^@+/,''):'';
         var clientUrl=nickLink?nickLink.getAttribute('href'):'';
 
         // Имя клиента
