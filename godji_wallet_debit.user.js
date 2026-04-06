@@ -111,7 +111,7 @@
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
         return gql(
-            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { id status } }',
+            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { success } }',
             { clientId: clientId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID,
               sessionStart: now.toISOString(), sessionEnd: end.toISOString() },
             'StartSession'
@@ -199,8 +199,20 @@
             var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
             throw new Error('Не удалось запустить сеанс: ' + errMsg);
         }
-        var sessionId = startResult.data.userReservationCreate && startResult.data.userReservationCreate.id;
-        if (!sessionId) throw new Error('Сеанс запущен, но ID не получен');
+        var success = startResult.data.userReservationCreate && startResult.data.userReservationCreate.success;
+        if (!success) throw new Error('Сеанс не был создан (success=false)');
+
+        // Шаг 4.5: получить ID только что созданного сеанса
+        statusCallback('Получаем ID сеанса…');
+        await new Promise(function(resolve) { setTimeout(resolve, 600); });
+        var sessionData = await gql(
+            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_in: ["active","session_acting","created"]}}, order_by: {time_from: desc}, limit: 1) { id status } } }',
+            { userId: clientId, clubId: CLUB_ID },
+            'GetActiveSession'
+        );
+        var reservations = sessionData.data && sessionData.data.users_by_pk && sessionData.data.users_by_pk.users_reservations;
+        var sessionId = reservations && reservations.length > 0 ? reservations[0].id : null;
+        if (!sessionId) throw new Error('Сеанс создан, но не удалось найти его ID для завершения');
 
         // Шаг 5: завершить сеанс немедленно
         statusCallback('Завершаем сеанс…');
