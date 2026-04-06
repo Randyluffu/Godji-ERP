@@ -110,15 +110,18 @@
     }
 
     // --- Кэш тарифов (читается godji_wallet_debit) ---
+    // Хранит два тарифа: утренний (до 13:00) и ночной (после 13:00)
+    // Обновляется при каждом реальном использовании, срока истечения нет
     var TARIFF_CACHE_KEY = 'godji_tariff_cache';
     function saveTariffCache(tariffId, tariffName, costPerMin) {
         try {
-            localStorage.setItem(TARIFF_CACHE_KEY, JSON.stringify({
-                tariffId: tariffId,
-                tariffName: tariffName,
-                costPerMin: costPerMin,
-                ts: Date.now()
-            }));
+            var h = new Date().getHours();
+            // до 13:00 — утренний тариф, после — ночной
+            var slot = (h >= 2 && h < 13) ? 'morning' : 'night';
+            var raw = {};
+            try { raw = JSON.parse(localStorage.getItem(TARIFF_CACHE_KEY) || '{}'); } catch(e) {}
+            raw[slot] = { tariffId: tariffId, tariffName: tariffName, costPerMin: costPerMin, ts: Date.now() };
+            localStorage.setItem(TARIFF_CACHE_KEY, JSON.stringify(raw));
         } catch(e) {}
     }
 
