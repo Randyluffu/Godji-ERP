@@ -315,6 +315,27 @@
         });
     }
 
-    createToggle();
+    // Регистрируем в панели настроек
+    function registerInSettings(){
+        if(typeof window.__godjiRegisterSetting !== 'function'){
+            setTimeout(registerInSettings, 300);
+            return;
+        }
+        window.__godjiRegisterSetting({
+            id: 'godji-colors-toggle',
+            label: 'Цвета меню',
+            iconBg: '#cc0001',
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 0 1 0-18c4.97 0 9 3.582 9 8 0 1.06-.474 2.078-1.318 2.828-.844.75-1.989 1.172-3.182 1.172h-2.5a2 2 0 0 0-1 3.75 1.3 1.3 0 0 1-1 2.25"/><circle cx="8.5" cy="10.5" r="1"/><circle cx="12.5" cy="7.5" r="1"/><circle cx="16.5" cy="10.5" r="1"/></svg>',
+            type: 'toggle',
+            getState: function(){ return enabled; },
+            onToggle: function(val){
+                enabled = val;
+                GM_setValue('colorsEnabled', enabled);
+                applyColors();
+                if(typeof updateVisual === 'function') updateVisual();
+            }
+        });
+    }
+    registerInSettings();
 
 })();
