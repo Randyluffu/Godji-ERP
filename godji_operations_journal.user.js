@@ -16,39 +16,9 @@ var STORAGE_KEY  = 'godji_opjournal';
 var SAFE_KEY     = 'godji_opjournal_safe';
 var MAX_DAYS     = 7;
 
-// ── Inline script — перехват fetch до Apollo ──────────────
-// Точная копия подхода из godji_cashbox который точно работает
-(function injectHook() {
-    var code = [
-        '(function(){',
-        '  if(window.__gojInjected) return; window.__gojInjected=true;',
-        '  var _f=window.fetch;',
-        '  window.fetch=function(url,opts){',
-        '    var p=_f.apply(this,arguments);',
-        '    if(url&&typeof url==="string"&&url.indexOf("hasura.godji.cloud")!==-1){',
-        '      var b="";try{b=(opts&&opts.body)||"";}catch(e){}',
-        '      var h={};try{h=(opts&&opts.headers)||{};}catch(e){}',
-        '      p=p.then(function(r){',
-        '        r.clone().json().then(function(d){',
-        '          document.dispatchEvent(new CustomEvent("__goj__",{detail:{req:b,res:d,auth:h.authorization||"",role:h["x-hasura-role"]||""}}));',
-        '        }).catch(function(){});',
-        '        return r;',
-        '      });',
-        '    }',
-        '    return p;',
-        '  };',
-        '})();'
-    ].join('\n');
-    function doInject() {
-        var root = document.head || document.documentElement;
-        if (!root) { setTimeout(doInject, 10); return; }
-        var s = document.createElement('script');
-        s.textContent = code;
-        root.appendChild(s);
-        s.remove();
-    }
-    doInject();
-})();
+// ── Перехват через событие кассы (__gcb__) ───────────────
+// godji_cashbox уже перехватывает fetch правильно и стреляет __gcb__
+// Мы просто слушаем то же событие — не нужен дублирующий перехват
 
 // ── localStorage ──────────────────────────────────────────
 function loadJournal() {
@@ -160,7 +130,7 @@ function showSuspiciousToast() {
 }
 
 // ── Обработка API ─────────────────────────────────────────
-document.addEventListener('__goj__', function(e) {
+document.addEventListener('__gcb__', function(e) {
     try {
         var detail = e.detail;
         var body = {};
@@ -527,13 +497,12 @@ function watchCashboxCloseBtn() {
 
 // ── Кнопка в сайдбаре ────────────────────────────────────
 function createSidebarBtn() {
-    if (document.getElementById('goj-sidebar-btn')) return;
-    var footer = document.querySelector('.Sidebar_footer__1BA98');
-    var divider = footer && footer.querySelector('.mantine-Divider-root');
-    if (!footer || !divider) return;
+    if (document.getElementById('godji-opj-btn')) return;
+    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
     var btn = document.createElement('a');
-    btn.id = 'goj-sidebar-btn';
+    btn.id = 'godji-opj-btn';
     btn.className = 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href = 'javascript:void(0)';
     btn.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
@@ -564,16 +533,19 @@ function createSidebarBtn() {
         if (_visible) hideModal(); else showModal();
     });
 
-    // Вставляем ПЕРЕД divider — так же как касса
-    footer.insertBefore(btn, divider);
+    // Вставляем в linksInner после последнего нативного NavLink
+    // (история сеансов встанет перед нами — она ищет #godji-opj-btn)
+    var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+    var last = nativeLinks[nativeLinks.length - 1];
+    if(last && last.nextSibling) sb.insertBefore(btn, last.nextSibling);
+    else sb.appendChild(btn);
     updateBadge();
 }
 
 function tryCreateSidebarBtn() {
-    if (document.getElementById('goj-sidebar-btn')) return;
-    var footer = document.querySelector('.Sidebar_footer__1BA98');
-    var divider = footer && footer.querySelector('.mantine-Divider-root');
-    if (!footer || !divider) {
+    if (document.getElementById('godji-opj-btn')) return;
+    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if (!sb) {
         setTimeout(tryCreateSidebarBtn, 500);
         return;
     }
@@ -582,7 +554,7 @@ function tryCreateSidebarBtn() {
 
 // ── Init ──────────────────────────────────────────────────
 var _obs = new MutationObserver(function() {
-    if (!document.getElementById('goj-sidebar-btn')) tryCreateSidebarBtn();
+    if (!document.getElementById('godji-opj-btn')) tryCreateSidebarBtn();
 });
 
 if (document.body) {
