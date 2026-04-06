@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Списание с баланса
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      3.0
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
@@ -22,10 +22,13 @@
     var _hasuraRole = 'club_admin';
     var _origFetch = window.fetch;
 
-    window.fetch = function(url, options) {
+    // ── Перехват токена ───────────────────────────────────────
+    window.fetch = function (url, options) {
         if (options && options.headers && options.headers.authorization) {
             _authToken = options.headers.authorization;
+            window._godjiAuthToken = _authToken;
             _hasuraRole = options.headers['x-hasura-role'] || 'club_admin';
+            window._godjiHasuraRole = _hasuraRole;
         }
         return _origFetch.apply(this, arguments);
     };
@@ -33,7 +36,21 @@
     function getHeaders() {
         var t = _authToken || window._godjiAuthToken;
         if (!t) return null;
-        return { 'authorization': t, 'content-type': 'application/json', 'x-hasura-role': _hasuraRole || 'club_admin' };
+        return {
+            'authorization': t,
+            'content-type': 'application/json',
+            'x-hasura-role': _hasuraRole || 'club_admin'
+        };
+    }
+
+    function gql(query, variables, opName) {
+        var h = getHeaders();
+        if (!h) return Promise.reject(new Error('Нет токена авторизации'));
+        return _origFetch(API_URL, {
+            method: 'POST',
+            headers: h,
+            body: JSON.stringify({ operationName: opName || null, query: query, variables: variables || {} })
+        }).then(function (r) { return r.json(); });
     }
 
     function getClientId() {
@@ -41,77 +58,246 @@
         return m ? m[1] : null;
     }
 
-    async function getWalletId(clientId) {
-        var h = getHeaders();
-        if (!h) return null;
-        try {
-            var res = await _origFetch(API_URL, {
-                method: 'POST', headers: h,
-                body: JSON.stringify({
-                    operationName: 'GetClientWallet',
-                    variables: { userId: clientId, clubId: CLUB_ID },
-                    query: 'query GetClientWallet($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_wallets(where: {club_id: {_eq: $clubId}}, limit: 1) { id balance_amount } } }',
-                }),
-            });
-            var data = await res.json();
+    // ── Получить данные клиента (баланс рублей + бонусов + walletId) ──
+    function getClientData(clientId) {
+        return gql(
+            'query GetClientWallet($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_wallets(where: {club_id: {_eq: $clubId}}, limit: 1) { id balance_amount balance_bonus } } }',
+            { userId: clientId, clubId: CLUB_ID },
+            'GetClientWallet'
+        ).then(function (data) {
             var wallets = data.data && data.data.users_by_pk && data.data.users_by_pk.users_wallets;
             if (!wallets || !wallets.length) return null;
-            return { id: wallets[0].id, balance: wallets[0].balance_amount };
-        } catch(e) { return null; }
+            return {
+                walletId: wallets[0].id,
+                balance: wallets[0].balance_amount,
+                bonus: wallets[0].balance_bonus
+            };
+        });
     }
 
-
-    async function debitWallet(walletId, amount) {
-        var h = getHeaders();
-        if (!h) return null;
-        try {
-            var exactAmount = parseFloat((-Math.abs(amount)).toFixed(2));
-            var res = await _origFetch(API_URL, {
-                method: 'POST', headers: h,
-                body: JSON.stringify({
-                    operationName: 'DepositBalanceWithCash',
-                    variables: { amount: exactAmount, walletId: walletId, isCash: true },
-                    query: 'mutation DepositBalanceWithCash($amount: Float!, $walletId: Int!, $isCash: Boolean!) { walletDepositWithCash(params: {amount: $amount, walletId: $walletId, isCash: $isCash}) { operationId } }',
-                }),
+    // ── Получить свободные ПК с тарифами ─────────────────────
+    function getFreePCs() {
+        return gql(
+            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name sessions { id status } tariffs { id name cost_per_minute } } } }',
+            { clubId: CLUB_ID },
+            'GetDashboardFree'
+        ).then(function (data) {
+            var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
+            if (!devices) return [];
+            // Свободные — у которых нет активных сессий
+            return devices.filter(function (d) {
+                if (!d.sessions || d.sessions.length === 0) return true;
+                // Проверяем что нет сессии со статусом не "finished"
+                var active = d.sessions.some(function (s) {
+                    return s.status && s.status !== 'finished' && s.status !== 'canceled';
+                });
+                return !active;
             });
-            return await res.json();
-        } catch(e) { return { errors: [{ message: e.message }] }; }
+        });
     }
 
-    function showModal(walletId, balance) {
+    // ── Получить доступные тарифы для посадки ────────────────
+    function getTariffsForDevice(deviceName) {
+        // Используем тот же подход что free_time — getAvailableTariffsForProlongation
+        // Но для посадки нам нужны тарифы устройства.
+        // Запросим через getDashboardDevices с тарифами
+        return gql(
+            'query GetDeviceTariffs($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name tariffs { id name cost_per_minute } } } }',
+            { clubId: CLUB_ID },
+            'GetDeviceTariffs'
+        ).then(function (data) {
+            var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
+            if (!devices) return null;
+            var device = devices.find(function (d) { return d.name === deviceName; });
+            if (!device || !device.tariffs || !device.tariffs.length) return null;
+            // Берём тариф с минимальной стоимостью в минуту
+            var sorted = device.tariffs.slice().sort(function (a, b) {
+                return (a.cost_per_minute || 0) - (b.cost_per_minute || 0);
+            });
+            return sorted[0];
+        });
+    }
+
+    // ── Запустить сеанс (посадить клиента за ПК) ─────────────
+    function startSession(clientId, deviceName, tariffId, minutes) {
+        return gql(
+            'mutation StartSession($clientId: String!, $deviceName: String!, $tariffId: Int!, $minutes: Int!, $clubId: Int!) { userReservationCreate(params: {userId: $clientId, deviceName: $deviceName, tariffId: $tariffId, minutes: $minutes, clubId: $clubId}) { id status } }',
+            { clientId: clientId, deviceName: deviceName, tariffId: tariffId, minutes: minutes, clubId: CLUB_ID },
+            'StartSession'
+        );
+    }
+
+    // ── Завершить сеанс ───────────────────────────────────────
+    function finishSession(sessionId) {
+        return gql(
+            'mutation FinishSession($sessionId: Int!) { userReservationFinish(params: {sessionId: $sessionId}) { success } }',
+            { sessionId: sessionId },
+            'FinishSession'
+        );
+    }
+
+    // ── Списать бонусы ────────────────────────────────────────
+    function withdrawBonus(walletId, amount, comment) {
+        return gql(
+            'mutation ChargeBonus($amount: Float!, $walletId: Int!, $comment: String) { walletWithdrawWithBonus(params: {amount: $amount, walletId: $walletId, description: $comment}) { operationId } }',
+            { amount: amount, walletId: walletId, comment: comment },
+            'ChargeBonus'
+        );
+    }
+
+    // ── Расчёт минут и тарифа по нужной сумме ────────────────
+    // Рубли 1:1 с бонусами, поэтому amount рублей = amount бонусов
+    // Нужно подобрать кол-во минут так чтобы стоимость = amount
+    // cost_per_minute * minutes = amount => minutes = amount / cost_per_minute
+    function calcMinutes(amount, costPerMinute) {
+        if (!costPerMinute || costPerMinute <= 0) return null;
+        var mins = Math.ceil(amount / costPerMinute);
+        return mins < 1 ? 1 : mins;
+    }
+
+    // ── Основной процесс списания ─────────────────────────────
+    // 1. Найти свободный ПК
+    // 2. Получить тариф
+    // 3. Рассчитать минуты для нужной суммы (с учётом бонусов клиента)
+    // 4. Пополнить рубли если бонусов больше нуля (чтобы при посадке не ушли бонусы)
+    //    — НЕТ: наоборот, нам нужно чтобы после завершения сеанса
+    //    вернулась именно нужная сумма рублей в виде бонусов
+    //    Проблема: при посадке сначала списываются бонусы, потом рубли
+    //    Решение: если у клиента есть бонусы B, то сажаем на (amount + B) рублей,
+    //    тогда после завершения вернётся (amount + B) бонусов,
+    //    из которых B — это "старые" бонусы клиента, а amount — новые (конвертированные рубли)
+    //    Потом списываем ровно amount бонусов
+    async function performDebit(clientId, walletId, amount, bonus, comment, statusCallback) {
+        // Шаг 1: найти свободные ПК
+        statusCallback('Ищем свободный ПК…');
+        var freePCs = await getFreePCs();
+        if (!freePCs || freePCs.length === 0) {
+            throw new Error('Нет свободных ПК. Дождитесь освобождения места и попробуйте снова.');
+        }
+
+        // Шаг 2: получить тарифы — пробуем ПК по очереди пока не найдём с тарифом
+        statusCallback('Получаем тарифы…');
+        var chosenPC = null;
+        var chosenTariff = null;
+
+        // Сначала попробуем взять тарифы из getDashboardDevices одним запросом
+        var devData = await gql(
+            'query GetDashboardFreeWithTariffs($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name tariffs { id name cost_per_minute } sessions { id status } } } }',
+            { clubId: CLUB_ID },
+            'GetDashboardFreeWithTariffs'
+        );
+
+        var allDevices = devData.data && devData.data.getDashboardDevices && devData.data.getDashboardDevices.devices;
+        if (!allDevices) throw new Error('Не удалось получить данные устройств');
+
+        // Фильтруем свободные с тарифами
+        var freeWithTariffs = allDevices.filter(function (d) {
+            var active = d.sessions && d.sessions.some(function (s) {
+                return s.status && s.status !== 'finished' && s.status !== 'canceled';
+            });
+            return !active && d.tariffs && d.tariffs.length > 0;
+        });
+
+        if (!freeWithTariffs.length) {
+            throw new Error('Нет свободных ПК с доступными тарифами.');
+        }
+
+        // Берём первый свободный ПК, тариф с минимальной стоимостью/мин
+        chosenPC = freeWithTariffs[0];
+        var sortedTariffs = chosenPC.tariffs.slice().sort(function (a, b) {
+            return (a.cost_per_minute || 0) - (b.cost_per_minute || 0);
+        });
+        chosenTariff = sortedTariffs[0];
+
+        if (!chosenTariff.cost_per_minute || chosenTariff.cost_per_minute <= 0) {
+            throw new Error('Не удалось определить стоимость тарифа для ПК ' + chosenPC.name);
+        }
+
+        // Шаг 3: рассчитать сумму посадки с учётом бонусов
+        // При посадке сначала списываются бонусы, потом рубли
+        // Чтобы списать ровно `amount` рублей и получить обратно `amount` бонусов:
+        // нужно посадить на (amount + bonus) чтобы покрыть существующие бонусы + нужную сумму
+        var totalAmount = amount + (bonus || 0);
+        var minutes = calcMinutes(totalAmount, chosenTariff.cost_per_minute);
+        if (!minutes) throw new Error('Ошибка расчёта минут');
+
+        // Реальная стоимость (округление вверх может дать чуть больше)
+        var realCost = Math.round(chosenTariff.cost_per_minute * minutes * 100) / 100;
+
+        statusCallback('Запускаем сеанс на ПК ' + chosenPC.name + ' (' + minutes + ' мин)…');
+
+        // Шаг 4: запустить сеанс
+        var startResult = await startSession(clientId, chosenPC.name, chosenTariff.id, minutes);
+        if (!startResult || !startResult.data || startResult.errors) {
+            var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
+            throw new Error('Не удалось запустить сеанс: ' + errMsg);
+        }
+        var sessionId = startResult.data.userReservationCreate && startResult.data.userReservationCreate.id;
+        if (!sessionId) throw new Error('Сеанс запущен, но ID не получен');
+
+        // Шаг 5: завершить сеанс немедленно
+        statusCallback('Завершаем сеанс…');
+        await finishSession(sessionId);
+
+        // Небольшая пауза — дать серверу время зачислить бонусы
+        await new Promise(function (resolve) { setTimeout(resolve, 800); });
+
+        // Шаг 6: списать нужное количество бонусов (ровно amount)
+        statusCallback('Списываем ' + amount + ' ₽…');
+        var debitResult = await withdrawBonus(walletId, amount, comment);
+        if (!debitResult || debitResult.errors) {
+            var errMsg2 = debitResult && debitResult.errors ? debitResult.errors[0].message : 'неизвестная ошибка';
+            throw new Error('Сеанс завершён, но списание бонусов не прошло: ' + errMsg2);
+        }
+
+        // Уведомляем кассу
+        document.dispatchEvent(new CustomEvent('__godji_debit__', {
+            detail: { amount: amount, comment: comment, ts: Date.now() }
+        }));
+
+        return { amount: amount, pc: chosenPC.name };
+    }
+
+    // ── Модальное окно ────────────────────────────────────────
+    function showModal(clientData) {
         if (document.getElementById('godji-debit-overlay')) return;
+
+        var clientId = getClientId();
+        if (!clientId) return;
 
         var overlay = document.createElement('div');
         overlay.id = 'godji-debit-overlay';
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99998;display:flex;align-items:center;justify-content:center;padding:16px;';
-        overlay.addEventListener('click', function(e) {
-            if (e.target === overlay) overlay.remove();
-        });
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
 
         var modal = document.createElement('div');
-        modal.style.cssText = 'background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md);width:100%;max-width:360px;font-family:inherit;box-shadow:var(--mantine-shadow-xl);overflow:hidden;';
-        modal.addEventListener('click', function(e) { e.stopPropagation(); });
+        modal.style.cssText = 'background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md);width:100%;max-width:380px;font-family:inherit;box-shadow:var(--mantine-shadow-xl);overflow:hidden;';
+        modal.addEventListener('click', function (e) { e.stopPropagation(); });
 
         // Шапка
         var header = document.createElement('div');
         header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--mantine-color-default-border);';
-
         var title = document.createElement('div');
         title.style.cssText = 'font-size:15px;font-weight:700;color:var(--mantine-color-text);';
-        title.textContent = 'Списание с баланса';
-
+        title.textContent = 'Списание с рублёвого баланса';
         var closeBtn = document.createElement('button');
         closeBtn.style.cssText = 'background:none;border:none;color:var(--mantine-color-dimmed);font-size:20px;cursor:pointer;padding:0;line-height:1;';
         closeBtn.textContent = '×';
-        closeBtn.addEventListener('click', function() { overlay.remove(); });
-
+        closeBtn.addEventListener('click', function () { overlay.remove(); });
         header.appendChild(title);
         header.appendChild(closeBtn);
 
-        // Баланс
-        var balanceInfo = document.createElement('div');
-        balanceInfo.style.cssText = 'padding:12px 20px 0;font-size:12px;color:var(--mantine-color-dimmed);';
-        balanceInfo.textContent = 'Текущий баланс: ' + balance.toFixed(2) + ' ₽';
+        // Инфо о балансе
+        var balInfo = document.createElement('div');
+        balInfo.style.cssText = 'padding:10px 20px 0;display:flex;gap:16px;font-size:12px;color:var(--mantine-color-dimmed);';
+        balInfo.innerHTML =
+            '<span>Рубли: <b style="color:var(--mantine-color-text)">' + Math.round(clientData.balance) + ' ₽</b></span>' +
+            '<span>Бонусы: <b style="color:var(--mantine-color-text)">' + Math.round(clientData.bonus) + ' бон.</b></span>';
+
+        // Предупреждение если бонусов много
+        var warnEl = document.createElement('div');
+        warnEl.style.cssText = 'margin:8px 20px 0;padding:8px 10px;background:#fff8e1;border-radius:6px;font-size:11px;color:#7c5800;display:' + (clientData.bonus > 0 ? 'block' : 'none') + ';';
+        warnEl.textContent = '⚠ У клиента есть бонусы (' + Math.round(clientData.bonus) + '). При посадке они будут временно задействованы и возвращены.';
 
         // Тело
         var body = document.createElement('div');
@@ -120,117 +306,115 @@
         // Сумма
         var amountLabel = document.createElement('label');
         amountLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--mantine-color-text);display:flex;flex-direction:column;gap:6px;';
-        amountLabel.textContent = 'Сумма (₽)';
-
+        amountLabel.textContent = 'Сумма списания (₽)';
         var amountInput = document.createElement('input');
         amountInput.type = 'number';
-        amountInput.min = '0.01';
-        amountInput.step = '0.01';
-        amountInput.placeholder = '0.00';
+        amountInput.min = '1';
+        amountInput.step = '1';
+        amountInput.placeholder = '0';
         amountInput.style.cssText = 'width:100%;padding:8px 12px;border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-sm);font-size:14px;font-family:inherit;background:var(--mantine-color-default);color:var(--mantine-color-text);box-sizing:border-box;outline:none;';
-        amountInput.addEventListener('focus', function() { amountInput.style.borderColor = 'var(--mantine-color-blue-filled)'; });
-        amountInput.addEventListener('blur', function() { amountInput.style.borderColor = 'var(--mantine-color-default-border)'; });
+        amountInput.addEventListener('focus', function () { amountInput.style.borderColor = 'var(--mantine-color-red-filled)'; });
+        amountInput.addEventListener('blur', function () { amountInput.style.borderColor = 'var(--mantine-color-default-border)'; });
         amountLabel.appendChild(amountInput);
 
         // Комментарий
         var commentLabel = document.createElement('label');
         commentLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--mantine-color-text);display:flex;flex-direction:column;gap:6px;';
-        commentLabel.textContent = 'Причина';
-
+        commentLabel.textContent = 'Причина списания';
         var commentInput = document.createElement('input');
         commentInput.type = 'text';
-        commentInput.placeholder = 'Укажите причину списания...';
+        commentInput.placeholder = 'Укажите причину…';
         commentInput.style.cssText = 'width:100%;padding:8px 12px;border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-sm);font-size:14px;font-family:inherit;background:var(--mantine-color-default);color:var(--mantine-color-text);box-sizing:border-box;outline:none;';
-        commentInput.addEventListener('focus', function() { commentInput.style.borderColor = 'var(--mantine-color-blue-filled)'; });
-        commentInput.addEventListener('blur', function() { commentInput.style.borderColor = 'var(--mantine-color-default-border)'; });
+        commentInput.addEventListener('focus', function () { commentInput.style.borderColor = 'var(--mantine-color-red-filled)'; });
+        commentInput.addEventListener('blur', function () { commentInput.style.borderColor = 'var(--mantine-color-default-border)'; });
         commentLabel.appendChild(commentInput);
 
-        // Ошибка
-        var errorEl = document.createElement('div');
-        errorEl.style.cssText = 'font-size:12px;color:var(--mantine-color-red-filled);display:none;';
+        // Статус/ошибка
+        var statusEl = document.createElement('div');
+        statusEl.style.cssText = 'font-size:12px;color:var(--mantine-color-dimmed);min-height:18px;';
 
         // Кнопка
         var submitBtn = document.createElement('button');
         submitBtn.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
         submitBtn.setAttribute('data-variant', 'filled');
         submitBtn.style.cssText = '--button-bg:var(--mantine-color-red-filled);--button-hover:var(--mantine-color-red-filled-hover);--button-color:#fff;--button-bd:none;width:100%;margin-top:4px;';
-
         var submitInner = document.createElement('span');
         submitInner.className = 'm_80f1301b mantine-Button-inner';
-        var submitLabel = document.createElement('span');
-        submitLabel.className = 'm_811560b9 mantine-Button-label';
-        submitLabel.textContent = 'Списать';
-        submitInner.appendChild(submitLabel);
+        var submitLabelEl = document.createElement('span');
+        submitLabelEl.className = 'm_811560b9 mantine-Button-label';
+        submitLabelEl.textContent = 'Списать';
+        submitInner.appendChild(submitLabelEl);
         submitBtn.appendChild(submitInner);
 
-        submitBtn.addEventListener('click', async function() {
-            var amount = parseFloat(parseFloat(amountInput.value).toFixed(2));
+        submitBtn.addEventListener('click', function () {
+            var amount = parseInt(amountInput.value);
             var comment = commentInput.value.trim();
 
-            errorEl.style.display = 'none';
+            statusEl.style.color = 'var(--mantine-color-red-filled)';
 
             if (!amount || amount <= 0) {
-                errorEl.textContent = 'Введите корректную сумму';
-                errorEl.style.display = 'block';
+                statusEl.textContent = 'Введите корректную сумму';
                 return;
             }
-            if (amount > balance) {
-                errorEl.textContent = 'Сумма превышает баланс (' + balance.toFixed(2) + ' ₽)';
-                errorEl.style.display = 'block';
+            if (amount > Math.round(clientData.balance)) {
+                statusEl.textContent = 'Сумма превышает рублёвый баланс (' + Math.round(clientData.balance) + ' ₽)';
                 return;
             }
             if (!comment) {
-                errorEl.textContent = 'Укажите причину списания';
-                errorEl.style.display = 'block';
+                statusEl.textContent = 'Укажите причину списания';
                 return;
             }
 
             submitBtn.disabled = true;
-            submitLabel.textContent = 'Выполняется...';
+            closeBtn.disabled = true;
+            statusEl.style.color = 'var(--mantine-color-dimmed)';
 
-            var result = await debitWallet(walletId, amount);
-
-            if (!result || result.errors) {
-                errorEl.textContent = 'Ошибка: ' + (result && result.errors ? result.errors[0].message : 'неизвестная ошибка');
-                errorEl.style.display = 'block';
+            performDebit(clientId, clientData.walletId, amount, clientData.bonus, comment, function (msg) {
+                statusEl.textContent = msg;
+                submitLabelEl.textContent = msg;
+            }).then(function (result) {
+                submitLabelEl.textContent = 'Готово ✓';
+                submitBtn.style.setProperty('--button-bg', '#166534');
+                statusEl.style.color = '#166534';
+                statusEl.textContent = 'Списано ' + result.amount + ' ₽ через ПК ' + result.pc;
+                setTimeout(function () {
+                    overlay.remove();
+                    window.location.reload();
+                }, 1800);
+            }).catch(function (err) {
                 submitBtn.disabled = false;
-                submitLabel.textContent = 'Списать';
-                return;
-            }
-
-            overlay.remove();
-            // Показываем тост и перезагружаем через 1.5 сек
-            var toast = document.createElement('div');
-            toast.textContent = 'Списано ' + Math.abs(amount).toFixed(2) + ' ₽ ✓';
-            toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(30,30,30,0.92);color:#fff;padding:8px 18px;border-radius:var(--mantine-radius-sm);font-size:13px;font-family:inherit;font-weight:500;z-index:99999;white-space:nowrap;';
-            document.body.appendChild(toast);
-            setTimeout(function() { window.location.reload(); }, 1500);
+                closeBtn.disabled = false;
+                submitLabelEl.textContent = 'Списать';
+                statusEl.style.color = 'var(--mantine-color-red-filled)';
+                statusEl.textContent = '❌ ' + (err.message || 'Неизвестная ошибка');
+            });
         });
 
         body.appendChild(amountLabel);
         body.appendChild(commentLabel);
-        body.appendChild(errorEl);
+        body.appendChild(statusEl);
         body.appendChild(submitBtn);
 
         modal.appendChild(header);
-        modal.appendChild(balanceInfo);
+        modal.appendChild(balInfo);
+        modal.appendChild(warnEl);
         modal.appendChild(body);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        setTimeout(function() { amountInput.focus(); }, 50);
+        setTimeout(function () { amountInput.focus(); }, 50);
     }
 
+    // ── Кнопка на странице клиента ────────────────────────────
     async function injectButton() {
         if (document.getElementById('godji-debit-btn')) return;
 
         var clientId = getClientId();
         if (!clientId) return;
 
-        // Ищем кнопку "Пополнить наличными" как anchor
         var allBtns = document.querySelectorAll('button');
         var anchorBtn = null;
-        allBtns.forEach(function(b) {
+        allBtns.forEach(function (b) {
             if (b.textContent.trim() === 'Пополнить наличными') anchorBtn = b;
         });
         if (!anchorBtn) return;
@@ -242,49 +426,49 @@
         btn.setAttribute('data-size', 'xs');
         btn.setAttribute('data-with-left-section', 'true');
         btn.setAttribute('type', 'button');
-        btn.setAttribute('justify', 'flex-start');
         btn.style.cssText = '--button-justify:flex-start;--button-height:var(--button-height-xs);--button-padding-x:var(--button-padding-x-xs);--button-fz:var(--mantine-font-size-xs);--button-bg:var(--mantine-color-red-light);--button-hover:var(--mantine-color-red-light-hover);--button-color:var(--mantine-color-red-light-color);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;flex:1 1 100%;width:100%;';
 
         var inner = document.createElement('span');
         inner.className = 'm_80f1301b mantine-Button-inner';
-
         var section = document.createElement('span');
         section.className = 'm_a74036a mantine-Button-section';
         section.setAttribute('data-position', 'left');
-        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1 -3.5 3.5h-1a3.5 3.5 0 0 1 -3.5 -3.5a1.5 1.5 0 0 1 1.5 -1.5"></path><path d="M12.5 21h-4.5a4 4 0 0 1 -4 -4v-1a8 8 0 0 1 14 -5.5"></path><path d="M16 19h-6"></path></svg>';
-
-        var label = document.createElement('span');
-        label.className = 'm_811560b9 mantine-Button-label';
-        label.textContent = 'Списать с рублёвого баланса';
-
+        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1 -3.5 3.5h-1a3.5 3.5 0 0 1 -3.5 -3.5a1.5 1.5 0 0 1 1.5 -1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1 -4 -4v-1a8 8 0 0 1 14 -5.5"/><path d="M16 19h-6"/></svg>';
+        var labelEl = document.createElement('span');
+        labelEl.className = 'm_811560b9 mantine-Button-label';
+        labelEl.textContent = 'Списать с рублёвого баланса';
         inner.appendChild(section);
-        inner.appendChild(label);
+        inner.appendChild(labelEl);
         btn.appendChild(inner);
 
-        btn.addEventListener('click', async function() {
-            var wallet = await getWalletId(clientId);
-            if (!wallet) {
-                alert('Не удалось получить данные кошелька');
+        btn.addEventListener('click', async function () {
+            labelEl.textContent = 'Загрузка…';
+            btn.disabled = true;
+            var data = await getClientData(clientId).catch(function () { return null; });
+            btn.disabled = false;
+            labelEl.textContent = 'Списать с рублёвого баланса';
+            if (!data) {
+                alert('Не удалось получить данные кошелька. Дождитесь загрузки страницы.');
                 return;
             }
-            showModal(wallet.id, wallet.balance);
+            if (data.balance <= 0) {
+                alert('У клиента нет рублей на балансе.');
+                return;
+            }
+            showModal(data);
         });
 
-        // Вставляем в отдельную строку после строки со "Списать бонусы"
+        // Вставляем после строки со "Списать бонусы"
         var chargeBtn = null;
-        document.querySelectorAll('button').forEach(function(b) {
+        document.querySelectorAll('button').forEach(function (b) {
             if (b.textContent.trim() === 'Списать бонусы') chargeBtn = b;
         });
-
         var targetRow = chargeBtn ? chargeBtn.parentNode : anchorBtn.parentNode;
         var targetParent = targetRow ? targetRow.parentNode : null;
-
         if (targetParent) {
-            // Создаём отдельную строку для нашей кнопки
             var newRow = document.createElement('div');
             newRow.className = targetRow.className;
             newRow.style.cssText = targetRow.style.cssText;
-            // Растягиваем кнопку на всю ширину
             btn.style.setProperty('flex', '1 1 100%', 'important');
             newRow.appendChild(btn);
             targetParent.insertBefore(newRow, targetRow.nextSibling);
@@ -293,7 +477,7 @@
         }
     }
 
-    var observer = new MutationObserver(function(mutations) {
+    var _obs = new MutationObserver(function (mutations) {
         for (var i = 0; i < mutations.length; i++) {
             if (mutations[i].addedNodes.length > 0) {
                 clearTimeout(window._godjiDebitTimer);
@@ -304,10 +488,10 @@
     });
 
     if (document.body) {
-        observer.observe(document.body, { childList: true, subtree: true });
+        _obs.observe(document.body, { childList: true, subtree: true });
     } else {
-        document.addEventListener('DOMContentLoaded', function() {
-            observer.observe(document.body, { childList: true, subtree: true });
+        document.addEventListener('DOMContentLoaded', function () {
+            _obs.observe(document.body, { childList: true, subtree: true });
         });
     }
 
