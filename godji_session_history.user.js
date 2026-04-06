@@ -355,8 +355,10 @@ function hasSidebar(){
 function createSidebarButton(){
     if(!hasSidebar()) return;
     if(document.getElementById('godji-history-btn')) return;
-    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb) return;
+    var footer = document.querySelector('.Sidebar_footer__1BA98');
+    if(!footer) return;
+    var divider = footer.querySelector('.mantine-Divider-root');
+    if(!divider) return;
 
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
@@ -383,26 +385,23 @@ function createSidebarButton(){
         if(modalVisible)hideModal();else showModal();
     });
 
-    // Вставляем перед godji-opj-btn если он есть,
-    // иначе после последнего нативного NavLink
-    var opj = sb.querySelector('#godji-opj-btn');
-    if(opj){
-        sb.insertBefore(wrap, opj);
-    } else {
-        var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
-        var last = nativeLinks[nativeLinks.length - 1];
-        if(last && last.nextSibling) sb.insertBefore(wrap, last.nextSibling);
-        else sb.appendChild(wrap);
-    }
+    // Вставляем в footer ПЕРЕД divider (над блоком времени), как касса
+    // История операций (#godji-opj-btn) тоже здесь — встанет между нами и divider
+    footer.insertBefore(wrap, divider);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
-setTimeout(createSidebarButton,1000);
-setTimeout(createSidebarButton,2500);
-setTimeout(createSidebarButton,5000);
+function tryCreateHistBtn(){
+    if(document.getElementById('godji-history-btn')) return;
+    var footer=document.querySelector('.Sidebar_footer__1BA98');
+    var divider=footer&&footer.querySelector('.mantine-Divider-root');
+    if(!footer||!divider){ setTimeout(tryCreateHistBtn,500); return; }
+    createSidebarButton();
+}
+setTimeout(tryCreateHistBtn,1000);
 new MutationObserver(function(){
-    if(!document.getElementById('godji-history-btn')) createSidebarButton();
+    if(!document.getElementById('godji-history-btn')) tryCreateHistBtn();
 }).observe(document.body||document.documentElement,{childList:true,subtree:false});
 
 })();
