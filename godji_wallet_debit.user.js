@@ -96,7 +96,7 @@
     // ── Получить свободные ПК ────────────────────────────────
     function getFreePCs() {
         return gql(
-            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name status } } }',
+            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { id name status } } }',
             { clubId: CLUB_ID },
             'GetDashboardFree'
         ).then(function (data) {
@@ -107,10 +107,13 @@
     }
 
     // ── Запустить сеанс (посадить клиента за ПК) ─────────────
-    function startSession(clientId, deviceName, tariffId, minutes) {
+    function startSession(clientId, deviceId, tariffId, minutes) {
+        var now = new Date();
+        var end = new Date(now.getTime() + minutes * 60000);
         return gql(
-            'mutation StartSession($clientId: String!, $deviceName: String!, $tariffId: Int!, $minutes: Int!, $clubId: Int!) { userReservationCreate(params: {userId: $clientId, deviceName: $deviceName, tariffId: $tariffId, minutes: $minutes, clubId: $clubId}) { id status } }',
-            { clientId: clientId, deviceName: deviceName, tariffId: tariffId, minutes: minutes, clubId: CLUB_ID },
+            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { id status } }',
+            { clientId: clientId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID,
+              sessionStart: now.toISOString(), sessionEnd: end.toISOString() },
             'StartSession'
         );
     }
@@ -191,7 +194,7 @@
         statusCallback('Запускаем сеанс на ПК ' + chosenPC.name + ' (' + minutes + ' мин)…');
 
         // Шаг 4: запустить сеанс
-        var startResult = await startSession(clientId, chosenPC.name, chosenTariff.tariffId, minutes);
+        var startResult = await startSession(clientId, chosenPC.id, chosenTariff.tariffId, minutes);
         if (!startResult || !startResult.data || startResult.errors) {
             var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
             throw new Error('Не удалось запустить сеанс: ' + errMsg);
