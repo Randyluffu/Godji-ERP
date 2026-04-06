@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji CRM - Free Time
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.5
 // @description  Добавляет бесплатное время клиентам через контекстное меню
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -109,6 +109,19 @@
         }).then(function(r) { return r.json(); });
     }
 
+    // --- Кэш тарифов (читается godji_wallet_debit) ---
+    var TARIFF_CACHE_KEY = 'godji_tariff_cache';
+    function saveTariffCache(tariffId, tariffName, costPerMin) {
+        try {
+            localStorage.setItem(TARIFF_CACHE_KEY, JSON.stringify({
+                tariffId: tariffId,
+                tariffName: tariffName,
+                costPerMin: costPerMin,
+                ts: Date.now()
+            }));
+        } catch(e) {}
+    }
+
     // --- Получить поминутный тариф и рассчитать стоимость ---
     function getCostAndTariff(sessionId, minutes) {
         return gql(
@@ -117,11 +130,12 @@
         ).then(function(r) {
             var tariffs = r.data && r.data.getAvailableTariffsForProlongation && r.data.getAvailableTariffsForProlongation.tariffs;
             if (!tariffs || tariffs.length === 0) return null;
-            // Берём тариф с наименьшим durationMin — это поминутный
             var sorted = tariffs.slice().sort(function(a, b) { return a.durationMin - b.durationMin; });
             var minTariff = sorted[0];
             var costPerMin = minTariff.cost / minTariff.durationMin;
             var totalCost = Math.round(costPerMin * minutes * 100) / 100;
+            // Кэшируем для godji_wallet_debit
+            saveTariffCache(minTariff.id, minTariff.name, costPerMin);
             return {
                 tariffId: minTariff.id,
                 tariffName: minTariff.name,
