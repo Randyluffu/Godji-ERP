@@ -656,6 +656,51 @@
 
     setTimeout(tryInit, 5000);
     setInterval(scan, 2000);
-    createResetButton();
+
+    // Регистрируем в панели настроек вместо fixed-кнопки
+    function registerInSettings(){
+        if(typeof window.__godjiRegisterSetting !== 'function'){
+            setTimeout(registerInSettings, 300);
+            return;
+        }
+        window.__godjiRegisterSetting({
+            id: 'godji-reset-btn',
+            label: 'Сбросить подсветку',
+            iconBg: '#cc0001',
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><path d="M10 12l4 4m0-4l-4 4"/></svg>',
+            type: 'button',
+            onClick: function(){
+                localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(STATE_KEY);
+                document.querySelectorAll('.gm-card').forEach(function(c){
+                    c.style.outline='';c.style.outlineOffset='';c.style.boxShadow='';
+                    var t=c.querySelector('.gm-timer');if(t){t.textContent='';t.style.color='';t.style.display='none';}
+                    var n=c.querySelector('.gm-nick');if(n)n.style.display='';
+                    var p=c.querySelector('.gm-pbw');if(p)p.style.display='';
+                });
+                var cards=document.querySelectorAll('.DeviceItem_deviceBox__pzNUf');
+                for(var i=0;i<cards.length;i++){
+                    cards[i].style.outline='';cards[i].style.outlineOffset='';cards[i].style.boxShadow='';
+                    var tb=cards[i].querySelector('.'+TIMER_BOTTOM_CLASS);if(tb)tb.remove();
+                    var ti=cards[i].querySelector('.'+TIMER_INLINE_CLASS);if(ti)ti.remove();
+                    var w=cards[i].querySelector('.godji-name-wrapper');
+                    if(w){var ne=w.querySelector('.DeviceItem_deviceName__yC1tT');if(ne)w.parentNode.insertBefore(ne,w);w.remove();}
+                }
+                var rows=document.querySelectorAll('tr.mantine-Table-tr');
+                for(var j=0;j<rows.length;j++){
+                    rows[j].style.backgroundColor='';
+                    var fs=rows[j].querySelector('.godji-fake-status');if(fs)fs.remove();
+                    var os=rows[j].querySelector('td[style*="col-sessionStatus-size"] .mantine-Flex-root');if(os)os.style.display='';
+                    var ft=rows[j].querySelector('.godji-fake-time');if(ft)ft.remove();
+                    var ot=rows[j].querySelector('td[style*="col-sessionLeftTime-size"] .mantine-Flex-root');if(ot)ot.style.display='';
+                    var fst=rows[j].querySelector('.godji-fake-start');if(fst)fst.remove();
+                    var ost=rows[j].querySelector('td[style*="col-sessionStart-size"] .mantine-Flex-root');if(ost)ost.style.display='';
+                }
+                state={};initialized=false;
+                setTimeout(tryInit,500);
+            }
+        });
+    }
+    registerInSettings();
 
 })();
