@@ -1,328 +1,302 @@
-userscript.html?name=%25D0%2593%25D0%25BE%25D0%25B4%25D0%25B6%25D0%25B8-%25E2%2580%2594-%25D0%259A%25D0%25B0%25D1%2580%25D1%2582%25D0%25B0-%25D0%25BF%25D0%25BE%25D1%2581%25D0%25B0%25D0%25B4%25D0%25BA%25D0%25B8-v2-overlay.user.js&id=428747e9-d827-4745-9de9-8ae71e274130:311 Uncaught SyntaxError: Failed to execute 'appendChild' on 'Node': Unexpected token 'function' (at userscript.html?name=%25D0%2593%25D0%25BE%25D0%25B4%25D0%25B6%25D0%25B8-%25E2%2580%2594-%25D0%259A%25D0%25B0%25D1%2580%25D1%2582%25D0%25B0-%25D0%25BF%25D0%25BE%25D1%2581%25D0%25B0%25D0%25B4%25D0%25BA%25D0%25B8-v2-overlay.user.js&id=428747e9-d827-4745-9de9-8ae71e274130:311:1)
-    at At (<anonymous>:10:89)
-    at m (<anonymous>:21:352)
-    at c (<anonymous>:24:266)
-    at <anonymous>:24:328
-    at co (<anonymous>:18:250)
-    at Object.send (<anonymous>:24:188)
-    at <anonymous>:91:328
-    at _ (<anonymous>:22:406)
-At @ VM921:10
-m @ VM921:21
-c @ VM921:24
-(anonymous) @ VM921:24
-co @ VM921:18
-send @ VM921:24
-(anonymous) @ VM921:91
-_ @ VM921:22
-PendingScript
-bs @ content.js:69
-ws @ content.js:69
-(anonymous) @ content.js:62
-(anonymous) @ content.js:66
-$t @ content.js:9
-t @ content.js:10
-v @ content.js:66
-At @ VM921:10
-m @ VM921:21
-c @ VM921:24
-(anonymous) @ VM921:24
-co @ VM921:18
-send @ VM921:24
-(anonymous) @ VM921:91
-_ @ VM921:22
-$t @ content.js:9
-h @ content.js:65
-d @ content.js:68
-(anonymous) @ content.js:68
-Xn @ content.js:15
-send @ content.js:68
-b @ content.js:62
-hs @ content.js:64
-(anonymous) @ content.js:63
-$t @ content.js:9
-t @ content.js:10
-e @ content.js:1
-i @ content.js:1
-(anonymous) @ content.js:1
-n @ content.js:1
-$t @ content.js:9
-(anonymous) @ content.js:1
-(anonymous) @ content.js:63
-$t @ content.js:9
-t @ content.js:10
-fs @ content.js:58
-Rs @ content.js:77
-(anonymous) @ content.js:77
-(anonymous) @ content.js:15
-$t @ content.js:9
-t @ content.js:10
-(anonymous) @ content.js:15
-(anonymous) @ content.js:72
-_app-51e5ff0ba6d32ffb.js:2 Loading... {accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IC…kSuhDzEKqHa7BP-mMT1rE2tmeZM-eLzeBbS8ZTXVyqVnAdSIQ', user: undefined, isAuthenticated: false}
-_app-51e5ff0ba6d32ffb.js:2 Token expires in 59893 seconds. Next check in 60 seconds.
-VM921:10 injected: env: missing script "428747e9-d827-4745-9de9-8ae71e274130"!
-$t @ content.js:9
-(anonymous) @ content.js:86
-v @ content.js:66
-At @ VM921:10
-m @ VM921:21
-c @ VM921:24
-(anonymous) @ VM921:24
-co @ VM921:18
-send @ VM921:24
-(anonymous) @ VM921:29
-(anonymous) @ VM921:93
-_ @ VM921:22
-$t @ content.js:9
-h @ content.js:65
-d @ content.js:68
-(anonymous) @ content.js:68
-Xn @ content.js:15
-send @ content.js:68
-w @ content.js:63
-(anonymous) @ content.js:64
-(anonymous) @ content.js:22
-setTimeout
-(anonymous) @ content.js:22
-(anonymous) @ content.js:2
-Xn @ content.js:15
-n @ content.js:1
-Lo @ content.js:22
-hs @ content.js:64
-(anonymous) @ content.js:63
-$t @ content.js:9
-t @ content.js:10
-e @ content.js:1
-i @ content.js:1
-(anonymous) @ content.js:1
-n @ content.js:1
-$t @ content.js:9
-(anonymous) @ content.js:1
-(anonymous) @ content.js:63
-$t @ content.js:9
-t @ content.js:10
-fs @ content.js:58
-Rs @ content.js:77
-(anonymous) @ content.js:77
-(anonymous) @ content.js:15
-$t @ content.js:9
-t @ content.js:10
-(anonymous) @ content.js:15
-(anonymous) @ content.js:72
-goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693:1  GET https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693 net::ERR_CONNECTION_RESET
-Image
-_ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-uQ @ framework-945b357d4a851f4b.js:1
-uq @ framework-945b357d4a851f4b.js:1
-(anonymous) @ framework-945b357d4a851f4b.js:1
-oI @ framework-945b357d4a851f4b.js:1
-oS @ framework-945b357d4a851f4b.js:1
-x @ framework-945b357d4a851f4b.js:1
-T @ framework-945b357d4a851f4b.js:1
-_app-51e5ff0ba6d32ffb.js:17 Failed to load image dimensions: Event {isTrusted: true, type: 'error', target: img, currentTarget: img, eventPhase: 2, …}
-(anonymous) @ _app-51e5ff0ba6d32ffb.js:17
-(anonymous) @ 1778-064a802d6ae264f6.js:1
-Promise.catch
-(anonymous) @ 1778-064a802d6ae264f6.js:1
-uI @ framework-945b357d4a851f4b.js:1
-oU @ framework-945b357d4a851f4b.js:1
-oC @ framework-945b357d4a851f4b.js:1
-r8 @ framework-945b357d4a851f4b.js:1
-(anonymous) @ framework-945b357d4a851f4b.js:1
-oI @ framework-945b357d4a851f4b.js:1
-oS @ framework-945b357d4a851f4b.js:1
-x @ framework-945b357d4a851f4b.js:1
-T @ framework-945b357d4a851f4b.js:1
-userscript.html?name=%25D0%2593%25D0%25BE%25D0%25B4%25D0%25B6%25D0%25B8-%25E2%2580%2594-TightVNC23232.user.js&id=2a370695-5ca4-4970-a5cf-c407c73cc58b:240 [TightVNC] v1.1 готов
+openedAt: 05.04.2026, 21:05:36
+VM1465:5 seenOpIds count: 49
+VM1465:6 cash: 8571 | card: 15146
+Promise {<pending>}
+VM1465:17 По seenOpIds — нал: 8571 | карта: 15146
+VM1465:18 Разница нал: 0 | карта: 0
+VM1465:19 Операции: [
+  {
+    "id": 162802,
+    "amount": 1500,
+    "money_type": "cash",
+    "created_at": "2026-04-05T14:14:27.115076+00:00"
+  },
+  {
+    "id": 162809,
+    "amount": 1000,
+    "money_type": "cash",
+    "created_at": "2026-04-05T14:16:40.102873+00:00"
+  },
+  {
+    "id": 162818,
+    "amount": 480,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T14:19:56.142691+00:00"
+  },
+  {
+    "id": 162823,
+    "amount": 480,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T14:20:08.183088+00:00"
+  },
+  {
+    "id": 162886,
+    "amount": 860,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T14:45:33.415571+00:00"
+  },
+  {
+    "id": 162887,
+    "amount": 860,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T14:45:36.105432+00:00"
+  },
+  {
+    "id": 162889,
+    "amount": 860,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T14:46:18.605166+00:00"
+  },
+  {
+    "id": 162970,
+    "amount": 1060,
+    "money_type": "cash",
+    "created_at": "2026-04-05T15:14:32.042952+00:00"
+  },
+  {
+    "id": 163048,
+    "amount": 850,
+    "money_type": "cash",
+    "created_at": "2026-04-05T15:38:44.657516+00:00"
+  },
+  {
+    "id": 163052,
+    "amount": 850,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T15:39:01.618644+00:00"
+  },
+  {
+    "id": 163129,
+    "amount": 270,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T16:05:54.392786+00:00"
+  },
+  {
+    "id": 163159,
+    "amount": 625,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T16:14:12.769525+00:00"
+  },
+  {
+    "id": 163174,
+    "amount": 480,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T16:23:26.253508+00:00"
+  },
+  {
+    "id": 163175,
+    "amount": 480,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T16:23:41.783114+00:00"
+  },
+  {
+    "id": 163179,
+    "amount": 480,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T16:24:38.48453+00:00"
+  },
+  {
+    "id": 163201,
+    "amount": 560,
+    "money_type": "cash",
+    "created_at": "2026-04-05T16:32:43.937765+00:00"
+  },
+  {
+    "id": 163202,
+    "amount": 560,
+    "money_type": "cash",
+    "created_at": "2026-04-05T16:32:45.781053+00:00"
+  },
+  {
+    "id": 163362,
+    "amount": 700,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:30:09.575726+00:00"
+  },
+  {
+    "id": 163363,
+    "amount": 50,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:30:34.34226+00:00"
+  },
+  {
+    "id": 163381,
+    "amount": 170,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:37:31.476013+00:00"
+  },
+  {
+    "id": 163408,
+    "amount": 250,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:51:53.559947+00:00"
+  },
+  {
+    "id": 163416,
+    "amount": 450,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:56:07.127999+00:00"
+  },
+  {
+    "id": 163417,
+    "amount": 450,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T17:56:22.997592+00:00"
+  },
+  {
+    "id": 163445,
+    "amount": 370,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T18:08:24.101096+00:00"
+  },
+  {
+    "id": 163446,
+    "amount": 370,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T18:08:31.799661+00:00"
+  },
+  {
+    "id": 163484,
+    "amount": 170,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T18:22:38.142934+00:00"
+  },
+  {
+    "id": 163531,
+    "amount": 1250,
+    "money_type": "cash",
+    "created_at": "2026-04-05T18:42:58.616355+00:00"
+  },
+  {
+    "id": 163532,
+    "amount": 750,
+    "money_type": "cash",
+    "created_at": "2026-04-05T18:43:00.756083+00:00"
+  },
+  {
+    "id": 163549,
+    "amount": 410,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T18:48:49.027351+00:00"
+  },
+  {
+    "id": 163598,
+    "amount": 2000,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T19:13:16.074106+00:00"
+  },
+  {
+    "id": 163616,
+    "amount": 75,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T19:20:19.545338+00:00"
+  },
+  {
+    "id": 163618,
+    "amount": 75,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T19:20:37.342433+00:00"
+  },
+  {
+    "id": 163621,
+    "amount": 400,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T19:23:10.871811+00:00"
+  },
+  {
+    "id": 163637,
+    "amount": 1,
+    "money_type": "cash",
+    "created_at": "2026-04-05T19:33:31.855995+00:00"
+  },
+  {
+    "id": 163658,
+    "amount": 75,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T19:49:01.574922+00:00"
+  },
+  {
+    "id": 163664,
+    "amount": 40,
+    "money_type": "cash",
+    "created_at": "2026-04-05T19:56:38.043397+00:00"
+  },
+  {
+    "id": 163789,
+    "amount": 50,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:06:26.158692+00:00"
+  },
+  {
+    "id": 163791,
+    "amount": 50,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:06:35.955081+00:00"
+  },
+  {
+    "id": 163832,
+    "amount": 400,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:36:51.190136+00:00"
+  },
+  {
+    "id": 163835,
+    "amount": 280,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:37:16.170404+00:00"
+  },
+  {
+    "id": 163838,
+    "amount": 280,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:37:53.866958+00:00"
+  },
+  {
+    "id": 163842,
+    "amount": 365,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:39:24.166726+00:00"
+  },
+  {
+    "id": 163853,
+    "amount": 140,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T21:49:56.64595+00:00"
+  },
+  {
+    "id": 163892,
+    "amount": 140,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T22:47:00.741028+00:00"
+  },
+  {
+    "id": 163939,
+    "amount": 1000,
+    "money_type": "cash",
+    "created_at": "2026-04-05T23:44:47.950857+00:00"
+  },
+  {
+    "id": 163943,
+    "amount": 280,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T23:53:56.165879+00:00"
+  },
+  {
+    "id": 163946,
+    "amount": 280,
+    "money_type": "non_cash",
+    "created_at": "2026-04-05T23:54:07.986419+00:00"
+  },
+  {
+    "id": 163959,
+    "amount": 140,
+    "money_type": "non_cash",
+    "created_at": "2026-04-06T00:05:58.672645+00:00"
+  },
+  {
+    "id": 163968,
+    "amount": 1,
+    "money_type": "non_cash",
+    "created_at": "2026-04-06T00:19:22.163162+00:00"
+  }
+]
