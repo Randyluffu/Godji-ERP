@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -16,8 +16,8 @@ var STORAGE_KEY = 'godji_cashbox';
 var SHIFTS_KEY  = 'godji_shifts';
 
 // Структура смены:
-// { id, openedAt, openedBy, cash, card, manual, withdrawal,
-//   manualEntries:[{ts, amount, comment, type:'in'|'out'}] }
+// { id, openedAt, openedBy, cash, card, manual, withdrawal, debit,
+//   manualEntries:[{ts, amount, comment, type:'in'|'out'|'debit'}] }
 
 function loadCurrent(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); }catch(e){return null;} }
 function saveCurrent(s){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(s)); }catch(e){} }
@@ -69,6 +69,27 @@ document.addEventListener('__gcb__', function(e){
         if(detail.auth) _authToken = detail.auth;
         if(detail.role) _hasuraRole = detail.role;
         onApi(detail.req, detail.res);
+    }catch(err){}
+});
+
+// ── Слушаем списания от godji_wallet_debit ────────────────
+document.addEventListener('__godji_debit__', function(e){
+    try{
+        var d = e.detail;
+        if(!d || !d.amount) return;
+        var shift = loadCurrent();
+        if(!shift) return;
+        shift.debit = (shift.debit || 0) + d.amount;
+        shift.manualEntries = shift.manualEntries || [];
+        shift.manualEntries.unshift({
+            ts: d.ts || Date.now(),
+            amount: d.amount,
+            comment: d.comment || '',
+            type: 'debit'
+        });
+        saveCurrent(shift);
+        updateBtnBadge();
+        updateModalIfOpen();
     }catch(err){}
 });
 
@@ -322,7 +343,7 @@ function renderModal(){
     sBadge.textContent=shift?'● Открыта':'○ Закрыта';
     tw.appendChild(tIco); tw.appendChild(tTxt); tw.appendChild(sBadge);
     if(shift){
-        var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
+        var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0)-(shift.debit||0);
         var tBadge=document.createElement('span');
         tBadge.style.cssText='font-size:18px;font-weight:800;color:#1a1a1a;margin-left:2px;';
         tBadge.textContent=fmtAmtAbs(total);
@@ -425,16 +446,24 @@ function renderCurrentTab(body, shift){
         card:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
         plus:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
         out:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+        debit:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1-3.5 3.5h-1a3.5 3.5 0 0 1-3.5-3.5a1.5 1.5 0 0 1 1.5-1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1-4-4v-1a8 8 0 0 1 14-5.5"/><line x1="16" y1="19" x2="22" y2="19"/></svg>',
     };
 
+    // Карточки — 3 колонки в первом ряду, потом остальные
+    cards.style.cssText='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:16px 20px 12px;';
     cards.appendChild(mkCard('Наличные',    fmtAmtAbs(shift.cash),       '#166534','#dcfce7', ICO.cash));
     cards.appendChild(mkCard('Карта',       fmtAmtAbs(shift.card),       '#1d4ed8','#dbeafe', ICO.card));
-    cards.appendChild(mkCard('Внесение',    fmtAmtAbs(shift.manual),     '#7c3aed','#ede9fe', ICO.plus));
-    cards.appendChild(mkCard('Выемка',      fmtAmtAbs(shift.withdrawal), '#b45309','#fef3c7', ICO.out));
+    cards.appendChild(mkCard('Списания',    fmtAmtAbs(shift.debit||0),   '#991b1b','#fee2e2', ICO.debit));
+    // Второй ряд — 2 карточки
+    var cards2=document.createElement('div');
+    cards2.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px 12px;';
+    cards2.appendChild(mkCard('Внесение',    fmtAmtAbs(shift.manual),     '#7c3aed','#ede9fe', ICO.plus));
+    cards2.appendChild(mkCard('Выемка',      fmtAmtAbs(shift.withdrawal), '#b45309','#fef3c7', ICO.out));
     body.appendChild(cards);
+    body.appendChild(cards2);
 
     // Итого
-    var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
+    var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0)-(shift.debit||0);
     var infoRow=document.createElement('div');
     infoRow.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:0 20px 12px;border-bottom:1px solid #f0f0f0;';
     var infoL=document.createElement('div');
@@ -496,14 +525,16 @@ function renderCurrentTab(body, shift){
         logWrap.style.cssText='margin:0 20px 12px;border-radius:8px;overflow:hidden;border:1px solid #f0f0f0;max-height:160px;overflow-y:auto;';
         entries.forEach(function(e){
             var isOut=e.type==='out';
+            var isDebit=e.type==='debit';
             var row=document.createElement('div');
             row.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-bottom:1px solid #f8f8f8;font-size:12px;';
             var lft=document.createElement('span');
             lft.style.cssText='color:#888;';
-            lft.textContent=fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
+            var typeTag = isDebit ? '[Списание] ' : '';
+            lft.textContent=typeTag+fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
             var rgt=document.createElement('span');
-            rgt.style.cssText='font-weight:700;color:'+(isOut?'#b45309':'#7c3aed')+';';
-            rgt.textContent=(isOut?'−':'+')+fmtAmtAbs(e.amount);
+            rgt.style.cssText='font-weight:700;color:'+(isDebit?'#991b1b':isOut?'#b45309':'#7c3aed')+';white-space:nowrap;';
+            rgt.textContent=(isOut||isDebit?'−':'+')+fmtAmtAbs(e.amount);
             row.appendChild(lft); row.appendChild(rgt);
             logWrap.appendChild(row);
         });
@@ -537,7 +568,7 @@ function renderHistoryTab(body){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Открыта','115px'],['Закрыта','115px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['В кассе','80px']].forEach(function(c){
+    [['Открыта','115px'],['Закрыта','115px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px'],['В кассе','80px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -552,7 +583,7 @@ function renderHistoryTab(body){
         tr.addEventListener('mouseleave',function(){tr.style.background='';});
         tr.addEventListener('click',function(){ showShiftDetail(s); });
 
-        var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0);
+        var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
         [
             [fmtDate(s.openedAt),                'color:#555;'],
             [s.closedAt?fmtDate(s.closedAt):'—', 'color:#999;'],
@@ -560,6 +591,7 @@ function renderHistoryTab(body){
             [fmtAmtAbs(s.card),                  'color:#1d4ed8;font-weight:600;'],
             [fmtAmtAbs(s.manual),                'color:#7c3aed;font-weight:600;'],
             [fmtAmtAbs(s.withdrawal),            'color:#b45309;font-weight:600;'],
+            [fmtAmtAbs(s.debit||0),              'color:#991b1b;font-weight:600;'],
             [fmtAmtAbs(total),                   'font-weight:800;color:#1a1a1a;'],
         ].forEach(function(col){
             var td=document.createElement('td');
@@ -593,23 +625,31 @@ function showShiftDetail(s){
     hdr.appendChild(ht); hdr.appendChild(hc);
     box.appendChild(hdr);
 
-    var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0);
+    var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
     var grid=document.createElement('div');
-    grid.style.cssText='display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    grid.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 20px 8px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
     [['Наличные',fmtAmtAbs(s.cash),'#166534','#dcfce7'],
      ['Карта',fmtAmtAbs(s.card),'#1d4ed8','#dbeafe'],
-     ['Внесение',fmtAmtAbs(s.manual),'#7c3aed','#ede9fe'],
-     ['Выемка',fmtAmtAbs(s.withdrawal),'#b45309','#fef3c7'],
-     ['В кассе',fmtAmtAbs(total),'#1a1a1a','#f5f5f5']].forEach(function(r){
+     ['Списания',fmtAmtAbs(s.debit||0),'#991b1b','#fee2e2']].forEach(function(r){
         var c=document.createElement('div');
         c.style.cssText='background:'+r[3]+';border-radius:8px;padding:10px 12px;';
         c.innerHTML='<div style="font-size:9px;color:'+r[2]+';font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">'+r[0]+'</div>'+
                     '<div style="font-size:16px;font-weight:800;color:#1a1a1a;">'+r[1]+'</div>';
         grid.appendChild(c);
     });
+    var grid2=document.createElement('div');
+    grid2.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 20px 14px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    [['Внесение',fmtAmtAbs(s.manual),'#7c3aed','#ede9fe'],
+     ['Выемка',fmtAmtAbs(s.withdrawal),'#b45309','#fef3c7'],
+     ['В кассе',fmtAmtAbs(total),'#1a1a1a','#f5f5f5']].forEach(function(r){
+        var c=document.createElement('div');
+        c.style.cssText='background:'+r[3]+';border-radius:8px;padding:10px 12px;';
+        c.innerHTML='<div style="font-size:9px;color:'+r[2]+';font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">'+r[0]+'</div>'+
+                    '<div style="font-size:16px;font-weight:800;color:#1a1a1a;">'+r[1]+'</div>';
+        grid2.appendChild(c);
+    });
     box.appendChild(grid);
-
-    var tw=document.createElement('div');
+    box.appendChild(grid2);
     tw.style.cssText='overflow-y:auto;flex:1;min-height:0;padding:12px 20px;';
     var entries=s.manualEntries||[];
     if(entries.length){
@@ -619,11 +659,14 @@ function showShiftDetail(s){
         tw.appendChild(lt);
         entries.forEach(function(e){
             var isOut=e.type==='out';
+            var isDebit=e.type==='debit';
             var row=document.createElement('div');
             row.style.cssText='display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:13px;';
-            var l=document.createElement('span'); l.style.cssText='color:#888;'; l.textContent=fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
-            var r=document.createElement('span'); r.style.cssText='font-weight:700;color:'+(isOut?'#b45309':'#7c3aed')+';';
-            r.textContent=(isOut?'−':'+')+fmtAmtAbs(e.amount);
+            var l=document.createElement('span'); l.style.cssText='color:#888;';
+            var typeTag=isDebit?'[Списание] ':'';
+            l.textContent=typeTag+fmtDate(e.ts)+(e.comment?' · '+e.comment:'');
+            var r=document.createElement('span'); r.style.cssText='font-weight:700;color:'+(isDebit?'#991b1b':isOut?'#b45309':'#7c3aed')+';';
+            r.textContent=(isOut||isDebit?'−':'+')+fmtAmtAbs(e.amount);
             row.appendChild(l); row.appendChild(r); tw.appendChild(row);
         });
     } else {
@@ -653,7 +696,7 @@ function updateBtnBadge(){
     var sumEl=btn.querySelector('.gcb-sum');
     if(sumEl){
         if(shift){
-            var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0);
+            var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0)-(shift.debit||0);
             sumEl.textContent=fmtAmtAbs(total);
             sumEl.style.color=total>0?'rgba(134,239,172,0.9)':'rgba(255,255,255,0.35)';
         } else {
