@@ -111,10 +111,11 @@
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
         return gql(
-            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { __typename } }',
-            { clientId: clientId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID,
-              sessionStart: now.toISOString(), sessionEnd: end.toISOString() },
-            'StartSession'
+            'mutation CreateBooking($clubId: Int!, $deviceId: Int!, $tariffId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!, $userId: String!, $isDirect: Boolean) { userReservationCreate(params: {clubId: $clubId, deviceId: $deviceId, tariffId: $tariffId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, userId: $userId, isDirect: $isDirect}) { __typename } }',
+            { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+              sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
+              userId: clientId, isDirect: true },
+            'CreateBooking'
         );
     }
 
