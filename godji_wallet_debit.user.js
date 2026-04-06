@@ -76,15 +76,20 @@
     }
 
     // ── Тариф из кэша (записывает godji_free_time) ───────────
+    // Кэш хранит утренний и ночной тарифы бессрочно, обновляется при использовании
     var TARIFF_CACHE_KEY = 'godji_tariff_cache';
-    var TARIFF_CACHE_MAX_AGE = 4 * 3600 * 1000; // 4 часа
 
     function getTariffFromCache() {
         try {
-            var raw = JSON.parse(localStorage.getItem(TARIFF_CACHE_KEY));
-            if (!raw || !raw.costPerMin || !raw.tariffId) return null;
-            if (Date.now() - raw.ts > TARIFF_CACHE_MAX_AGE) return null;
-            return raw;
+            var raw = JSON.parse(localStorage.getItem(TARIFF_CACHE_KEY) || '{}');
+            var h = new Date().getHours();
+            var slot = (h >= 2 && h < 13) ? 'morning' : 'night';
+            var t = raw[slot];
+            if (t && t.costPerMin && t.tariffId) return t;
+            // Если нужного слота нет — берём любой имеющийся
+            var other = raw[slot === 'morning' ? 'night' : 'morning'];
+            if (other && other.costPerMin && other.tariffId) return other;
+            return null;
         } catch(e) { return null; }
     }
 
@@ -162,7 +167,7 @@
         statusCallback('Получаем тариф…');
         var cachedTariff = getTariffFromCache();
         if (!cachedTariff) {
-            throw new Error('Тариф не определён. Откройте дашборд и добавьте бесплатное время любому клиенту — это обновит кэш тарифов. Затем попробуйте снова.');
+            throw new Error('Тариф не определён. Перейдите на дашборд и добавьте бесплатное время любому клиенту — кэш обновится автоматически.');
         }
 
         var chosenPC = freePCs[0];
