@@ -29,10 +29,12 @@ function processButtons(){
     MOVED_IDS.forEach(function(id){
         var el = document.getElementById(id);
         if(!el) return;
-        // Если элемент уже в панели — ничего не делаем
-        if(document.getElementById('_sc_'+id)) return;
-        // Переносим живой элемент в панель
-        if(_panelInner) addToPanel(el);
+        // Скрываем оригинал
+        el.style.setProperty('display','none','important');
+        // Добавляем прокси в панель если ещё нет
+        if(_panelInner && !document.getElementById('_sc_'+id)){
+            addToPanel(el);
+        }
     });
 }
 
@@ -40,18 +42,81 @@ function addToPanel(origEl){
     if(!_panelInner) return;
     if(document.getElementById('_sc_'+origEl.id)) return;
 
-    // Вставляем ЖИВОЙ оригинальный элемент в панель, а не клон
-    // Это сохраняет все React-обработчики (тумблеры, состояние и т.д.)
-    var wrapper = document.createElement('div');
-    wrapper.id = '_sc_'+origEl.id;
-    wrapper.style.cssText='padding:2px 8px;';
+    // Рендерим независимую кнопку в панели, которая проксирует клик на оригинал
+    // Оригинал остаётся скрытым в DOM — React продолжает им управлять
+    var row = document.createElement('div');
+    row.id = '_sc_'+origEl.id;
+    row.style.cssText='display:flex;align-items:center;gap:10px;padding:0 12px;height:44px;cursor:pointer;transition:background 0.12s;';
+    row.addEventListener('mouseenter',function(){row.style.background='rgba(255,255,255,0.06)';});
+    row.addEventListener('mouseleave',function(){row.style.background='';});
 
-    // Убираем display:none с оригинала и показываем его в панели
-    origEl.style.removeProperty('display');
-    origEl.style.setProperty('width','100%','important');
+    // Иконка — берём из оригинала
+    var icoSrc = origEl.querySelector('div[style*="border-radius:8px"],div[style*="border-radius: 8px"],.LinksGroup_themeIcon__E9SRO,.mantine-ThemeIcon-root');
+    if(icoSrc){
+        var icoClone = icoSrc.cloneNode(true);
+        icoClone.style.cssText='width:28px;height:28px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
+        row.appendChild(icoClone);
+    }
 
-    wrapper.appendChild(origEl);
-    _panelInner.appendChild(wrapper);
+    // Лейбл
+    var lbl = document.createElement('span');
+    lbl.style.cssText='font-size:13px;color:rgba(255,255,255,0.85);font-weight:500;flex:1;white-space:nowrap;';
+    var lblSrc = origEl.querySelector('.mantine-NavLink-label,.m_1f6ac4c4');
+    lbl.textContent = lblSrc ? lblSrc.textContent.trim() : (origEl.title || origEl.id);
+    row.appendChild(lbl);
+
+    // Тумблер — если в оригинале есть input[type=checkbox] или role=switch
+    var toggle = origEl.querySelector('input[type="checkbox"],[role="switch"]');
+    if(toggle){
+        // Создаём визуальный тумблер который синхронизирован с оригиналом
+        var tw = document.createElement('div');
+        tw.style.cssText='width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,0.2);flex-shrink:0;position:relative;transition:background 0.2s;cursor:pointer;';
+        var th = document.createElement('div');
+        th.style.cssText='position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 0.2s;';
+        tw.appendChild(th);
+        row.appendChild(tw);
+
+        function syncToggle(){
+            var checked = toggle.checked || toggle.getAttribute('aria-checked')==='true' || toggle.getAttribute('data-checked')!==null;
+            tw.style.background = checked ? '#cc0001' : 'rgba(255,255,255,0.2)';
+            th.style.transform = checked ? 'translateX(16px)' : 'translateX(0)';
+        }
+        syncToggle();
+        // Синхронизируем каждые 300мс
+        setInterval(syncToggle, 300);
+
+        tw.addEventListener('click',function(e){
+            e.stopPropagation();
+            // Кликаем оригинальный тумблер
+            var origToggle = document.getElementById(origEl.id);
+            if(origToggle){
+                var t = origToggle.querySelector('input[type="checkbox"],[role="switch"]');
+                if(t) t.click();
+                else origToggle.click();
+            }
+            setTimeout(syncToggle, 100);
+        });
+        // Клик по строке тоже переключает
+        row.addEventListener('click',function(e){
+            if(e.target===tw||tw.contains(e.target)) return; // уже обработано
+            var origToggle = document.getElementById(origEl.id);
+            if(origToggle){
+                var t = origToggle.querySelector('input[type="checkbox"],[role="switch"]');
+                if(t) t.click();
+                else origToggle.click();
+            }
+            setTimeout(syncToggle, 100);
+        });
+    } else {
+        // Обычная кнопка — просто кликаем оригинал
+        row.addEventListener('click',function(e){
+            e.stopPropagation();
+            var orig = document.getElementById(origEl.id);
+            if(orig) orig.click();
+        });
+    }
+
+    _panelInner.appendChild(row);
 }
 
 // ── Строим панель ─────────────────────────────────────────
@@ -63,12 +128,12 @@ function buildPanel(){
         'position:fixed',
         'left:280px',
         'bottom:0',
-        'width:230px',
-        'background:#1e1f24',
+        'width:260px',
+        'background:var(--mantine-color-body,#1a1b2e)',
         'border:1px solid rgba(255,255,255,0.08)',
-        'border-left:3px solid #cc0001',
+        'border-left:2px solid rgba(255,255,255,0.1)',
         'border-radius:0 10px 10px 0',
-        'box-shadow:4px 0 24px rgba(0,0,0,0.55)',
+        'box-shadow:6px 0 24px rgba(0,0,0,0.6)',
         'z-index:9998',
         'display:none',
         'flex-direction:column',
@@ -77,19 +142,19 @@ function buildPanel(){
     ].join(';');
 
     var hdr = document.createElement('div');
-    hdr.style.cssText='padding:10px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;';
+    hdr.style.cssText='padding:8px 14px 6px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;';
     var hIco = document.createElement('span');
-    hIco.style.cssText='color:rgba(255,255,255,0.35);line-height:0;';
+    hIco.style.cssText='color:rgba(255,255,255,0.3);line-height:0;';
     hIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>';
     var hTxt = document.createElement('span');
-    hTxt.style.cssText='font-size:11px;font-weight:700;color:rgba(255,255,255,0.3);letter-spacing:1px;text-transform:uppercase;';
+    hTxt.style.cssText='font-size:10px;font-weight:700;color:rgba(255,255,255,0.25);letter-spacing:1.2px;text-transform:uppercase;';
     hTxt.textContent='Настройки';
     hdr.appendChild(hIco); hdr.appendChild(hTxt);
     _panel.appendChild(hdr);
 
     _panelInner = document.createElement('div');
     _panelInner.id = 'godji-settings-inner';
-    _panelInner.style.cssText='display:flex;flex-direction:column;padding:6px 0;';
+    _panelInner.style.cssText='display:flex;flex-direction:column;padding:4px 0;';
     _panel.appendChild(_panelInner);
 
     document.body.appendChild(_panel);
