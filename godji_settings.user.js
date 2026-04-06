@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Настройки
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_settings.user.js
@@ -29,61 +29,29 @@ function processButtons(){
     MOVED_IDS.forEach(function(id){
         var el = document.getElementById(id);
         if(!el) return;
-        // Скрываем оригинал
-        el.style.setProperty('display','none','important');
-        // Добавляем в панель если ещё нет
-        if(_panelInner && !document.getElementById('_sc_'+id)){
-            addToPanel(el);
-        }
+        // Если элемент уже в панели — ничего не делаем
+        if(document.getElementById('_sc_'+id)) return;
+        // Переносим живой элемент в панель
+        if(_panelInner) addToPanel(el);
     });
-}
-
-function getLabelText(el){
-    var lbl = el.querySelector('.mantine-NavLink-label,.m_1f6ac4c4');
-    if(lbl) return lbl.textContent.trim();
-    return el.title || el.textContent.trim() || el.id;
-}
-
-function getIconEl(el){
-    var ico = el.querySelector('div[style*="border-radius:8px"],div[style*="border-radius: 8px"]');
-    if(ico) return ico.cloneNode(true);
-    var svg = el.querySelector('svg');
-    if(svg){
-        var w = document.createElement('div');
-        w.style.cssText='width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-        w.appendChild(svg.cloneNode(true));
-        return w;
-    }
-    return null;
 }
 
 function addToPanel(origEl){
     if(!_panelInner) return;
     if(document.getElementById('_sc_'+origEl.id)) return;
 
-    var row = document.createElement('div');
-    row.id = '_sc_'+origEl.id;
-    row.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 14px 8px 12px;cursor:pointer;transition:background 0.12s;';
-    row.addEventListener('mouseenter',function(){row.style.background='rgba(255,255,255,0.06)';});
-    row.addEventListener('mouseleave',function(){row.style.background='';});
+    // Вставляем ЖИВОЙ оригинальный элемент в панель, а не клон
+    // Это сохраняет все React-обработчики (тумблеры, состояние и т.д.)
+    var wrapper = document.createElement('div');
+    wrapper.id = '_sc_'+origEl.id;
+    wrapper.style.cssText='padding:2px 8px;';
 
-    var ico = getIconEl(origEl);
-    if(ico){
-        ico.style.cssText='width:28px;height:28px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
-        row.appendChild(ico);
-    }
+    // Убираем display:none с оригинала и показываем его в панели
+    origEl.style.removeProperty('display');
+    origEl.style.setProperty('width','100%','important');
 
-    var lbl = document.createElement('span');
-    lbl.style.cssText='font-size:13px;color:rgba(255,255,255,0.75);font-weight:500;flex:1;';
-    lbl.textContent = getLabelText(origEl);
-    row.appendChild(lbl);
-
-    row.addEventListener('click',function(e){
-        e.stopPropagation();
-        origEl.click();
-    });
-
-    _panelInner.appendChild(row);
+    wrapper.appendChild(origEl);
+    _panelInner.appendChild(wrapper);
 }
 
 // ── Строим панель ─────────────────────────────────────────
