@@ -111,7 +111,7 @@
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
         return gql(
-            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { success } }',
+            'mutation StartSession($clientId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $clientId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { __typename } }',
             { clientId: clientId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID,
               sessionStart: now.toISOString(), sessionEnd: end.toISOString() },
             'StartSession'
@@ -199,8 +199,8 @@
             var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
             throw new Error('Не удалось запустить сеанс: ' + errMsg);
         }
-        var success = startResult.data.userReservationCreate && startResult.data.userReservationCreate.success;
-        if (!success) throw new Error('Сеанс не был создан (success=false)');
+        // Если мутация вернула данные без errors — сеанс создан
+        if (!startResult.data || !startResult.data.userReservationCreate) throw new Error('Сеанс не был создан');
 
         // Шаг 4.5: получить ID только что созданного сеанса
         statusCallback('Получаем ID сеанса…');
