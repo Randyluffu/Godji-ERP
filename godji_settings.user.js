@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Настройки
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_settings.user.js
@@ -141,17 +141,26 @@ function createBtn(){
     if(document.getElementById('godji-settings-btn')) return;
     var footer = document.querySelector('.Sidebar_footer__1BA98');
     if(!footer) return;
-    footer.style.position = 'relative';
+    // Ищем кнопку "Гоголя Админ" — UnstyledButton в футере
+    var adminBtn = footer.querySelector('button.mantine-UnstyledButton-root[type="button"]');
+    if(!adminBtn) return;
+    // Оборачиваем строку в relative-контейнер
+    adminBtn.style.position = 'relative';
+    adminBtn.style.flex = '1';
+    var wrap = adminBtn.parentElement;
+    if(wrap) { wrap.style.display='flex'; wrap.style.alignItems='center'; wrap.style.gap='0'; }
+
     var btn = document.createElement('button');
     btn.id = 'godji-settings-btn';
     btn.type = 'button';
     btn.title = 'Настройки';
-    btn.style.cssText = 'position:absolute;right:10px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:7px;border:none;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.5);transition:background 0.15s,color 0.15s;z-index:200;padding:0;';
-    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>';
+    btn.style.cssText = 'width:34px;height:34px;border-radius:8px;border:none;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.5);transition:background 0.15s,color 0.15s;z-index:200;padding:0;flex-shrink:0;margin-right:8px;';
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>';
     btn.addEventListener('mouseenter',function(){ if(!_open){btn.style.background='rgba(255,255,255,0.13)';btn.style.color='rgba(255,255,255,0.85)';} });
     btn.addEventListener('mouseleave',function(){ if(!_open){btn.style.background='rgba(255,255,255,0.07)';btn.style.color='rgba(255,255,255,0.5)';} });
     btn.addEventListener('click',function(e){ e.stopPropagation(); togglePanel(); });
-    footer.appendChild(btn);
+    // Вставляем кнопку ПЕРЕД кнопкой "Гоголя Админ" в том же контейнере
+    footer.insertBefore(btn, adminBtn.parentElement || adminBtn);
 }
 
 window.addEventListener('resize', alignPanel);
