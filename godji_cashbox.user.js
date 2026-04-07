@@ -198,9 +198,9 @@ function processWalletOps(ops){
 }
 
 // ── Напоминание о закрытии смены (21:00 и 09:00) ─────────
-// Мигаем кнопкой в сайдбаре, не показываем всплывашки
 var _reminderActive = false;
 var _reminderInterval = null;
+var _shiftPopupShown = false;
 
 function checkShiftReminder(){
     var h = new Date().getHours();
@@ -215,6 +215,35 @@ function checkShiftReminder(){
         _reminderActive = false;
         stopBtnPulse();
     }
+
+    // Всплывашка если смена не открыта в рабочее время
+    var isWorkTime = (h >= 9 && h <= 20) || (h >= 21 || h <= 8);
+    if(!shift && isWorkTime && !_shiftPopupShown){
+        _shiftPopupShown = true;
+        showShiftOpenPopup();
+    }
+    if(shift && _shiftPopupShown) _shiftPopupShown = false;
+}
+
+function showShiftOpenPopup(){
+    if(document.getElementById('gcb-open-popup')) return;
+    var pop = document.createElement('div');
+    pop.id = 'gcb-open-popup';
+    pop.style.cssText = 'position:fixed;bottom:80px;left:290px;z-index:99999;background:#1a1b2e;border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:16px 20px;width:260px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:inherit;';
+    pop.innerHTML =
+        '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px;">⚠️ Смена не открыта</div>'+
+        '<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:14px;">Откройте смену чтобы начать учёт кассы</div>'+
+        '<div style="display:flex;gap:8px;">'+
+        '<button id="gcb-pop-open" style="flex:1;padding:8px;background:#166534;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Открыть смену</button>'+
+        '<button id="gcb-pop-close" style="padding:8px 12px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);border:none;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit;">✕</button>'+
+        '</div>';
+    document.body.appendChild(pop);
+    document.getElementById('gcb-pop-open').addEventListener('click', function(){
+        openShiftManual(); pop.remove(); updateBtnBadge(); updateModalIfOpen();
+    });
+    document.getElementById('gcb-pop-close').addEventListener('click', function(){ pop.remove(); });
+    // Автоскрытие через 30 сек
+    setTimeout(function(){ if(pop.parentNode) pop.remove(); }, 30000);
 }
 
 function startBtnPulse(){
@@ -650,6 +679,7 @@ function showShiftDetail(s){
     });
     box.appendChild(grid);
     box.appendChild(grid2);
+    var tw=document.createElement('div');
     tw.style.cssText='overflow-y:auto;flex:1;min-height:0;padding:12px 20px;';
     var entries=s.manualEntries||[];
     if(entries.length){
@@ -693,6 +723,8 @@ function updateBtnBadge(){
     var shift=loadCurrent();
     var dot=btn.querySelector('.gcb-dot');
     if(dot) dot.style.background=shift?'#22c55e':'#ef4444';
+    var icoEl=btn.querySelector('.LinksGroup_themeIcon__E9SRO');
+    if(icoEl) icoEl.style.background=shift?'#166534':'#991b1b';
     var sumEl=btn.querySelector('.gcb-sum');
     if(sumEl){
         if(shift){
