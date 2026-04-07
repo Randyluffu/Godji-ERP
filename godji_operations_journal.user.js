@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -22,6 +22,39 @@ var _authToken  = null;
 var _hasuraRole = 'club_admin';
 var _lastMaxId  = null;  // последний виденный ID из wallet_operations
 var _seenIds    = {};    // быстрая проверка дублей
+
+// ── Кэш userId → ник ─────────────────────────────────────
+var _nickCache = {}; // userId → nickname
+
+function enrichNicks(ops){
+    // Собираем уникальные userId у которых нет ника в кэше
+    var missing = [];
+    ops.forEach(function(op){
+        if(op.user_id && !_nickCache[op.user_id]) missing.push(op.user_id);
+    });
+    if(!missing.length) return Promise.resolve();
+
+    var auth = getAuth();
+    if(!auth) return Promise.resolve();
+
+    // Hasura: ищем по user_id в users или users_user_profile
+    var gql = 'query GojNicks($ids:[String!]!){users_user_profile(where:{user_id:{_in:$ids}}){user_id login}}';
+    return fetch('https://hasura.godji.cloud/v1/graphql',{
+        method:'POST',
+        headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
+        body:JSON.stringify({operationName:'GojNicks',variables:{ids:missing},query:gql})
+    }).then(function(r){return r.json();}).then(function(data){
+        var rows = data&&data.data&&data.data.users_user_profile;
+        if(!rows) return;
+        rows.forEach(function(r){ if(r.user_id&&r.login) _nickCache[r.user_id]=r.login; });
+    }).catch(function(){});
+}
+
+function getNick(userId){
+    if(!userId) return '';
+    return _nickCache[userId] || '';
+}
+
 
 // ── Перехват токена (через inline script как касса) ───────
 (function(){
@@ -90,7 +123,6 @@ function addEntry(entry){
     journal=journal.filter(function(r){return r.ts>cutoff;});
     saveJournal(journal);
     updateModalIfVisible();
-    updateBadge();
 }
 
 // ── Определение типа операции по digest.name ─────────────
@@ -174,30 +206,34 @@ function fetchNewOps(){
         var ops=data&&data.data&&data.data.wallet_operations;
         if(!ops||!ops.length) return;
 
-        ops.forEach(function(op){
-            if(op.id>_lastMaxId) _lastMaxId=op.id;
-
-            var cls=classifyOp(op);
-            var isSusp=checkSuspicious(op,op.user_id);
-
-            addEntry({
-                opId: op.id,
-                id: 'op'+op.id,
-                ts: new Date(op.created_at).getTime(),
-                type: isSusp ? 'suspicious' : cls.type,
-                icon: isSusp ? '⚠️' : cls.icon,
-                label: isSusp ? 'Подозрительная операция' : cls.label,
-                color: isSusp ? '#b45309' : cls.color,
-                bg: isSusp ? '#fef3c7' : cls.bg,
-                amount: formatAmt(op.amount),
-                comment: cls.desc||'',
-                extra: cls.resId ? 'Сеанс #'+cls.resId : ('ОП #'+op.id),
-                suspicious: isSusp,
-                origType: cls.type,
-                origLabel: cls.label
+        // Сначала обогащаем ники, потом добавляем записи
+        enrichNicks(ops).then(function(){
+            ops.forEach(function(op){
+                if(op.id>_lastMaxId) _lastMaxId=op.id;
+                var cls=classifyOp(op);
+                // Возврат бонусов при завершении сеанса — НЕ подозрительно
+                var isRefund = cls.type === 'refund_bonus';
+                var isSusp = !isRefund && checkSuspicious(op,op.user_id);
+                var nick = getNick(op.user_id);
+                addEntry({
+                    opId: op.id,
+                    id: 'op'+op.id,
+                    ts: new Date(op.created_at).getTime(),
+                    type: isSusp ? 'suspicious' : cls.type,
+                    icon: isSusp ? '⚠️' : cls.icon,
+                    label: isSusp ? 'Подозрительная операция' : cls.label,
+                    color: isSusp ? '#b45309' : cls.color,
+                    bg: isSusp ? '#fef3c7' : cls.bg,
+                    amount: formatAmt(op.amount),
+                    comment: cls.desc||'',
+                    extra: cls.resId ? 'Сеанс #'+cls.resId : ('ОП #'+op.id),
+                    nick: nick,
+                    suspicious: isSusp,
+                    origType: cls.type,
+                    origLabel: cls.label
+                });
+                // toast убран
             });
-
-            if(isSusp) showSuspiciousToast();
         });
     }).catch(function(){});
 }
@@ -387,7 +423,7 @@ function renderModal(){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Время','110px'],['Тип','220px'],['ID / Сеанс','110px'],['Сумма','90px'],['Комментарий','auto']].forEach(function(c){
+    [['Время','90px'],['Тип','200px'],['Ник','110px'],['Сеанс / ОП','100px'],['Сумма','85px'],['Комментарий','auto']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 14px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #efefef;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -446,7 +482,23 @@ function renderModal(){
             tdCmt.appendChild(safeTag);
         }
 
-        tr.appendChild(tdDate); tr.appendChild(tdType); tr.appendChild(tdExtra);
+        var tdNick = document.createElement('td');
+        tdNick.style.cssText = 'padding:9px 14px;font-size:12px;white-space:nowrap;';
+        if(rec.nick){
+            var nickA = document.createElement('a');
+            nickA.href = 'javascript:void(0)';
+            nickA.style.cssText = 'color:#60a5fa;font-size:12px;text-decoration:none;font-weight:600;';
+            nickA.textContent = '@'+rec.nick;
+            nickA.addEventListener('click',function(e){
+                e.preventDefault();
+                var inp = document.querySelector('input[placeholder*="оиск"],input[placeholder*="ик клиента"]');
+                if(inp){ inp.value=rec.nick; inp.dispatchEvent(new Event('input',{bubbles:true})); }
+            });
+            tdNick.appendChild(nickA);
+        } else {
+            tdNick.innerHTML = '<span style="color:rgba(255,255,255,0.15);">—</span>';
+        }
+        tr.appendChild(tdDate); tr.appendChild(tdType); tr.appendChild(tdNick); tr.appendChild(tdExtra);
         tr.appendChild(tdAmt); tr.appendChild(tdCmt);
         tbody.appendChild(tr);
     });
@@ -467,12 +519,7 @@ function updateModalIfVisible(){ if(_visible) renderModal(); }
 
 // ── Бейдж ─────────────────────────────────────────────────
 var _lastSeenCount=0;
-function updateBadge(){
-    var badge=document.getElementById('goj-sidebar-badge');
-    if(!badge) return;
-    var journal=loadJournal();
-    var safeIds=loadSafeIds();
-    var suspCount=journal.filter(function(r){return r.suspicious&&safeIds.indexOf(r.id)===-1;}).length;
+function updateBadge(){}).length;
     var newCount=journal.length-_lastSeenCount;
     if(suspCount>0){
         badge.textContent='⚠️ '+suspCount;
@@ -535,11 +582,8 @@ function createSidebarBtn(){
     lbl.textContent='История операций';
 
     var badge=document.createElement('span');
-    badge.id='goj-sidebar-badge';
-    badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;';
-
     bodyDiv.appendChild(lbl);
-    btn.appendChild(ico); btn.appendChild(bodyDiv); btn.appendChild(badge);
+    btn.appendChild(ico); btn.appendChild(bodyDiv);
     btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.05)';});
     btn.addEventListener('mouseleave',function(){btn.style.background='';});
     btn.addEventListener('click',function(e){
@@ -547,8 +591,11 @@ function createSidebarBtn(){
         if(_visible) hideModal(); else showModal();
     });
 
-    footer.insertBefore(btn,divider);
-    updateBadge();
+    // История операций должна быть ВЫШЕ истории сеансов
+    // Если кнопка сеансов уже есть — вставляем перед ней, иначе перед divider
+    var sessBtn = footer.querySelector('#godji-history-btn');
+    var anchor = sessBtn || divider;
+    footer.insertBefore(btn, anchor);
 }
 
 function tryCreateSidebarBtn(){
