@@ -81,11 +81,18 @@ function markSafe(entryId){
 function addEntry(entry){
     if(!entry.id) entry.id='e'+Date.now()+Math.random();
     if(!entry.ts) entry.ts=Date.now();
-    if(_seenIds[entry.opId]) return; // дубль по opId
-    if(entry.opId) _seenIds[entry.opId]=true;
 
     var journal=loadJournal();
-    journal.unshift(entry);
+    // Дедупликация: проверяем и в памяти и в журнале
+    if(entry.opId){
+        if(_seenIds[entry.opId]) return;
+        if(journal.some(function(r){return r.opId===entry.opId;})) {
+            _seenIds[entry.opId]=true; return;
+        }
+        _seenIds[entry.opId]=true;
+    }
+
+    journal.push(entry); // push в конец — новые внизу
     var cutoff=Date.now()-MAX_DAYS*86400000;
     journal=journal.filter(function(r){return r.ts>cutoff;});
     saveJournal(journal);
@@ -105,28 +112,37 @@ function classifyOp(op){
 
     if(nl.indexOf('пополнение наличными')!==-1){
         type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
-    } else if(nl.indexOf('пополнение по карте')!==-1||nl.indexOf('пополнение картой')!==-1||(op.money_type==='non_cash'&&nl.indexOf('пополнение')!==-1&&!resId&&amt>0&&nl.indexOf('бонус')===-1)){
+    } else if(nl.indexOf('пополнение по карте')!==-1||nl.indexOf('пополнение картой')!==-1||
+              (nl.indexOf('пополнение')!==-1&&op.money_type==='non_cash'&&amt>0&&!resId&&nl.indexOf('бонус')===-1)){
         type='deposit_card'; icon='💳'; label='Пополнение по карте'; color='#1d4ed8'; bg='#dbeafe';
     } else if(nl.indexOf('пополнение бонусов')!==-1||nl.indexOf('начисление бонусов')!==-1){
         type='deposit_bonus'; icon='🎁'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
-    } else if(nl.indexOf('возврат бонусов')!==-1||nl.indexOf('возврат стоимости')!==-1){
+    } else if(nl.indexOf('возврат бонусов')!==-1||nl.indexOf('возврат стоимости')!==-1||nl.indexOf('возврат')!==-1){
+        // Возврат бонусов при завершении — НЕ подозрительно, это стандарт
         type='refund_bonus'; icon='↩️'; label='Возврат бонусов'; color='#0369a1'; bg='#e0f2fe';
     } else if(nl.indexOf('бесплатное время')!==-1||nl.indexOf('бесплатн')!==-1){
         type='free_time'; icon='⌛'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
-    } else if(nl.indexOf('списание бонусов за продление')!==-1){
+    } else if(nl.indexOf('продление')!==-1||nl.indexOf('prolongat')!==-1){
         type='session_prolong'; icon='⏩'; label='Продление сеанса'; color='#3355cc'; bg='#e8f0ff';
-    } else if(nl.indexOf('списание за бронирование')!==-1||nl.indexOf('списание за сессию')!==-1){
+    } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1&&!nl.indexOf('продлен'))){
         type='session_start'; icon='▶️'; label='Запуск сеанса'; color='#0066cc'; bg='#e0f0ff';
-    } else if(nl.indexOf('списание бонусов')!==-1&&amt<0){
-        type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
-    } else if((nl.indexOf('списание')!==-1||nl.indexOf('withdraw')!==-1)&&op.money_type==='cash'){
+    } else if(nl.indexOf('пересадка')!==-1||nl.indexOf('перевод')!==-1){
+        type='session_transfer'; icon='🔀'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
+    } else if(nl.indexOf('завершени')!==-1&&nl.indexOf('сессии')!==-1){
+        type='session_finish'; icon='⏹️'; label='Завершение сеанса'; color='#cc2200'; bg='#fde8e8';
+    } else if(nl.indexOf('наш скрипт')!==-1||nl.indexOf('списание с баланса')!==-1||
+              (op.money_type==='cash'&&op.operation_type==='withdraw')){
         type='debit_money'; icon='➖💵'; label='Списание с баланса'; color='#991b1b'; bg='#fee2e2';
-    } else if(amt<0&&op.operation_type==='withdraw'){
-        type='debit_bonus'; icon='➖'; label='Списание'; color='#7c3aed'; bg='#ede9fe';
+    } else if(op.operation_type==='withdraw'&&op.money_type==='non_cash'&&!resId){
+        // Списание бонусов вручную (не за сессию)
+        type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
+    } else if(op.operation_type==='withdraw'&&resId){
+        // Любое списание за сессию — относим к сессии
+        type='session_prolong'; icon='⏩'; label='Продление сеанса'; color='#3355cc'; bg='#e8f0ff';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='cash'){
         type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='non_cash'){
-        type='deposit_bonus'; icon='🎁'; label='Пополнение бонусами'; color='#c87800'; bg='#fff4e0';
+        type='deposit_bonus'; icon='🎁'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
     } else {
         type='other'; icon='•'; label=name||'Операция'; color='#555'; bg='#f5f5f5';
     }
@@ -138,29 +154,30 @@ function classifyOp(op){
 // ── Детектор подозрительных ───────────────────────────────
 var _recentByWallet={};
 
-function checkSuspicious(op, userId){
+function checkSuspicious(op, userId, cls){
     var amt=op.amount;
     if(!amt||amt<=0||op.operation_type!=='deposit') return false;
+    // Не считаем подозрительными: возврат бонусов, бесплатное время, пополнение бонусами за сессию
+    if(cls.type==='refund_bonus'||cls.type==='free_time') return false;
+    if(cls.type==='deposit_bonus'&&op.wallet_operation_digest&&op.wallet_operation_digest.reservation_id) return false;
+    // Только реальные пополнения (наличные/карта)
+    if(cls.type!=='deposit_cash'&&cls.type!=='deposit_card') return false;
 
     var key=userId+'_'+Math.round(amt*100);
     var now=Date.now();
     var opTime=new Date(op.created_at).getTime();
 
     if(!_recentByWallet[key]) _recentByWallet[key]=[];
-    // Чистим старше 15 сек
     _recentByWallet[key]=_recentByWallet[key].filter(function(t){return opTime-t<15000;});
 
     var count=_recentByWallet[key].length;
     _recentByWallet[key].push(opTime);
 
-    if(count>=1){
-        return true; // уже была такая же операция за 15 сек
-    }
-    return false;
+    return count>=1;
 }
 
 // ── GQL запрос ────────────────────────────────────────────
-var GQL_OPS = 'query GojOps($since:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$since},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id amount money_type operation_type created_at user_id wallet_operation_digest{name description reservation_id}}}';
+var GQL_OPS = 'query GojOps($since:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$since},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}} wallet_operation_digest{name description reservation_id}}}';
 
 function fetchNewOps(){
     var auth=getAuth();
@@ -178,7 +195,16 @@ function fetchNewOps(){
             if(op.id>_lastMaxId) _lastMaxId=op.id;
 
             var cls=classifyOp(op);
-            var isSusp=checkSuspicious(op,op.user_id);
+            var isSusp=checkSuspicious(op,op.user_id,cls);
+
+            // Формируем строку клиента
+            var userInfo = '';
+            if(op.user && op.user.users_user_profile){
+                var p=op.user.users_user_profile;
+                var nick=p.login||'';
+                var name2=(p.name||'')+(p.surname?' '+p.surname:'');
+                userInfo = nick ? '@'+nick : name2;
+            }
 
             addEntry({
                 opId: op.id,
@@ -186,15 +212,19 @@ function fetchNewOps(){
                 ts: new Date(op.created_at).getTime(),
                 type: isSusp ? 'suspicious' : cls.type,
                 icon: isSusp ? '⚠️' : cls.icon,
-                label: isSusp ? 'Подозрительная операция' : cls.label,
+                label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
                 color: isSusp ? '#b45309' : cls.color,
                 bg: isSusp ? '#fef3c7' : cls.bg,
                 amount: formatAmt(op.amount),
                 comment: cls.desc||'',
                 extra: cls.resId ? 'Сеанс #'+cls.resId : ('ОП #'+op.id),
+                client: userInfo,
                 suspicious: isSusp,
                 origType: cls.type,
-                origLabel: cls.label
+                origLabel: cls.label,
+                origIcon: cls.icon,
+                origColor: cls.color,
+                origBg: cls.bg
             });
 
             if(isSusp) showSuspiciousToast();
@@ -220,9 +250,13 @@ function initLastId(){
         } else {
             _lastMaxId=0;
         }
-        // Загружаем также seenIds из уже существующего журнала
+        // Загружаем seenIds из существующего журнала чтобы не дублировать
         var journal=loadJournal();
         journal.forEach(function(e){ if(e.opId) _seenIds[e.opId]=true; });
+        // Также обновляем _lastMaxId если в журнале есть более свежие записи
+        journal.forEach(function(e){
+            if(e.opId && typeof e.opId==='number' && e.opId>_lastMaxId) _lastMaxId=e.opId;
+        });
         // Запускаем polling
         setInterval(fetchNewOps, POLL_MS);
     }).catch(function(){
@@ -381,13 +415,15 @@ function renderModal(){
         body.innerHTML='<div style="text-align:center;color:#aaa;padding:50px;font-size:14px;">Нет операций</div>';
         return;
     }
+    // Сортируем от старых к новым (новые внизу)
+    filtered=filtered.slice().reverse();
 
     var table=document.createElement('table');
     table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;';
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Время','110px'],['Тип','220px'],['ID / Сеанс','110px'],['Сумма','90px'],['Комментарий','auto']].forEach(function(c){
+    [['Время','100px'],['Тип','200px'],['Клиент','110px'],['ID / Сеанс','100px'],['Сумма','80px'],['Комментарий','auto']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 14px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #efefef;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -437,7 +473,23 @@ function renderModal(){
             var safeBtn=document.createElement('button');
             safeBtn.style.cssText='margin-left:8px;background:#dcfce7;border:none;color:#166534;font-size:11px;cursor:pointer;padding:2px 7px;border-radius:4px;font-family:inherit;font-weight:600;';
             safeBtn.textContent='✓ Безопасно';
-            safeBtn.addEventListener('click',function(ev){ev.stopPropagation();markSafe(rec.id);renderModal();updateBadge();});
+            safeBtn.addEventListener('click',function(ev){
+                ev.stopPropagation();
+                markSafe(rec.id);
+                // Откатываем тип к оригинальному
+                var journal=loadJournal();
+                var idx=journal.findIndex(function(r){return r.id===rec.id;});
+                if(idx!==-1&&rec.origType){
+                    journal[idx].type=rec.origType;
+                    journal[idx].label=rec.origLabel||rec.origType;
+                    journal[idx].icon=rec.origIcon||'•';
+                    journal[idx].color=rec.origColor||'#555';
+                    journal[idx].bg=rec.origBg||'#f5f5f5';
+                    journal[idx].suspicious=false;
+                    saveJournal(journal);
+                }
+                renderModal();updateBadge();
+            });
             tdCmt.appendChild(safeBtn);
         } else if(isSafe&&rec.suspicious){
             var safeTag=document.createElement('span');
@@ -446,11 +498,18 @@ function renderModal(){
             tdCmt.appendChild(safeTag);
         }
 
-        tr.appendChild(tdDate); tr.appendChild(tdType); tr.appendChild(tdExtra);
-        tr.appendChild(tdAmt); tr.appendChild(tdCmt);
+        var tdClient=document.createElement('td');
+        tdClient.style.cssText='padding:9px 14px;color:#555;font-size:12px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis;';
+        tdClient.textContent=rec.client||'—';
+        if(!rec.client) tdClient.style.color='#ccc';
+
+        tr.appendChild(tdDate); tr.appendChild(tdType); tr.appendChild(tdClient);
+        tr.appendChild(tdExtra); tr.appendChild(tdAmt); tr.appendChild(tdCmt);
         tbody.appendChild(tr);
     });
     table.appendChild(tbody); body.appendChild(table);
+    // Автоскролл вниз (новые операции внизу)
+    setTimeout(function(){ body.scrollTop=body.scrollHeight; },10);
 }
 
 function showModal(){
@@ -473,14 +532,9 @@ function updateBadge(){
     var journal=loadJournal();
     var safeIds=loadSafeIds();
     var suspCount=journal.filter(function(r){return r.suspicious&&safeIds.indexOf(r.id)===-1;}).length;
-    var newCount=journal.length-_lastSeenCount;
     if(suspCount>0){
         badge.textContent='⚠️ '+suspCount;
         badge.style.background='#b45309';
-        badge.style.display='';
-    } else if(newCount>0&&!_visible){
-        badge.textContent='+'+newCount;
-        badge.style.background='#cc0001';
         badge.style.display='';
     } else {
         badge.style.display='none';
@@ -540,11 +594,12 @@ function createSidebarBtn(){
 
     bodyDiv.appendChild(lbl);
     btn.appendChild(ico); btn.appendChild(bodyDiv); btn.appendChild(badge);
-    btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.05)';});
-    btn.addEventListener('mouseleave',function(){btn.style.background='';});
+    btn.addEventListener('mouseenter',function(){if(!_visible)btn.style.background='rgba(255,255,255,0.05)';});
+    btn.addEventListener('mouseleave',function(){if(!_visible)btn.style.background='';});
     btn.addEventListener('click',function(e){
         e.stopPropagation();
-        if(_visible) hideModal(); else showModal();
+        if(_visible){hideModal();btn.style.background='';}
+        else{showModal();btn.style.background='rgba(255,255,255,0.1)';}
     });
 
     footer.insertBefore(btn,divider);
