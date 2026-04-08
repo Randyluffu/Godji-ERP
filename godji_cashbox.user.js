@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -119,10 +119,12 @@ function onApi(reqBody, data){
        op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
         if(!loadCurrent()){
             var s2 = d.openShift || d.createShift || d.startShift || {};
-            _lastChecked = Date.now(); // сбрасываем — считаем с этого момента
-            saveCurrent({id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
+            var newShift={id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
                          cash:0, card:0, manual:0, withdrawal:0, manualEntries:[],
-                         seenOpIds:[]});
+                         seenOpIds:[]};
+            saveCurrent(newShift);
+            // Инициализируем maxSeenId
+            initMaxId(newShift, function(){ saveCurrent(newShift); });
             updateBtnBadge(); updateModalIfOpen();
         }
     }
@@ -135,27 +137,49 @@ function onApi(reqBody, data){
 }
 
 // ── Запрос новых операций ─────────────────────────────────
-var GQL_OPS = 'query GCBOps($since:timestamptz!,$clubId:Int!){wallet_operations(where:{created_at:{_gte:$since},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}}){id money_type amount created_at}}';
+// Запрос по ID — надёжнее чем по времени (нет пропусков)
+var GQL_OPS = 'query GCBOps($sinceId:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$sinceId},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}},order_by:{id:asc},limit:100){id money_type amount created_at wallet_operation_digest{name}}}';
+
+// Инициализация — найти максимальный id на момент открытия смены
+function initMaxId(shift, cb){
+    if(!_authToken){ setTimeout(function(){ initMaxId(shift, cb); }, 1000); return; }
+    // Берём максимальный id из seenOpIds если есть
+    if(shift.seenOpIds && shift.seenOpIds.length > 0){
+        shift._maxSeenId = Math.max.apply(null, shift.seenOpIds);
+        cb(); return;
+    }
+    // Иначе запрашиваем последний id до момента открытия смены
+    var openedAt = new Date(shift.openedAt).toISOString();
+    window.fetch('https://hasura.godji.cloud/v1/graphql', {
+        method: 'POST',
+        headers: { 'authorization': _authToken, 'content-type': 'application/json', 'x-hasura-role': _hasuraRole },
+        body: JSON.stringify({
+            operationName: 'GCBInit',
+            query: 'query GCBInit($clubId:Int!,$before:timestamptz!){wallet_operations(where:{club_id:{_eq:$clubId},created_at:{_lte:$before}},order_by:{id:desc},limit:1){id}}',
+            variables: { clubId: 14, before: openedAt }
+        })
+    }).then(function(r){ return r.json(); }).then(function(data){
+        var ops = data && data.data && data.data.wallet_operations;
+        shift._maxSeenId = ops && ops.length > 0 ? ops[0].id : 0;
+        cb();
+    }).catch(function(){ shift._maxSeenId = 0; cb(); });
+}
 
 function fetchLatestOps(){
     if(!_authToken) return;
     var shift = loadCurrent();
     if(!shift) return;
-    // since = максимум из: момент открытия смены и время последней проверки
-    // Это гарантирует что мы не тащим исторические данные
-    var sinceTs = Math.max(shift.openedAt, _lastChecked - 2000); // -2сек на случай задержки
-    var since = new Date(sinceTs).toISOString();
-    _lastChecked = Date.now();
+    // Если maxSeenId ещё не инициализирован — ждём
+    if(shift._maxSeenId === undefined){
+        initMaxId(shift, function(){ saveCurrent(shift); fetchLatestOps(); });
+        return;
+    }
     window.fetch('https://hasura.godji.cloud/v1/graphql', {
         method: 'POST',
-        headers: {
-            'authorization': _authToken,
-            'content-type': 'application/json',
-            'x-hasura-role': _hasuraRole
-        },
+        headers: { 'authorization': _authToken, 'content-type': 'application/json', 'x-hasura-role': _hasuraRole },
         body: JSON.stringify({
             operationName: 'GCBOps',
-            variables: { since: since, clubId: 14 },
+            variables: { sinceId: shift._maxSeenId, clubId: 14 },
             query: GQL_OPS
         })
     }).then(function(r){ return r.json(); })
@@ -166,20 +190,44 @@ function fetchLatestOps(){
     }).catch(function(){});
 }
 
-// Polling каждые 15 сек
-setInterval(fetchLatestOps, 15000);
+// Polling каждые 10 сек
+setInterval(fetchLatestOps, 10000);
+
+// Возвраты которые ERP делает автоматически — не считаем как пополнения кассы
+var REFUND_KEYWORDS = ['возврат', 'refund', 'return'];
+function isSystemRefund(op){
+    var name = (op.wallet_operation_digest && op.wallet_operation_digest.name) || '';
+    var nl = name.toLowerCase();
+    for(var i=0; i<REFUND_KEYWORDS.length; i++){
+        if(nl.indexOf(REFUND_KEYWORDS[i]) !== -1) return true;
+    }
+    return false;
+}
 
 function processWalletOps(ops){
     var shift = loadCurrent();
     if(!shift) return;
     shift.seenOpIds = shift.seenOpIds || [];
+    shift._maxSeenId = shift._maxSeenId || 0;
     var seenSet = {};
     shift.seenOpIds.forEach(function(id){ seenSet[id] = true; });
     var changed = false;
 
     ops.forEach(function(op){
+        // Обновляем максимальный ID всегда
+        if(op.id > shift._maxSeenId) shift._maxSeenId = op.id;
+
         if(op.amount <= 0) return;
         if(seenSet[op.id]) return;
+
+        // Исключаем автоматические возвраты ERP
+        if(isSystemRefund(op)){
+            seenSet[op.id] = true;
+            shift.seenOpIds.push(op.id);
+            changed = true; // обновим _maxSeenId
+            return;
+        }
+
         seenSet[op.id] = true;
         shift.seenOpIds.push(op.id);
         if(op.money_type === 'cash'){
@@ -328,8 +376,11 @@ function closeShift(shift, source){
 
 function openShiftManual(){
     if(loadCurrent()) return;
-    saveCurrent({id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'manual',
-                 cash:0,card:0,manual:0,withdrawal:0,manualEntries:[]});
+    var shift={id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'manual',
+               cash:0,card:0,manual:0,withdrawal:0,manualEntries:[],seenOpIds:[]};
+    saveCurrent(shift);
+    // Инициализируем maxSeenId чтобы не тащить историю
+    initMaxId(shift, function(){ saveCurrent(shift); });
     updateBtnBadge(); updateModalIfOpen();
 }
 
@@ -403,6 +454,169 @@ function renderModal(){
 
     if(_tab==='current') renderCurrentTab(body, shift);
     else renderHistoryTab(body);
+}
+
+
+// ── Диагностика кассы ─────────────────────────────────────
+function runCashboxDebug(){
+    var shift = loadCurrent();
+    if(!shift){ alert('Смена не открыта'); return; }
+    if(!_authToken){ alert('Нет токена авторизации. Дождитесь загрузки страницы.'); return; }
+
+    showDebugPopup('Выполняю проверку…', null, null);
+
+    // Запрашиваем все операции из seenOpIds с полными данными
+    window.fetch('https://hasura.godji.cloud/v1/graphql',{
+        method:'POST',
+        headers:{'authorization':_authToken,'content-type':'application/json','x-hasura-role':_hasuraRole},
+        body:JSON.stringify({query:'query{wallet_operations(where:{id:{_in:'+JSON.stringify(shift.seenOpIds)+'},club_id:{_eq:14}}){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}}wallet_operation_digest{name}}}'})
+    }).then(function(r){return r.json();}).then(function(data){
+        var ops = data && data.data && data.data.wallet_operations;
+        if(!ops){ showDebugPopup('Ошибка запроса', null, null); return; }
+
+        var cashOk=0, cardOk=0;
+        var suspicious=[];
+        var refunds=[];
+
+        ops.forEach(function(op){
+            var name=(op.wallet_operation_digest&&op.wallet_operation_digest.name)||'';
+            var nl=name.toLowerCase();
+            var isRef=REFUND_KEYWORDS.some(function(k){return nl.indexOf(k)!==-1;});
+            var p=op.user&&op.user.users_user_profile;
+            var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
+            var phone=op.user&&op.user.phone||'';
+
+            if(isRef){
+                refunds.push({id:op.id, amount:op.amount, nick:nick, phone:phone, name:name,
+                    ts:new Date(op.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
+                    userId:op.user_id});
+            } else if(op.amount>0&&op.operation_type==='deposit'){
+                if(op.money_type==='cash') cashOk+=op.amount;
+                else cardOk+=op.amount;
+            }
+        });
+
+        // Сравниваем с тем что в кассе
+        var cashDiff = Math.round((shift.cash||0)*100)/100 - Math.round(cashOk*100)/100;
+        var cardDiff = Math.round((shift.card||0)*100)/100 - Math.round(cardOk*100)/100;
+        var hasError = Math.abs(cashDiff)>0.5 || Math.abs(cardDiff)>0.5;
+
+        if(hasError && refunds.length>0){
+            // Вина ERP — возвраты засчитались. Исправляем автоматически
+            var fixCash=0, fixCard=0;
+            refunds.forEach(function(r){
+                // Определяем тип по оригинальной операции
+                ops.forEach(function(op){
+                    if(op.id===r.id){
+                        if(op.money_type==='cash') fixCash+=op.amount;
+                        else fixCard+=op.amount;
+                    }
+                });
+            });
+            // Вычитаем возвраты из кассы
+            if(fixCash>0||fixCard>0){
+                shift.cash=Math.max(0,(shift.cash||0)-fixCash);
+                shift.card=Math.max(0,(shift.card||0)-fixCard);
+                saveCurrent(shift);
+                updateBtnBadge(); updateModalIfOpen();
+            }
+            showDebugPopup('Обнаружены возвраты ERP — исправлено', refunds, {cashFixed:fixCash, cardFixed:fixCard, cashDiff:cashDiff, cardDiff:cardDiff});
+        } else if(hasError){
+            showDebugPopup('Расхождение (причина не в возвратах)', [], {cashDiff:cashDiff, cardDiff:cardDiff});
+        } else if(refunds.length>0){
+            showDebugPopup('Возвраты ERP в seenOpIds — они уже исключены из суммы', refunds, null);
+        } else {
+            showDebugPopup('Касса в норме. Расхождений нет.', [], null);
+        }
+    }).catch(function(e){
+        showDebugPopup('Ошибка: '+e.message, null, null);
+    });
+}
+
+function showDebugPopup(title, refunds, diff){
+    var old=document.getElementById('gcb-debug-popup');
+    if(old)old.remove();
+
+    var ov=document.createElement('div');
+    ov.id='gcb-debug-popup';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100001;display:flex;align-items:center;justify-content:center;';
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+
+    var box=document.createElement('div');
+    box.style.cssText='background:#fff;border-radius:12px;width:480px;max-width:96vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
+
+    var hdr=document.createElement('div');
+    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    var ht=document.createElement('span');
+    ht.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
+    ht.textContent='🔍 Диагностика кассы';
+    var hc=document.createElement('button');
+    hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;';
+    hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
+    hdr.appendChild(ht); hdr.appendChild(hc);
+    box.appendChild(hdr);
+
+    var body=document.createElement('div');
+    body.style.cssText='padding:16px 20px;overflow-y:auto;flex:1;';
+
+    // Статус
+    var statusEl=document.createElement('div');
+    statusEl.style.cssText='padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;'+(
+        title.indexOf('норме')!==-1?'background:#dcfce7;color:#166534;':
+        title.indexOf('исправлено')!==-1?'background:#fff4e0;color:#c87800;':
+        title.indexOf('Расхождение')!==-1?'background:#fee2e2;color:#991b1b;':
+        'background:#f0f0f0;color:#555;'
+    );
+    statusEl.textContent=title;
+    body.appendChild(statusEl);
+
+    if(diff&&(Math.abs(diff.cashDiff)>0.5||Math.abs(diff.cardDiff)>0.5)){
+        var diffEl=document.createElement('div');
+        diffEl.style.cssText='font-size:12px;color:#555;margin-bottom:10px;';
+        diffEl.innerHTML='Расхождение нал: <b>'+(diff.cashDiff>0?'+':'')+Math.round(diff.cashDiff)+'₽</b>  |  карта: <b>'+(diff.cardDiff>0?'+':'')+Math.round(diff.cardDiff)+'₽</b>';
+        if(diff.cashFixed||diff.cardFixed){
+            diffEl.innerHTML+='<br>Исправлено: нал −<b>'+Math.round(diff.cashFixed||0)+'₽</b>, карта −<b>'+Math.round(diff.cardFixed||0)+'₽</b>';
+        }
+        body.appendChild(diffEl);
+    }
+
+    if(refunds&&refunds.length>0){
+        var rtitle=document.createElement('div');
+        rtitle.style.cssText='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
+        rtitle.textContent='Автовозвраты ERP ('+refunds.length+' шт.)';
+        body.appendChild(rtitle);
+
+        refunds.forEach(function(r){
+            var row=document.createElement('div');
+            row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:12px;';
+            var l=document.createElement('span');
+            l.style.cssText='color:#555;';
+            var lk=document.createElement('a');
+            lk.href='/clients/'+r.userId;
+            lk.style.cssText='color:#0066aa;text-decoration:none;font-weight:600;';
+            lk.textContent=r.nick||r.phone||'ID:'+r.userId;
+            lk.addEventListener('mouseenter',function(){lk.style.textDecoration='underline';});
+            lk.addEventListener('mouseleave',function(){lk.style.textDecoration='none';});
+            l.appendChild(lk);
+            var sub=document.createElement('span');
+            sub.style.cssText='color:#aaa;font-size:11px;margin-left:6px;';
+            sub.textContent=r.ts+' · '+r.name.slice(0,30);
+            l.appendChild(sub);
+            var amt=document.createElement('span');
+            amt.style.cssText='font-weight:700;color:#991b1b;white-space:nowrap;';
+            amt.textContent='+'+Math.round(r.amount)+'₽';
+            row.appendChild(l); row.appendChild(amt);
+            body.appendChild(row);
+        });
+    }
+
+    box.appendChild(body);
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+
+    document.addEventListener('keydown',function eh(e){
+        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}
+    });
 }
 
 // ── Текущая смена ─────────────────────────────────────────
@@ -572,7 +786,7 @@ function renderCurrentTab(body, shift){
 
     // Кнопка закрытия смены
     var actions=document.createElement('div');
-    actions.style.cssText='padding:0 20px 20px;';
+    actions.style.cssText='padding:0 20px 20px;display:flex;align-items:center;gap:8px;';
     var closeBtn=document.createElement('button');
     closeBtn.style.cssText='padding:9px 20px;background:#dc2626;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;';
     closeBtn.textContent='Закрыть смену';
@@ -580,7 +794,18 @@ function renderCurrentTab(body, shift){
         if(!confirm('Закрыть смену? Данные сохранятся в журнал.')) return;
         closeShift(loadCurrent(),'manual'); renderModal();
     });
+
+    // Кнопка дебага — маленькая, малозаметная
+    var dbgBtn=document.createElement('button');
+    dbgBtn.title='Диагностика кассы';
+    dbgBtn.style.cssText='padding:0;width:28px;height:28px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;color:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
+    dbgBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+    dbgBtn.addEventListener('mouseenter',function(){dbgBtn.style.color='rgba(255,255,255,0.6)';dbgBtn.style.borderColor='rgba(255,255,255,0.25)';});
+    dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='rgba(255,255,255,0.25)';dbgBtn.style.borderColor='rgba(255,255,255,0.1)';});
+    dbgBtn.addEventListener('click',function(){ runCashboxDebug(); });
+
     actions.appendChild(closeBtn);
+    actions.appendChild(dbgBtn);
     body.appendChild(actions);
 }
 
