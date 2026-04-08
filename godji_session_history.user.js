@@ -364,7 +364,7 @@ function createSidebarButton(){
     wrap.id='godji-history-btn';
     wrap.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     wrap.href='javascript:void(0)';
-    wrap.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 12px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    wrap.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var ico=document.createElement('div');
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
@@ -378,16 +378,16 @@ function createSidebarButton(){
     lbl.textContent='История сеансов';
 
     wrap.appendChild(ico); wrap.appendChild(lbl);
-    wrap.addEventListener('mouseenter',function(){wrap.style.background='rgba(255,255,255,0.05)';});
-    wrap.addEventListener('mouseleave',function(){wrap.style.background='';});
     wrap.addEventListener('click',function(e){
-        e.preventDefault();
-        if(modalVisible)hideModal();else showModal();
+        e.stopPropagation();
+        if(modalVisible) hideModal(); else showModal();
     });
 
-    // Вставляем в footer ПЕРЕД divider (над блоком времени), как касса
-    // История операций (#godji-opj-btn) тоже здесь — встанет между нами и divider
-    footer.insertBefore(wrap, divider);
+    // Вставляем: опж-btn → history-btn → cashbox-btn → divider
+    // История сеансов идёт ПОСЛЕ истории операций
+    var cashbox = footer.querySelector('#godji-cashbox-btn');
+    var anchor = cashbox || divider;
+    footer.insertBefore(wrap, anchor);
 }
 
 setTimeout(tryInit,5000);
