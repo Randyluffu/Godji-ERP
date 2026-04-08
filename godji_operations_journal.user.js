@@ -517,10 +517,12 @@ function showModal(){
     renderModal();
     _modal.style.display='flex'; _overlay.style.display='block'; _visible=true;
     _lastSeenCount=loadJournal().length; updateBadge();
+    var b=document.getElementById('godji-opj-btn'); if(b) b.setAttribute('data-active','true');
 }
 function hideModal(){
     if(!_modal) return;
     _modal.style.display='none'; _overlay.style.display='none'; _visible=false;
+    var b=document.getElementById('godji-opj-btn'); if(b) b.removeAttribute('data-active');
 }
 function updateModalIfVisible(){ if(_visible) renderModal(); }
 
@@ -594,15 +596,16 @@ function createSidebarBtn(){
 
     bodyDiv.appendChild(lbl);
     btn.appendChild(ico); btn.appendChild(bodyDiv); btn.appendChild(badge);
-    btn.addEventListener('mouseenter',function(){if(!_visible)btn.style.background='rgba(255,255,255,0.05)';});
-    btn.addEventListener('mouseleave',function(){if(!_visible)btn.style.background='';});
     btn.addEventListener('click',function(e){
         e.stopPropagation();
-        if(_visible){hideModal();btn.style.background='';}
-        else{showModal();btn.style.background='rgba(255,255,255,0.1)';}
+        if(_visible) hideModal(); else showModal();
     });
 
-    footer.insertBefore(btn,divider);
+    // История операций — самая верхняя из трёх кнопок (opj → history → cashbox → divider)
+    var histBtn=footer.querySelector('#godji-history-btn');
+    var cashbox=footer.querySelector('#godji-cashbox-btn');
+    var anchor=histBtn||cashbox||divider;
+    footer.insertBefore(btn,anchor);
     updateBadge();
 }
 
