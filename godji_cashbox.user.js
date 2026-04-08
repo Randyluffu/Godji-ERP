@@ -462,21 +462,21 @@ function runCashboxDebug(){
     var shift = loadCurrent();
     if(!shift){ alert('Смена не открыта'); return; }
     if(!_authToken){ alert('Нет токена авторизации. Дождитесь загрузки страницы.'); return; }
+    if(!shift.seenOpIds||!shift.seenOpIds.length){ alert('В кассе нет учтённых операций.'); return; }
 
-    showDebugPopup('Выполняю проверку…', null, null);
+    showDebugPopup('Загружаю операции…', null, null, null);
 
-    // Запрашиваем все операции из seenOpIds с полными данными
     window.fetch('https://hasura.godji.cloud/v1/graphql',{
         method:'POST',
         headers:{'authorization':_authToken,'content-type':'application/json','x-hasura-role':_hasuraRole},
-        body:JSON.stringify({query:'query{wallet_operations(where:{id:{_in:'+JSON.stringify(shift.seenOpIds)+'},club_id:{_eq:14}}){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}}wallet_operation_digest{name}}}'})
+        body:JSON.stringify({query:'query{wallet_operations(where:{id:{_in:'+JSON.stringify(shift.seenOpIds)+'},club_id:{_eq:14}},order_by:{id:asc}){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}}wallet_operation_digest{name}}}'})
     }).then(function(r){return r.json();}).then(function(data){
-        var ops = data && data.data && data.data.wallet_operations;
-        if(!ops){ showDebugPopup('Ошибка запроса', null, null); return; }
+        var ops = data&&data.data&&data.data.wallet_operations;
+        if(!ops){ showDebugPopup('Ошибка запроса', null, null, null); return; }
 
         var cashOk=0, cardOk=0;
-        var suspicious=[];
         var refunds=[];
+        var allOps=[];
 
         ops.forEach(function(op){
             var name=(op.wallet_operation_digest&&op.wallet_operation_digest.name)||'';
@@ -484,56 +484,50 @@ function runCashboxDebug(){
             var isRef=REFUND_KEYWORDS.some(function(k){return nl.indexOf(k)!==-1;});
             var p=op.user&&op.user.users_user_profile;
             var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
-            var phone=op.user&&op.user.phone||'';
+            var userId=op.user_id||'';
+            var ts=new Date(op.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+
+            allOps.push({id:op.id,amount:op.amount,moneyType:op.money_type,nick:nick,userId:userId,ts:ts,name:name,isRef:isRef});
 
             if(isRef){
-                refunds.push({id:op.id, amount:op.amount, nick:nick, phone:phone, name:name,
-                    ts:new Date(op.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
-                    userId:op.user_id});
+                refunds.push({id:op.id,amount:op.amount,nick:nick,userId:userId,ts:ts,name:name,moneyType:op.money_type});
             } else if(op.amount>0&&op.operation_type==='deposit'){
                 if(op.money_type==='cash') cashOk+=op.amount;
                 else cardOk+=op.amount;
             }
         });
 
-        // Сравниваем с тем что в кассе
-        var cashDiff = Math.round((shift.cash||0)*100)/100 - Math.round(cashOk*100)/100;
-        var cardDiff = Math.round((shift.card||0)*100)/100 - Math.round(cardOk*100)/100;
-        var hasError = Math.abs(cashDiff)>0.5 || Math.abs(cardDiff)>0.5;
+        var cashDiff=Math.round(((shift.cash||0)-cashOk)*100)/100;
+        var cardDiff=Math.round(((shift.card||0)-cardOk)*100)/100;
+        var hasError=Math.abs(cashDiff)>0.5||Math.abs(cardDiff)>0.5;
 
-        if(hasError && refunds.length>0){
-            // Вина ERP — возвраты засчитались. Исправляем автоматически
-            var fixCash=0, fixCard=0;
+        // Автоисправление если в кассе засчитаны возвраты
+        var fixCash=0,fixCard=0;
+        if(hasError&&refunds.length>0){
             refunds.forEach(function(r){
-                // Определяем тип по оригинальной операции
-                ops.forEach(function(op){
-                    if(op.id===r.id){
-                        if(op.money_type==='cash') fixCash+=op.amount;
-                        else fixCard+=op.amount;
-                    }
-                });
+                if(r.moneyType==='cash') fixCash+=r.amount;
+                else fixCard+=r.amount;
             });
-            // Вычитаем возвраты из кассы
             if(fixCash>0||fixCard>0){
                 shift.cash=Math.max(0,(shift.cash||0)-fixCash);
                 shift.card=Math.max(0,(shift.card||0)-fixCard);
                 saveCurrent(shift);
                 updateBtnBadge(); updateModalIfOpen();
             }
-            showDebugPopup('Обнаружены возвраты ERP — исправлено', refunds, {cashFixed:fixCash, cardFixed:fixCard, cashDiff:cashDiff, cardDiff:cardDiff});
-        } else if(hasError){
-            showDebugPopup('Расхождение (причина не в возвратах)', [], {cashDiff:cashDiff, cardDiff:cardDiff});
-        } else if(refunds.length>0){
-            showDebugPopup('Возвраты ERP в seenOpIds — они уже исключены из суммы', refunds, null);
-        } else {
-            showDebugPopup('Касса в норме. Расхождений нет.', [], null);
         }
+
+        var status = hasError&&refunds.length>0 ? 'fixed' :
+                     hasError ? 'error' :
+                     refunds.length>0 ? 'warn' : 'ok';
+        showDebugPopup(status, allOps, refunds,
+            {cashDiff:cashDiff,cardDiff:cardDiff,fixCash:fixCash,fixCard:fixCard,
+             cashOk:cashOk,cardOk:cardOk,cashTotal:shift.cash,cardTotal:shift.card});
     }).catch(function(e){
-        showDebugPopup('Ошибка: '+e.message, null, null);
+        showDebugPopup('error_fetch', null, null, {msg:e.message});
     });
 }
 
-function showDebugPopup(title, refunds, diff){
+function showDebugPopup(status, allOps, refunds, diff){
     var old=document.getElementById('gcb-debug-popup');
     if(old)old.remove();
 
@@ -543,8 +537,9 @@ function showDebugPopup(title, refunds, diff){
     ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
 
     var box=document.createElement('div');
-    box.style.cssText='background:#fff;border-radius:12px;width:480px;max-width:96vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
+    box.style.cssText='background:#fff;border-radius:12px;width:560px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
 
+    // Шапка
     var hdr=document.createElement('div');
     hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
     var ht=document.createElement('span');
@@ -557,66 +552,97 @@ function showDebugPopup(title, refunds, diff){
     box.appendChild(hdr);
 
     var body=document.createElement('div');
-    body.style.cssText='padding:16px 20px;overflow-y:auto;flex:1;';
+    body.style.cssText='padding:14px 20px;overflow-y:auto;flex:1;';
 
-    // Статус
-    var statusEl=document.createElement('div');
-    statusEl.style.cssText='padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;'+(
-        title.indexOf('норме')!==-1?'background:#dcfce7;color:#166534;':
-        title.indexOf('исправлено')!==-1?'background:#fff4e0;color:#c87800;':
-        title.indexOf('Расхождение')!==-1?'background:#fee2e2;color:#991b1b;':
-        'background:#f0f0f0;color:#555;'
-    );
-    statusEl.textContent=title;
-    body.appendChild(statusEl);
-
-    if(diff&&(Math.abs(diff.cashDiff)>0.5||Math.abs(diff.cardDiff)>0.5)){
-        var diffEl=document.createElement('div');
-        diffEl.style.cssText='font-size:12px;color:#555;margin-bottom:10px;';
-        diffEl.innerHTML='Расхождение нал: <b>'+(diff.cashDiff>0?'+':'')+Math.round(diff.cashDiff)+'₽</b>  |  карта: <b>'+(diff.cardDiff>0?'+':'')+Math.round(diff.cardDiff)+'₽</b>';
-        if(diff.cashFixed||diff.cardFixed){
-            diffEl.innerHTML+='<br>Исправлено: нал −<b>'+Math.round(diff.cashFixed||0)+'₽</b>, карта −<b>'+Math.round(diff.cardFixed||0)+'₽</b>';
-        }
-        body.appendChild(diffEl);
+    // Статус-плашка
+    if(status==='loading'||status==='Загружаю операции…'){
+        var sl=document.createElement('div');
+        sl.style.cssText='padding:10px 14px;border-radius:8px;background:#f0f0f0;color:#555;font-size:13px;font-weight:600;margin-bottom:12px;';
+        sl.textContent='⏳ '+status; body.appendChild(sl);
+    } else {
+        var statusTxt = status==='ok'?'✅ Касса в норме. Расхождений нет.' :
+                        status==='fixed'?'🔧 Обнаружены возвраты ERP — исправлено' :
+                        status==='warn'?'⚠️ Возвраты ERP в seenOpIds (исключены из суммы)' :
+                        status==='error'?'❌ Расхождение (причина не определена)' :
+                        status==='error_fetch'?'❌ Ошибка запроса: '+(diff&&diff.msg||'') : status;
+        var statusBg = status==='ok'?'#dcfce7;color:#166534':
+                       status==='fixed'?'#fff4e0;color:#c87800':
+                       status==='warn'?'#fef3c7;color:#92400e':
+                       '#fee2e2;color:#991b1b';
+        var sl2=document.createElement('div');
+        sl2.style.cssText='padding:10px 14px;border-radius:8px;background:'+statusBg+';font-size:13px;font-weight:600;margin-bottom:10px;';
+        sl2.textContent=statusTxt; body.appendChild(sl2);
     }
 
-    if(refunds&&refunds.length>0){
-        var rtitle=document.createElement('div');
-        rtitle.style.cssText='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
-        rtitle.textContent='Автовозвраты ERP ('+refunds.length+' шт.)';
-        body.appendChild(rtitle);
-
-        refunds.forEach(function(r){
-            var row=document.createElement('div');
-            row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:12px;';
-            var l=document.createElement('span');
-            l.style.cssText='color:#555;';
-            var lk=document.createElement('a');
-            lk.href='/clients/'+r.userId;
-            lk.style.cssText='color:#0066aa;text-decoration:none;font-weight:600;';
-            lk.textContent=r.nick||r.phone||'ID:'+r.userId;
-            lk.addEventListener('mouseenter',function(){lk.style.textDecoration='underline';});
-            lk.addEventListener('mouseleave',function(){lk.style.textDecoration='none';});
-            l.appendChild(lk);
-            var sub=document.createElement('span');
-            sub.style.cssText='color:#aaa;font-size:11px;margin-left:6px;';
-            sub.textContent=r.ts+' · '+r.name.slice(0,30);
-            l.appendChild(sub);
-            var amt=document.createElement('span');
-            amt.style.cssText='font-weight:700;color:#991b1b;white-space:nowrap;';
-            amt.textContent='+'+Math.round(r.amount)+'₽';
-            row.appendChild(l); row.appendChild(amt);
-            body.appendChild(row);
+    // Итоги
+    if(diff&&diff.cashOk!==undefined){
+        var tot=document.createElement('div');
+        tot.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;';
+        [['Нал. в кассе',fmtAmtAbs(diff.cashTotal),'#166534','#dcfce7'],
+         ['Карта в кассе',fmtAmtAbs(diff.cardTotal),'#1d4ed8','#dbeafe']].forEach(function(r){
+            var c2=document.createElement('div');
+            c2.style.cssText='background:'+r[3]+';border-radius:6px;padding:8px 10px;';
+            c2.innerHTML='<div style="font-size:9px;color:'+r[2]+';font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">'+r[0]+'</div><div style="font-size:15px;font-weight:800;color:#1a1a1a;">'+r[1]+'</div>';
+            tot.appendChild(c2);
         });
+        body.appendChild(tot);
+        if(Math.abs(diff.cashDiff)>0.5||Math.abs(diff.cardDiff)>0.5){
+            var dEl=document.createElement('div');
+            dEl.style.cssText='font-size:12px;color:#991b1b;margin-bottom:10px;font-weight:600;';
+            dEl.textContent='Расхождение: нал '+(diff.cashDiff>0?'+':'')+Math.round(diff.cashDiff)+'₽, карта '+(diff.cardDiff>0?'+':'')+Math.round(diff.cardDiff)+'₽';
+            if(diff.fixCash||diff.fixCard) dEl.textContent+=' | Исправлено: −'+Math.round(diff.fixCash||0)+'₽ нал, −'+Math.round(diff.fixCard||0)+'₽ карта';
+            body.appendChild(dEl);
+        }
+    }
+
+    // Все операции смены
+    if(allOps&&allOps.length){
+        var opTitle=document.createElement('div');
+        opTitle.style.cssText='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;';
+        opTitle.textContent='Все операции смены ('+allOps.length+')';
+        body.appendChild(opTitle);
+
+        var tbl=document.createElement('table');
+        tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px;';
+        var thead=document.createElement('thead');
+        var thr=document.createElement('tr');
+        thr.style.cssText='background:#f9f9f9;';
+        [['Время','60px'],['Клиент','',''],['Тип','55px'],['Сумма','70px'],['Примечание','']].forEach(function(col){
+            var th=document.createElement('th');
+            th.style.cssText='padding:6px 8px;text-align:left;color:#888;font-weight:600;font-size:10px;border-bottom:1px solid #eee;white-space:nowrap;'+(col[1]?'width:'+col[1]+';':'');
+            th.textContent=col[0]; thr.appendChild(th);
+        });
+        thead.appendChild(thr); tbl.appendChild(thead);
+
+        var tbody=document.createElement('tbody');
+        allOps.forEach(function(op){
+            var tr=document.createElement('tr');
+            tr.style.cssText='border-bottom:1px solid #f5f5f5;'+(op.isRef?'background:#fffbeb;':'');
+
+            var tdTime=document.createElement('td'); tdTime.style.cssText='padding:6px 8px;color:#888;white-space:nowrap;'; tdTime.textContent=op.ts;
+            var tdNick=document.createElement('td'); tdNick.style.cssText='padding:6px 8px;max-width:140px;';
+            if(op.nick&&op.userId){
+                var lk=document.createElement('a'); lk.href='/clients/'+op.userId; lk.style.cssText='color:#0066aa;text-decoration:none;font-weight:600;font-size:11px;'; lk.textContent=op.nick;
+                lk.addEventListener('mouseenter',function(){lk.style.textDecoration='underline';}); lk.addEventListener('mouseleave',function(){lk.style.textDecoration='none';});
+                tdNick.appendChild(lk);
+            } else { tdNick.textContent='—'; tdNick.style.color='#ccc'; }
+            var tdType=document.createElement('td'); tdType.style.cssText='padding:6px 8px;white-space:nowrap;';
+            var typeBadge=document.createElement('span');
+            typeBadge.style.cssText='font-size:10px;font-weight:700;padding:2px 5px;border-radius:4px;'+(op.moneyType==='cash'?'background:#dcfce7;color:#166534;':'background:#dbeafe;color:#1d4ed8;');
+            typeBadge.textContent=op.moneyType==='cash'?'НАЛ':'КАРТА'; tdType.appendChild(typeBadge);
+            var tdAmt=document.createElement('td'); tdAmt.style.cssText='padding:6px 8px;font-weight:700;white-space:nowrap;color:'+(op.isRef?'#b45309':'#166534')+';'; tdAmt.textContent=(op.isRef?'↩ ':'')+'+'+Math.round(op.amount)+'₽';
+            var tdNote=document.createElement('td'); tdNote.style.cssText='padding:6px 8px;color:#aaa;font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'; tdNote.textContent=op.name.slice(0,40)||(op.isRef?'⚠️ Возврат ERP':'');
+
+            tr.appendChild(tdTime); tr.appendChild(tdNick); tr.appendChild(tdType); tr.appendChild(tdAmt); tr.appendChild(tdNote);
+            tbody.appendChild(tr);
+        });
+        tbl.appendChild(tbody); body.appendChild(tbl);
     }
 
     box.appendChild(body);
     ov.appendChild(box);
     document.body.appendChild(ov);
-
-    document.addEventListener('keydown',function eh(e){
-        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}
-    });
+    document.addEventListener('keydown',function eh(e){ if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);} });
 }
 
 // ── Текущая смена ─────────────────────────────────────────
@@ -798,10 +824,11 @@ function renderCurrentTab(body, shift){
     // Кнопка дебага — маленькая, малозаметная
     var dbgBtn=document.createElement('button');
     dbgBtn.title='Диагностика кассы';
-    dbgBtn.style.cssText='padding:0;width:28px;height:28px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;color:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
+    // Кнопка в светлой модалке — делаем видимой но ненавязчивой
+    dbgBtn.style.cssText='padding:0;width:28px;height:28px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;color:#bbb;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
     dbgBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
-    dbgBtn.addEventListener('mouseenter',function(){dbgBtn.style.color='rgba(255,255,255,0.6)';dbgBtn.style.borderColor='rgba(255,255,255,0.25)';});
-    dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='rgba(255,255,255,0.25)';dbgBtn.style.borderColor='rgba(255,255,255,0.1)';});
+    dbgBtn.addEventListener('mouseenter',function(){dbgBtn.style.color='#555';dbgBtn.style.borderColor='#bbb';dbgBtn.style.background='#efefef';});
+    dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='#bbb';dbgBtn.style.borderColor='#e0e0e0';dbgBtn.style.background='#f5f5f5';});
     dbgBtn.addEventListener('click',function(){ runCashboxDebug(); });
 
     actions.appendChild(closeBtn);
