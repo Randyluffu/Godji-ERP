@@ -355,10 +355,8 @@ function hasSidebar(){
 function createSidebarButton(){
     if(!hasSidebar()) return;
     if(document.getElementById('godji-history-btn')) return;
-    var footer = document.querySelector('.Sidebar_footer__1BA98');
-    if(!footer) return;
-    var divider = footer.querySelector('.mantine-Divider-root');
-    if(!divider) return;
+    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
@@ -383,20 +381,28 @@ function createSidebarButton(){
         if(modalVisible) hideModal(); else showModal();
     });
 
-    // Вставляем: опж-btn → history-btn → cashbox-btn → divider
-    // История сеансов идёт ПОСЛЕ истории операций
-    var cashbox = footer.querySelector('#godji-cashbox-btn');
-    var anchor = cashbox || divider;
-    footer.insertBefore(wrap, anchor);
+    // Вставляем в linksInner: история сеансов идёт ПОСЛЕ истории операций
+    // opj-btn уже должен быть в linksInner, вставляем после него
+    var opj = sb.querySelector('#godji-opj-btn');
+    if(opj && opj.nextSibling){
+        sb.insertBefore(wrap, opj.nextSibling);
+    } else if(opj){
+        sb.appendChild(wrap);
+    } else {
+        // opj ещё нет — вставляем после последнего нативного NavLink
+        var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+        var last = nativeLinks[nativeLinks.length - 1];
+        if(last && last.nextSibling) sb.insertBefore(wrap, last.nextSibling);
+        else sb.appendChild(wrap);
+    }
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
 function tryCreateHistBtn(){
     if(document.getElementById('godji-history-btn')) return;
-    var footer=document.querySelector('.Sidebar_footer__1BA98');
-    var divider=footer&&footer.querySelector('.mantine-Divider-root');
-    if(!footer||!divider){ setTimeout(tryCreateHistBtn,500); return; }
+    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
 setTimeout(tryCreateHistBtn,1000);
