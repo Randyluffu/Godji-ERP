@@ -39,22 +39,11 @@ function getNavLink(text){
 }
 
 function updateHistoryPos(){
+    // Кнопки историй теперь в footer (insertBefore divider) — не трогаем их позицию
     var hist=document.getElementById('godji-history-btn');
-    if(!hist)return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb)return;
-    var maxB=0;
-    Array.from(sb.querySelectorAll('a.mantine-focus-auto,a[id^="godji-col"]')).forEach(function(a){
-        if(a.style.display==='none')return;
-        var r=a.getBoundingClientRect();
-        if(r.bottom>maxB)maxB=r.bottom;
-    });
-    if(maxB<100)return;
-    hist.style.top=Math.round(maxB)+'px';
-    hist.style.bottom='';
-    // Позиция кнопки истории операций — на 46px ниже истории сеансов
     var opj=document.getElementById('godji-opj-btn');
-    if(opj){opj.style.top=(Math.round(maxB)+46)+'px';opj.style.bottom='';}
+    if(hist){ hist.style.top=''; hist.style.bottom=''; hist.style.position=''; }
+    if(opj){ opj.style.top=''; opj.style.bottom=''; opj.style.position=''; }
 }
 
 function applyCollapse(){
@@ -105,21 +94,7 @@ new MutationObserver(function(muts){
     });
 }).observe(document.body||document.documentElement,{childList:true});
 
-// Polling позиции истории
-setInterval(function(){
-    var hist=document.getElementById('godji-history-btn');
-    if(!hist)return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb)return;
-    var maxB=0;
-    Array.from(sb.querySelectorAll('a.mantine-focus-auto,a[id^="godji-col"]')).forEach(function(a){
-        if(a.style.display==='none')return;
-        var r=a.getBoundingClientRect();if(r.bottom>maxB)maxB=r.bottom;
-    });
-    if(maxB<100)return;
-    var newTop=Math.round(maxB)+'px';
-    if(hist.style.top!==newTop){hist.style.top=newTop;hist.style.bottom='';}
-},300);
+// Позиция кнопок историй управляется их собственными скриптами (footer insertBefore)
 
 // === SEARCH BUTTON ===
 function createSearchBtn(){
