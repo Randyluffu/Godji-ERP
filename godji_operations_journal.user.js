@@ -199,6 +199,7 @@ function fetchNewOps(){
 
             // Формируем строку клиента
             var userInfo = '';
+            var userUrl = op.user_id ? '/clients/'+op.user_id : '';
             if(op.user && op.user.users_user_profile){
                 var p=op.user.users_user_profile;
                 var nick=p.login||'';
@@ -219,6 +220,7 @@ function fetchNewOps(){
                 comment: cls.desc||'',
                 extra: cls.resId ? 'Сеанс #'+cls.resId : ('ОП #'+op.id),
                 client: userInfo,
+                clientUrl: userUrl,
                 suspicious: isSusp,
                 origType: cls.type,
                 origLabel: cls.label,
@@ -234,6 +236,45 @@ function fetchNewOps(){
 
 // ── Инициализация — получаем последний ID ─────────────────
 var GQL_INIT = 'query GojInit($clubId:Int!){wallet_operations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:1){id}}';
+
+// Отдельный polling для резервирований (сеансы)
+var _lastReservationId = null;
+var GQL_RESERVATIONS = 'query GojRes($sinceId:Int!,$clubId:Int!){reservations(where:{id:{_gt:$sinceId},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id status time_from ended_at device_id reservations_club_device{name} reservations_user{phone users_user_profile{name surname login}}}}';
+
+function fetchNewReservations(){
+    var auth=getAuth();
+    if(!auth||_lastReservationId===null) return;
+    fetch('https://hasura.godji.cloud/v1/graphql',{
+        method:'POST',
+        headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
+        body:JSON.stringify({operationName:'GojRes',variables:{sinceId:_lastReservationId,clubId:CLUB_ID},query:GQL_RESERVATIONS})
+    }).then(function(r){return r.json();}).then(function(data){
+        var res=data&&data.data&&data.data.reservations;
+        if(!res||!res.length) return;
+        res.forEach(function(r){
+            if(r.id>_lastReservationId) _lastReservationId=r.id;
+            var p=r.reservations_user&&r.reservations_user.users_user_profile;
+            var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
+            var device=r.reservations_club_device&&r.reservations_club_device.name||'';
+            var extra='Сеанс #'+r.id+(device?' · ПК '+device:'');
+            var clientUrl=r.reservations_user?'/clients/'+r.reservations_user.id:'';
+
+            if(r.status==='finished'||r.status==='canceled'){
+                addEntry({opId:'res_fin_'+r.id,id:'res_fin_'+r.id,
+                    ts:r.ended_at?new Date(r.ended_at).getTime():Date.now(),
+                    type:'session_finish',icon:'⏹️',label:'Завершение сеанса',
+                    color:'#cc2200',bg:'#fde8e8',amount:'',comment:'',
+                    extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
+            } else if(r.status==='session_acting'||r.status==='active'||r.status==='created'){
+                addEntry({opId:'res_start_'+r.id,id:'res_start_'+r.id,
+                    ts:new Date(r.time_from).getTime(),
+                    type:'session_start',icon:'▶️',label:'Запуск сеанса',
+                    color:'#0066cc',bg:'#e0f0ff',amount:'',comment:'',
+                    extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
+            }
+        });
+    }).catch(function(){});
+}
 
 function initLastId(){
     var auth=getAuth();
@@ -257,8 +298,19 @@ function initLastId(){
         journal.forEach(function(e){
             if(e.opId && typeof e.opId==='number' && e.opId>_lastMaxId) _lastMaxId=e.opId;
         });
+        // Инициализируем _lastReservationId
+        fetch('https://hasura.godji.cloud/v1/graphql',{
+            method:'POST',
+            headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
+            body:JSON.stringify({operationName:'GojResInit',query:'query GojResInit($clubId:Int!){reservations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:1){id}}',variables:{clubId:CLUB_ID}})
+        }).then(function(r){return r.json();}).then(function(data){
+            var res=data&&data.data&&data.data.reservations;
+            _lastReservationId=res&&res.length?res[0].id:0;
+        }).catch(function(){ _lastReservationId=0; });
+
         // Запускаем polling
         setInterval(fetchNewOps, POLL_MS);
+        setInterval(fetchNewReservations, POLL_MS);
     }).catch(function(){
         setTimeout(initLastId,3000);
     });
@@ -499,9 +551,22 @@ function renderModal(){
         }
 
         var tdClient=document.createElement('td');
-        tdClient.style.cssText='padding:9px 14px;color:#555;font-size:12px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis;';
-        tdClient.textContent=rec.client||'—';
-        if(!rec.client) tdClient.style.color='#ccc';
+        tdClient.style.cssText='padding:9px 14px;font-size:12px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis;';
+        if(rec.client&&rec.clientUrl){
+            var clk=document.createElement('a');
+            clk.href=rec.clientUrl;
+            clk.style.cssText='color:#0066aa;text-decoration:none;font-weight:600;font-size:12px;';
+            clk.textContent=rec.client;
+            clk.addEventListener('mouseenter',function(){clk.style.textDecoration='underline';});
+            clk.addEventListener('mouseleave',function(){clk.style.textDecoration='none';});
+            tdClient.appendChild(clk);
+        } else if(rec.client){
+            tdClient.style.color='#555';
+            tdClient.textContent=rec.client;
+        } else {
+            tdClient.style.color='#ccc';
+            tdClient.textContent='—';
+        }
 
         tr.appendChild(tdDate); tr.appendChild(tdType); tr.appendChild(tdClient);
         tr.appendChild(tdExtra); tr.appendChild(tdAmt); tr.appendChild(tdCmt);
@@ -566,10 +631,8 @@ function watchCashboxCloseBtn(){
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var footer=document.querySelector('.Sidebar_footer__1BA98');
-    if(!footer) return;
-    var divider=footer.querySelector('.mantine-Divider-root');
-    if(!divider) return;
+    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
@@ -601,19 +664,24 @@ function createSidebarBtn(){
         if(_visible) hideModal(); else showModal();
     });
 
-    // История операций — самая верхняя из трёх кнопок (opj → history → cashbox → divider)
-    var histBtn=footer.querySelector('#godji-history-btn');
-    var cashbox=footer.querySelector('#godji-cashbox-btn');
-    var anchor=histBtn||cashbox||divider;
-    footer.insertBefore(btn,anchor);
+    // История операций — первая (выше истории сеансов)
+    // Вставляем в linksInner после последнего нативного NavLink
+    var histBtn=sb.querySelector('#godji-history-btn');
+    if(histBtn){
+        sb.insertBefore(btn, histBtn);
+    } else {
+        var nativeLinks=Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+        var last=nativeLinks[nativeLinks.length-1];
+        if(last && last.nextSibling) sb.insertBefore(btn, last.nextSibling);
+        else sb.appendChild(btn);
+    }
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var footer=document.querySelector('.Sidebar_footer__1BA98');
-    var divider=footer&&footer.querySelector('.mantine-Divider-root');
-    if(!footer||!divider){ setTimeout(tryCreateSidebarBtn,500); return; }
+    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
