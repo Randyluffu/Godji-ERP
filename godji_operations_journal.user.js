@@ -665,15 +665,13 @@ function createSidebarBtn(){
     });
 
     // История операций — первая (выше истории сеансов)
-    // Вставляем в linksInner после последнего нативного NavLink
+    // Вставляем в конец linksInner (перед блоком часов)
+    // Порядок: opj-btn ПЕРЕД history-btn
     var histBtn=sb.querySelector('#godji-history-btn');
     if(histBtn){
         sb.insertBefore(btn, histBtn);
     } else {
-        var nativeLinks=Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
-        var last=nativeLinks[nativeLinks.length-1];
-        if(last && last.nextSibling) sb.insertBefore(btn, last.nextSibling);
-        else sb.appendChild(btn);
+        sb.appendChild(btn);
     }
     updateBadge();
 }
