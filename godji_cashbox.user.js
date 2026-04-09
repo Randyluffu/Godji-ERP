@@ -964,8 +964,8 @@ function showShiftDetail(s){
 
 // ── Диагностика ───────────────────────────────────────────
 // ── Показ/скрытие модалки ────────────────────────────────
-function showModal(){ if(!_modal)buildModal(); renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; }
-function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; }
+function showModal(){ if(!_modal)buildModal(); renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.setAttribute('data-active','true'); }
+function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; var b=document.getElementById('godji-cashbox-btn');if(b)b.removeAttribute('data-active'); }
 function updateModalIfOpen(){ if(_isOpen)renderModal(); }
 
 // ── Кнопка (NavLink стиль, перед divider) ────────────────
@@ -1029,8 +1029,6 @@ function createBtn(){
     bodyDiv.appendChild(lbl); bodyDiv.appendChild(sumEl);
 
     btn.appendChild(ico); btn.appendChild(bodyDiv);
-    btn.addEventListener('mouseenter',function(){btn.style.background='rgba(255,255,255,0.05)';});
-    btn.addEventListener('mouseleave',function(){btn.style.background='';});
     btn.addEventListener('click',function(e){ e.stopPropagation(); if(_isOpen)hideModal(); else showModal(); });
 
     // Вставляем ПЕРЕД divider
