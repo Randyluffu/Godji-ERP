@@ -381,19 +381,15 @@ function createSidebarButton(){
         if(modalVisible) hideModal(); else showModal();
     });
 
-    // Вставляем в linksInner: история сеансов идёт ПОСЛЕ истории операций
-    // opj-btn уже должен быть в linksInner, вставляем после него
+    // Вставляем в конец linksInner (перед блоком часов)
+    // Порядок: opj-btn → history-btn
     var opj = sb.querySelector('#godji-opj-btn');
     if(opj && opj.nextSibling){
         sb.insertBefore(wrap, opj.nextSibling);
     } else if(opj){
         sb.appendChild(wrap);
     } else {
-        // opj ещё нет — вставляем после последнего нативного NavLink
-        var nativeLinks = Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
-        var last = nativeLinks[nativeLinks.length - 1];
-        if(last && last.nextSibling) sb.insertBefore(wrap, last.nextSibling);
-        else sb.appendChild(wrap);
+        sb.appendChild(wrap);
     }
 }
 
