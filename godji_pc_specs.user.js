@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Характеристики ПК
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Карта и менеджер характеристик ПК с иерархией зон/комнат, drag&drop и переопределением
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -160,25 +160,41 @@ function getDeviations(zoneId, roomId) {
    UI: МОДАЛЬНОЕ ОКНО (СВЕТЛАЯ ТЕМА ERP)
    ═══════════════════════════════════════════════════════ */
 function createModal() {
+  // Overlay с максимальным z-index
   _overlay = document.createElement('div');
-  _overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99998;display:none;align-items:center;justify-content:center;padding:16px;';
+  _overlay.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'background:rgba(0,0,0,0.55)',
+    'z-index:2147483647',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'padding:20px'
+  ].join(';');
   _overlay.addEventListener('click', function(e) { if(e.target===_overlay) hideModal(); });
 
+  // Модалка
   _modal = document.createElement('div');
   _modal.style.cssText = [
     'background:#ffffff',
     'border:1px solid #e0e0e0',
     'border-radius:12px',
-    'width:100%','max-width:720px','max-height:88vh',
-    'display:none','flex-direction:column',
+    'width:100%',
+    'max-width:720px',
+    'max-height:85vh',
+    'display:none',
+    'flex-direction:column',
     'font-family:var(--mantine-font-family,inherit)',
-    'box-shadow:0 8px 40px rgba(0,0,0,0.15)',
-    'overflow:hidden','color:#1a1a1a'
+    'box-shadow:0 24px 64px rgba(0,0,0,0.4)',
+    'overflow:hidden',
+    'color:#1a1a1a',
+    'position:relative',
+    'z-index:2147483647'
   ].join(';');
 
   // Шапка
-  var hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
+  var hdr = document.createElement('div');  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
   hdr.innerHTML = '<div style="display:flex;align-items:center;gap:10px;"><div style="width:30px;height:30px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16"/><path d="M9 4v16"/></svg></div><span style="font-size:15px;font-weight:700;color:#1a1a1a;">Характеристики ПК</span></div>';
 
   var actions = document.createElement('div');
@@ -194,7 +210,8 @@ function createModal() {
   pencil.addEventListener('click', function() {
     _isEdit = !_isEdit;
     pencil.style.color = _isEdit ? '#cc0001' : '#868e96';
-    renderBody();  });
+    renderBody();
+  });
   
   // Кнопка закрытия
   var close = document.createElement('button');
@@ -213,8 +230,10 @@ function createModal() {
   body.style.cssText = 'overflow-y:auto;padding:12px 16px 16px;flex:1;background:#fafafa;';
   _modal.appendChild(body);
 
+  // Добавляем в DOM сразу в body
   document.body.appendChild(_overlay);
   document.body.appendChild(_modal);
+  
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && _modal.style.display!=='none') hideModal(); });
 }
 
@@ -224,8 +243,7 @@ function hideModal() {
   _overlay.style.display='none';
 }
 
-function showModal() {
-  if(!_modal) createModal();
+function showModal() {  if(!_modal) createModal();
   load();
   renderBody();
   _modal.style.display='flex';
@@ -243,7 +261,8 @@ function renderBody() {
   });
 }
 
-/* ═══════════════════════════════════════════════════════   ПОСТРОЕНИЕ ИЕРАРХИИ
+/* ═══════════════════════════════════════════════════════
+   ПОСТРОЕНИЕ ИЕРАРХИИ
    ═══════════════════════════════════════════════════════ */
 function buildZone(zone) {
   var wrap = document.createElement('div');
@@ -273,8 +292,7 @@ function buildZone(zone) {
   var dragHandle = mkDragHandle('zone', zone.id);
 
   hdr.appendChild(arr); 
-  hdr.appendChild(title);
-  if(_isEdit) hdr.appendChild(dragHandle);
+  hdr.appendChild(title);  if(_isEdit) hdr.appendChild(dragHandle);
   hdr.appendChild(infoBtn);
   wrap.appendChild(hdr);
 
@@ -292,6 +310,7 @@ function buildZone(zone) {
   }
   return wrap;
 }
+
 function buildRoom(zoneId, roomId) {
   var wrap = document.createElement('div');
   wrap.style.cssText = 'margin:8px 0 8px 18px;border-left:2px solid #e0e0e0;padding-left:12px;';
@@ -322,8 +341,7 @@ function buildRoom(zoneId, roomId) {
 
   hdr.appendChild(arr); 
   hdr.appendChild(title);
-  if(_isEdit) { hdr.appendChild(dragHandle); hdr.appendChild(moveSelect); }
-  hdr.appendChild(infoBtn);
+  if(_isEdit) { hdr.appendChild(dragHandle); hdr.appendChild(moveSelect); }  hdr.appendChild(infoBtn);
   wrap.appendChild(hdr);
 
   var body = document.createElement('div');
@@ -341,7 +359,8 @@ function buildRoom(zoneId, roomId) {
 }
 
 function buildPC(zoneId, roomId, pcId) {
-  var wrap = document.createElement('div');  wrap.style.cssText = 'margin:6px 0 6px 22px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:7px 10px;';
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:6px 0 6px 22px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:7px 10px;';
 
   var hdr = document.createElement('div');
   hdr.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;';
@@ -371,8 +390,7 @@ function buildPC(zoneId, roomId, pcId) {
   var body = document.createElement('div');
   body.className = 'p-body';
   body.style.cssText = 'padding:8px 0 6px;display:none;';
-  
-  var specs = getEffectiveSpecs(zoneId, roomId, pcId);
+    var specs = getEffectiveSpecs(zoneId, roomId, pcId);
   var specKeys = Object.keys(specs);
   if(specKeys.length === 0) {
     body.innerHTML = '<div style="font-size:10px;color:#adb5bd;padding:4px 8px;">Нет характеристик</div>';
@@ -390,7 +408,8 @@ function buildPC(zoneId, roomId, pcId) {
       v.style.cssText = 'color:#495057;flex:1;word-break:break-all;';
       if(s.l) {
         v.innerHTML = '<a href="'+s.l+'" target="_blank" style="color:#228be6;text-decoration:none;border-bottom:1px dashed rgba(34,139,230,0.3);transition:all 0.15s;">'+(s.v||'—')+'</a>';
-      } else {        v.textContent = s.v || '—';
+      } else {
+        v.textContent = s.v || '—';
       }
 
       row.appendChild(k); 
@@ -420,8 +439,7 @@ function mkInfoBtn(specKey, title, parentZoneId) {
 }
 
 function showInfoPopup(anchor, specKey, title, parentZoneId) {
-  if(document.getElementById('godji-info-popup')) document.getElementById('godji-info-popup').remove();
-  
+  if(document.getElementById('godji-info-popup')) document.getElementById('godji-info-popup').remove();  
   var box = document.createElement('div');
   box.id = 'godji-info-popup';
   box.style.cssText = 'position:absolute;z-index:99999;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 16px;width:300px;max-height:60vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-family:inherit;font-size:11px;color:#1a1a1a;';
@@ -439,7 +457,8 @@ function showInfoPopup(anchor, specKey, title, parentZoneId) {
   if(Object.keys(specs).length === 0) {
     box.innerHTML += '<div style="color:#adb5bd;">Не заданы (наследуются от родителя)</div>';
   } else {
-    Object.keys(specs).forEach(function(k){      var r = document.createElement('div');
+    Object.keys(specs).forEach(function(k){
+      var r = document.createElement('div');
       r.style.cssText = 'display:flex;justify-content:space-between;padding:3px 0;color:#495057;';
       r.innerHTML = '<span>'+k+'</span><span style="color:#228be6;">'+(specs[k].v||'—')+'</span>';
       box.appendChild(r);
@@ -469,8 +488,7 @@ function showInfoPopup(anchor, specKey, title, parentZoneId) {
   }, 10);
 }
 
-function mkDragHandle(type, id) {
-  var el = document.createElement('div');
+function mkDragHandle(type, id) {  var el = document.createElement('div');
   el.setAttribute('draggable', 'true');
   el.style.cssText = 'cursor:grab;background:#f1f3f5;padding:4px 7px;border-radius:4px;font-size:12px;color:#868e96;user-select:none;';
   el.textContent = '☰';
@@ -488,7 +506,8 @@ function mkDragHandle(type, id) {
     this.style.background='#f1f3f5';
     if(!_dragData || (_dragData.type===type && _dragData.id===id)) return;
     handleDrop(type, id, _dragData.type, _dragData.id);
-    renderBody();  });
+    renderBody();
+  });
   return el;
 }
 
@@ -518,8 +537,7 @@ function mkRoomMoveSelect(zoneId, roomId) {
       var newZ = _data.structure.zones.find(z=>z.id===this.value);
       if(oldZ && newZ) {
         oldZ.rooms = oldZ.rooms.filter(r=>r!==roomId);
-        newZ.rooms.push(roomId);
-        save(); renderBody();
+        newZ.rooms.push(roomId);        save(); renderBody();
       }
     }
   });
@@ -537,7 +555,8 @@ function mkPcMoveSelect(roomId, pcId) {
   sel.style.cssText = 'background:#fff;border:1px solid #ced4da;color:#1a1a1a;border-radius:4px;padding:2px 5px;font-size:10px;';
   sel.addEventListener('mousedown', function(e){e.stopPropagation();});
   sel.addEventListener('change', function(){
-    if(this.value !== roomId) {      var oldRpcs = _data.structure.roomPcs[roomId];
+    if(this.value !== roomId) {
+      var oldRpcs = _data.structure.roomPcs[roomId];
       var newRpcs = _data.structure.roomPcs[this.value];
       if(oldRpcs && newRpcs) {
         oldRpcs.splice(oldRpcs.indexOf(pcId), 1);
@@ -567,8 +586,7 @@ function buildSpecEditor(key, isZone) {
   title.textContent = 'Редактирование характеристик ' + (isZone ? 'зоны' : 'комнаты');
   wrap.appendChild(title);
 
-  var list = document.createElement('div');
-  list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+  var list = document.createElement('div');  list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
   
   var specs = _data.specs[key] || {};
   Object.keys(specs).forEach(function(k) {
@@ -586,7 +604,8 @@ function buildSpecEditor(key, isZone) {
       if(!_data.specs[key]) _data.specs[key] = {};
       _data.specs[key][k.trim()] = { v: '', l: '' };
       save(); renderBody();
-    }  });
+    }
+  });
 
   wrap.appendChild(list);
   wrap.appendChild(addBtn);
@@ -616,8 +635,7 @@ function mkSpecRow(key, specKey, data) {
   });
 
   var del = document.createElement('button');
-  del.textContent = '×';
-  del.style.cssText = 'background:#fa5252;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;';
+  del.textContent = '×';  del.style.cssText = 'background:#fa5252;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;';
   del.addEventListener('click', function(){
     delete _data.specs[key][specKey]; 
     save(); 
@@ -635,7 +653,8 @@ function mkSpecRow(key, specKey, data) {
    ═══════════════════════════════════════════════════════ */
 function registerInSettings(){
   if(typeof window.__godjiRegisterSetting !== 'function'){
-    setTimeout(registerInSettings, 300);    return;
+    setTimeout(registerInSettings, 300);
+    return;
   }
   window.__godjiRegisterSetting({
     id: 'godji-pc-specs',
