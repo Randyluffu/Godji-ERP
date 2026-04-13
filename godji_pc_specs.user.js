@@ -1,659 +1,846 @@
 // ==UserScript==
 // @name         Годжи — Характеристики ПК
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Карта и менеджер характеристик ПК с иерархией зон/комнат, drag&drop и переопределением
+// @version      1.0
+// @description  Карта характеристик ПК по комнатам с редактором
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
+// @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_pc_specs.user.js
+// @downloadURL  https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_pc_specs.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 (function () {
 'use strict';
 
-/* ═══════════════════════════════════════════════════════
-   ДАННЫЕ (Excel "Гоголя")
-   ═══════════════════════════════════════════════════════ */
-const STORAGE_KEY = 'godji_pc_specs_v2';
+var STORAGE_KEY = 'godji_pc_specs_v1';
 
-// Структура клуба
-const STRUCTURE = {
-  zones: [
-    { id: 'VIP',   name: 'VIP',   rooms: ['O','Y','T','Q'] },
-    { id: 'VIP+',  name: 'VIP+',  rooms: ['L','X','W'] },
-    { id: 'DUO',   name: 'DUO',   rooms: ['V','E'] },
-    { id: 'SOLO',  name: 'SOLO',  rooms: ['S'] }
-  ],
-  roomPcs: {
-    'Q':['10','11','12','13'], 'W':['14','15','16','17'],
-    'E':['08','09'], 'T':['18','19','20','21','22'],
-    'Y':['23','24','25','26','27','28','29'],
-    'O':['30','31','32','33','34','35'],
-    'X':['36','37','38','39','40'],
-    'L':['01','02','03','04','05'],
-    'V':['06','07'], 'S':['41']
-  }
+// ─────────────────────────────────────────────────────────
+// СТРУКТУРА ПО УМОЛЧАНИЮ
+// ─────────────────────────────────────────────────────────
+var DEFAULT_DATA = {
+    zones: [
+        {
+            id: 'vip', label: 'VIP', color: '#7c3aed',
+            specs: [],
+            rooms: [
+                { id: 'O', pcs: ['30','31','32','33','34','35'], specs: [] },
+                { id: 'Y', pcs: ['23','24','25','26','27','28','29'], specs: [] },
+                { id: 'T', pcs: ['18','19','20','21','22'], specs: [] },
+                { id: 'Q', pcs: ['10','11','12','13'], specs: [] },
+            ]
+        },
+        {
+            id: 'vipplus', label: 'VIP+', color: '#b45309',
+            specs: [],
+            rooms: [
+                { id: 'L', pcs: ['1','2','3','4','5'], specs: [] },
+                { id: 'X', pcs: ['36','37','38','39','40'], specs: [] },
+                { id: 'W', pcs: ['14','15','16','17'], specs: [] },
+            ]
+        },
+        {
+            id: 'duo', label: 'DUO', color: '#0369a1',
+            specs: [],
+            rooms: [
+                { id: 'V', pcs: ['6','7'], specs: [] },
+                { id: 'E', pcs: ['8','9'], specs: [] },
+            ]
+        },
+        {
+            id: 'solo', label: 'SOLO', color: '#166534',
+            specs: [],
+            rooms: [
+                { id: 'S', pcs: ['41'], specs: [] },
+            ]
+        }
+    ],
+    pcSpecs: {} // pcId -> { specs: [{label, value, url}] }
 };
 
-// Стандартные характеристики (из Excel)
-const DEFAULT_SPECS = {
-  zone_VIP: {
-    'Процессор': { v: 'Intel Core i5-12400F', l: 'https://www.dns-shop.ru/product/0a2114a7fcc9ed20/processor-intel-core-i5-12400f-oem/' },
-    'Видеокарта': { v: '4060 TI 8 GB', l: 'https://www.dns-shop.ru/product/55cc9b9165b71b80/videokarta-msi-geforce-rtx-3060-ventus-2x-oc-lhr-rtx-3060-ventus-2x-12g-oc/' },
-    'Оперативная память': { v: '32 GB 3200 МГц', l: 'https://www.dns-shop.ru/product/24fe3fca7bf33332/operativnaya-pamyat-adata-xpg-spectrix-d50-rgb-ax4u32008g16a-dw50-16-gb/' },
-    'Монитор': { v: 'AOC 27" 280 Гц', l: 'https://www.citilink.ru/product/monitor-aoc-gaming-c27g2ze-27-chernyy-krasnyy-i-chernyy-1418917/' },
-    'Наушники': { v: 'Hyper X Cloud v2', l: 'https://www.dns-shop.ru/product/256a9658eb6ced20/provodnye-naushniki-hyperx-cloud-ii-krasnyy-2022/' },
-    'Клавиатура': { v: 'Dark Project KD87A Gateron Teal Cap', l: 'https://www.dns-shop.ru/product/1c0f1d803aefed20/klaviatura-provodnaya-dark-project-kd87a-gateron-teal-cap/' },
-    'Мышь': { v: 'ARDOR GAMING Phantom PRO V2', l: 'https://www.dns-shop.ru/product/c251f0deddb0ed20/mys-besprovodnayaprovodnaya-ardor-gaming-phantom-pro-v2-ardw-ph3395-wt-belyy/' },
-    'Блок питания': { v: 'PROTON BDF-600S 600W', l: 'https://www.dns-shop.ru/product/d07d704607113330/blok-pitaniya-chieftec-proton-600w-bdf-600s-chernyy/' },
-    'Корпус': { v: 'ZALMAN N4 Rev.1', l: 'https://www.dns-shop.ru/product/f1707d8a00b9ed20/korpus-zalman-n4-rev1-chernyy/' },
-    'Материнская плата': { v: 'MSI MAG B760M MORTAR WIFI II', l: 'https://www.dns-shop.ru/product/4eb39d0e5602ed20/materinskaya-plata-msi-mag-b760m-mortar-wifi-ii/' },    'SSD M.2': { v: 'MSI 256 GB', l: '' },
-    'Кресло': { v: 'DXRacer Gladiator / ZONE 51 SOFA RIDER', l: 'https://www.dns-shop.kz/product/6b2fb03fcb222b06/kompyuternoe-kreslo-dxracer-gladiator-krasnyy/' }
-  },
-  zone_VIP_PLUS: {
-    'Процессор': { v: 'Intel Core i5-13400F', l: '' },
-    'Видеокарта': { v: '5070 12 GB', l: 'https://www.dns-shop.ru/product/f1bfcf82de6eed20' },
-    'Оперативная память': { v: '32 GB 6000 МГц', l: 'https://www.dns-shop.ru/product/14c22b90ecead582/operativnaya-pamyat-kingston-fury-beast-black-kf560c30bbe-16-16-gb/' },
-    'Монитор': { v: 'Titan Army 24.5" 360 Гц IPS / Acer Nitro 360 Гц', l: 'https://www.dns-shop.ru/product/1f76a1db1624ed20/245-monitor-titan-army-p25a2k-chernyy/' },
-    'Наушники': { v: 'Hyper X Cloud v2', l: '' },
-    'Клавиатура': { v: 'AKKO 5087S / Dark Project KD87A', l: '' },
-    'Мышь': { v: 'ARDOR GAMING Phantom PRO Nordic', l: 'https://www.dns-shop.ru/product/8c443c3a0af5af05/mys-besprovodnayaprovodnaya-ardor-gaming-phantom-pro-nordic-ardw-phn3395-wt-belyy/' },
-    'Блок питания': { v: 'ATX DEXP DTS-650EPS 650W', l: 'https://www.dns-shop.ru/product/16049257bbe03361/bp-atx-dexp-dts-650eps-650w-80-atx-22-apfc-120mm-fan-2444-6xsata-2xpci-e/' },
-    'Корпус': { v: 'MONTECH X3 MESH / Geometric Future Model 5', l: 'https://www.dns-shop.ru/product/6e7de89742c1ed20/korpus-montech-x3-mesh-x3-mesh-w-belyy/' },
-    'Материнская плата': { v: 'MSI MAG B760M MORTAR II', l: '' },
-    'SSD M.2': { v: 'MSI 256 GB', l: '' },
-    'Кресло': { v: 'ZONE 51', l: '' }
-  },
-  zone_DUO: {
-    'Процессор': { v: 'Intel Core i5-14600KF', l: 'https://www.dns-shop.ru/product/163592727233ed20/processor-intel-core-i5-14600kf-oem/' },
-    'Видеокарта': { v: '5070 12 GB', l: '' },
-    'Оперативная память': { v: '32 GB 6000 МГц', l: '' },
-    'Монитор': { v: 'Asus TUF 2K 300 Гц / AOC 2K 300 Гц', l: 'https://www.dns-shop.ru/product/5a7423f3fef3d763/monitor-acer-27-xv272ukfbmiipruzx-300-gc-2560x1440-ips-1-ms-gtg-350-cdm-hdmi-display-port-usb-type-c/' },
-    'Наушники': { v: 'Hyper X Cloud v2', l: '' },
-    'Клавиатура': { v: 'AKKO 5087S', l: 'https://www.dns-shop.ru/product/92a51df7630d8725/klaviatura-provodnaya-akko-5087s/' },
-    'Мышь': { v: 'Dark Project x VGN F1 Pro Max', l: '' },
-    'Блок питания': { v: 'ATX DEXP DTS-650EPS 650W', l: '' },
-    'Корпус': { v: 'MONTECH X3 MESH', l: '' },
-    'Материнская плата': { v: 'MSI MAG B760M MORTAR II', l: '' },
-    'SSD M.2': { v: 'MSI 256 GB', l: '' },
-    'Кресло': { v: 'ZONE 51', l: '' }
-  },
-  zone_SOLO: {
-    'Процессор': { v: 'Intel Core i5-14600KF', l: '' },
-    'Видеокарта': { v: 'GeForce RTX 5070 Ti 16GB', l: 'https://www.dns-shop.ru/product/fe5cfcefe77fd582/videokarta-palit-geforce-rtx-5070-ti-gamingpro-ne7507t019t2-gb2031a/' },
-    'Оперативная память': { v: '32 GB 6000 МГц', l: '' },
-    'Монитор': { v: 'Samsung Odyssey G6 2K 350 Гц', l: 'https://www.dns-shop.ru/product/2a5a1ebd5e12d582/27-monitor-samsung-odyssey-g6-s27fg606ei-chernyy/' },
-    'Наушники': { v: 'Hyper X Cloud v2', l: '' },
-    'Клавиатура': { v: 'AKKO 5087S', l: '' },
-    'Мышь': { v: 'Logitech Superlight 2', l: 'https://www.dns-shop.ru/product/39e593af22b7ed20/mys-besprovodnayaprovodnaya-razer-deathadder-v3-pro-rz01-04630100-r3g1-chernyy/' },
-    'Блок питания': { v: 'ATX DEXP DTS-650EPS 650W', l: '' },
-    'Корпус': { v: 'MONTECH X3 MESH', l: '' },
-    'Материнская плата': { v: 'MSI MAG B760M MORTAR II', l: '' },
-    'SSD M.2': { v: 'MSI 256 GB', l: '' },
-    'Кресло': { v: 'ZONE 51', l: '' }
-  }
+// ─────────────────────────────────────────────────────────
+// ХРАНИЛИЩЕ
+// ─────────────────────────────────────────────────────────
+function loadData() {
+    try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
+        return JSON.parse(raw);
+    } catch (e) { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+}
+function saveData(d) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch (e) {}
+}
+
+// ─────────────────────────────────────────────────────────
+// SVG ИКОНКИ
+// ─────────────────────────────────────────────────────────
+function svg(paths, size) {
+    size = size || 16;
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>';
+}
+var ICO = {
+    pencil:   svg('<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>'),
+    info:     svg('<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'),
+    chevron:  svg('<polyline points="6 9 12 15 18 9"/>'),
+    plus:     svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+    trash:    svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
+    close:    svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+    link:     svg('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
+    drag:     svg('<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>'),
 };
 
-/* ═══════════════════════════════════════════════════════
-   ЛОГИКА
-   ═══════════════════════════════════════════════════════ */var _data = null;
-var _isEdit = false;
-var _modal = null, _overlay = null;
-var _expandedSections = {}; // { id: boolean }
+// ─────────────────────────────────────────────────────────
+// СОСТОЯНИЕ UI
+// ─────────────────────────────────────────────────────────
+var _modal = null, _overlay = null, _open = false;
+var _editMode = false;
+var _expandedZones = {}, _expandedRooms = {}, _expandedPcs = {};
 
-function load() {
-  try {
-    _data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || null;
-  } catch(e) { _data = null; }
-  if (!_data) {
-    _data = { structure: JSON.parse(JSON.stringify(STRUCTURE)), specs: JSON.parse(JSON.stringify(DEFAULT_SPECS)) };
-    save();
-  }
-  // Миграция если структура обновилась
-  if (!_data.structure) _data.structure = JSON.parse(JSON.stringify(STRUCTURE));
-  if (!_data.specs) _data.specs = {};
+// ─────────────────────────────────────────────────────────
+// ГЛАВНОЕ МОДАЛЬНОЕ ОКНО
+// ─────────────────────────────────────────────────────────
+function openModal() {
+    if (!_modal) buildModal();
+    renderContent();
+    _modal.style.display = 'flex';
+    _overlay.style.display = 'block';
+    _open = true;
+}
+function closeModal() {
+    if (_modal) _modal.style.display = 'none';
+    if (_overlay) _overlay.style.display = 'none';
+    _open = false;
+    _editMode = false;
 }
 
-function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_data)); } catch(e) {}
-}
+function buildModal() {
+    _overlay = document.createElement('div');
+    _overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99996;display:none;';
+    _overlay.addEventListener('click', closeModal);
+    document.body.appendChild(_overlay);
 
-// Получить эффективные характеристики (наследование Зона -> Комната -> ПК)
-function getEffectiveSpecs(zoneId, roomId, pcId) {
-  var out = {};
-  var keys = ['zone_'+zoneId, 'room_'+roomId, 'pc_'+pcId];
-  keys.forEach(function(k) {
-    if (_data.specs[k]) {
-      Object.keys(_data.specs[k]).forEach(function(spec) {
-        // Последняя запись перезаписывает предыдущую (приоритет ПК > Комната > Зона)
-        out[spec] = Object.assign({}, out[spec], _data.specs[k][spec]);
-      });
-    }
-  });
-  return out;
-}
+    _modal = document.createElement('div');
+    _modal.id = 'godji-pcspecs-modal';
+    _modal.style.cssText = [
+        'position:fixed','top:50%','left:50%','transform:translate(-50%,-50%)',
+        'z-index:99997','width:680px','max-width:96vw','max-height:88vh',
+        'background:var(--mantine-color-body,#1a1b1e)',
+        'border:1px solid rgba(255,255,255,0.1)',
+        'border-radius:12px','box-shadow:0 8px 48px rgba(0,0,0,0.7)',
+        'display:none','flex-direction:column','font-family:inherit','overflow:hidden',
+    ].join(';');
+    document.body.appendChild(_modal);
 
-// Проверить отклонения (для инфо-кнопки)
-function getDeviations(zoneId, roomId) {
-  var zoneSpecs = _data.specs['zone_'+zoneId] || {};
-  var roomSpecs = _data.specs['room_'+roomId] || {};
-  var pcs = _data.structure.roomPcs[roomId] || [];
-  var diffs = { room: [], pcs: [] };
-
-  // Отклонения комнаты от зоны
-  Object.keys(roomSpecs).forEach(function(key) {
-    var zoneVal = zoneSpecs[key] ? zoneSpecs[key].v : null;
-    if (!zoneVal || zoneVal !== roomSpecs[key].v) {
-      diffs.room.push({ key: key, val: roomSpecs[key].v });
-    }  });
-
-  // Отклонения ПК от комнаты
-  pcs.forEach(function(pc) {
-    var pcSpecs = _data.specs['pc_'+pc] || {};
-    var hasDiff = false;
-    Object.keys(pcSpecs).forEach(function(key) {
-      var roomVal = roomSpecs[key] ? roomSpecs[key].v : (zoneSpecs[key] ? zoneSpecs[key].v : null);
-      if (!roomVal || roomVal !== pcSpecs[key].v) hasDiff = true;
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && _open) closeModal();
     });
-    if (hasDiff) diffs.pcs.push(pc);
-  });
-  return diffs;
 }
 
-/* ═══════════════════════════════════════════════════════
-   UI: МОДАЛКА (ИСПРАВЛЕНО ЦЕНТРИРОВАНИЕ)
-   ═══════════════════════════════════════════════════════ */
-function createModal() {
-  if (_overlay) _overlay.remove();
-  if (_modal) _modal.remove();
+function renderContent() {
+    if (!_modal) return;
+    _modal.innerHTML = '';
 
-  // Overlay: Fixed, full screen, flex center
-  _overlay = document.createElement('div');
-  _overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999998;display:none;align-items:center;justify-content:center;padding:20px;';
-  _overlay.addEventListener('click', function(e) { if(e.target===_overlay) hideModal(); });
+    var data = loadData();
 
-  // Modal: Fixed, centered via flex parent, but also explicit positioning just in case
-  _modal = document.createElement('div');
-  _modal.style.cssText = [
-    'background:#ffffff',
-    'border:1px solid #e0e0e0',
-    'border-radius:12px',
-    'width:100%',
-    'max-width:720px',
-    'max-height:85vh',
-    'display:none',
-    'flex-direction:column',
-    'font-family:var(--mantine-font-family,inherit)',
-    'box-shadow:0 24px 64px rgba(0,0,0,0.4)',
-    'overflow:hidden',
-    'color:#1a1a1a'
-  ].join(';');
+    // ── Header ──────────────────────────────────────────
+    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
 
-  // Header
-  var hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
-  hdr.innerHTML = '<div style="display:flex;align-items:center;gap:10px;"><div style="width:30px;height:30px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16"/><path d="M9 4v16"/></svg></div><span style="font-size:15px;font-weight:700;color:#1a1a1a;">Характеристики ПК</span></div>';
+    var hL = el('div', 'display:flex;align-items:center;gap:10px;');
+    var hIco = el('div', 'width:32px;height:32px;border-radius:8px;background:#374151;display:flex;align-items:center;justify-content:center;flex-shrink:0;');
+    hIco.innerHTML = svg('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>', 16);
+    hIco.style.color = '#9ca3af';
+    var hTxt = el('div');
+    hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);">Характеристики ПК</div>';
+    hL.appendChild(hIco); hL.appendChild(hTxt);
 
-  var actions = document.createElement('div');  actions.style.cssText = 'display:flex;gap:8px;align-items:center;';
-  
-  // Pencil
-  var pencil = document.createElement('button');
-  pencil.title = 'Режим редактирования';
-  pencil.style.cssText = 'background:none;border:none;color:#868e96;font-size:18px;cursor:pointer;padding:6px;border-radius:6px;transition:all 0.15s;';
-  pencil.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
-  pencil.addEventListener('mouseenter', function(){ pencil.style.color='#1a1a1a'; pencil.style.background='#f5f5f5'; });
-  pencil.addEventListener('mouseleave', function(){ pencil.style.color='#868e96'; pencil.style.background='transparent'; });
-  pencil.addEventListener('click', function() {
-    _isEdit = !_isEdit;
-    pencil.style.color = _isEdit ? '#cc0001' : '#868e96';
-    renderBody();
-  });
-  
-  // Close
-  var close = document.createElement('button');
-  close.innerHTML = '&times;'; 
-  close.style.cssText = 'background:none;border:none;color:#868e96;font-size:22px;cursor:pointer;padding:0;line-height:1;';
-  close.addEventListener('click', hideModal);
+    var hR = el('div', 'display:flex;align-items:center;gap:8px;');
 
-  actions.appendChild(pencil); 
-  actions.appendChild(close);
-  hdr.appendChild(actions);
-  _modal.appendChild(hdr);
-
-  // Body
-  var body = document.createElement('div');
-  body.id = 'godji-specs-body';
-  body.style.cssText = 'overflow-y:auto;padding:12px 16px 16px;flex:1;background:#fafafa;';
-  _modal.appendChild(body);
-
-  document.body.appendChild(_overlay);
-  document.body.appendChild(_modal);
-  
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && _modal.style.display!=='none') hideModal(); });
-}
-
-function hideModal() {
-  if(!_modal) return;
-  _modal.style.display='none';
-  _overlay.style.display='none';
-}
-
-function showModal() {
-  if(!_modal) createModal();
-  load();
-  _expandedSections = {}; // Сброс развёрнутых секций
-  renderBody();
-  _modal.style.display='flex';  _overlay.style.display='flex';
-}
-
-function renderBody() {
-  var body = document.getElementById('godji-specs-body');
-  if(!body) return;
-  body.innerHTML = '';
-
-  _data.structure.zones.forEach(function(zone) {
-    var zEl = buildZone(zone);
-    body.appendChild(zEl);
-  });
-}
-
-/* ═══════════════════════════════════════════════════════
-   ПОСТРОЕНИЕ ИЕРАРХИИ
-   ═══════════════════════════════════════════════════════ */
-function buildZone(zone) {
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'margin-bottom:10px;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.05);';
-
-  var hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;user-select:none;transition:background 0.15s;border-bottom:1px solid #f5f5f5;';
-  hdr.addEventListener('mouseenter', function(){ hdr.style.background='#f9f9f9'; });
-  hdr.addEventListener('mouseleave', function(){ hdr.style.background=''; });
-  hdr.addEventListener('click', function(e){
-    if(e.target.tagName==='BUTTON' || e.target.tagName==='SELECT') return;
-    var body = wrap.querySelector('.z-body');
-    var open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'block';
-    arr.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
-    _expandedSections['zone_'+zone.id] = !open;
-  });
-
-  var arr = document.createElement('span');
-  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:11px;';
-  arr.textContent = '▼';
-
-  var title = document.createElement('span');
-  title.style.cssText = 'font-size:13px;font-weight:700;color:#1a1a1a;flex:1;';
-  title.textContent = zone.name;
-
-  var infoBtn = mkInfoBtn('zone_'+zone.id, zone.name, null);
-  var dragHandle = mkDragHandle('zone', zone.id);
-
-  hdr.appendChild(arr); 
-  hdr.appendChild(title);
-  if(_isEdit) hdr.appendChild(dragHandle);
-  hdr.appendChild(infoBtn);
-  wrap.appendChild(hdr);
-  var body = document.createElement('div');
-  body.className = 'z-body';
-  body.style.cssText = 'padding:10px;display:block;background:#fff;'; // Скрыто по умолчанию? Нет, в renderBody мы сбрасываем _expandedSections, но тут display:block. Нужно проверить логику.
-  // Исправление: по умолчанию скрыто, если не в expandedSections
-  // Но renderBody пересоздает DOM, поэтому нужно управлять display через JS или класс.
-  // Проще: в renderBody ничего не меняем, а тут ставим display:none по умолчанию, если не expanded.
-  // Но _expandedSections пустой при showModal. Значит всё скрыто.
-  body.style.display = 'none'; 
-  arr.style.transform = 'rotate(-90deg)';
-
-  zone.rooms.forEach(function(rid) {
-    body.appendChild(buildRoom(zone.id, rid));
-  });
-  wrap.appendChild(body);
-
-  if(_isEdit) {
-    body.appendChild(buildSpecEditor('zone_'+zone.id, true));
-  }
-  return wrap;
-}
-
-function buildRoom(zoneId, roomId) {
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'margin:8px 0 8px 18px;border-left:2px solid #e0e0e0;padding-left:12px;';
-
-  var hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;user-select:none;border-radius:6px;transition:background 0.15s;';
-  hdr.addEventListener('mouseenter', function(){ hdr.style.background='#f5f5f5'; });
-  hdr.addEventListener('mouseleave', function(){ hdr.style.background=''; });
-  hdr.addEventListener('click', function(e){
-    if(e.target.tagName==='BUTTON' || e.target.tagName==='SELECT') return;
-    var body = wrap.querySelector('.r-body');
-    var open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'block';
-    arr.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
-    _expandedSections['room_'+roomId] = !open;
-  });
-
-  var arr = document.createElement('span');
-  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:10px;';
-  arr.textContent = '▼';
-
-  var title = document.createElement('span');
-  title.style.cssText = 'font-size:12px;font-weight:600;color:#495057;flex:1;';
-  title.textContent = 'Комната ' + roomId;
-
-  var infoBtn = mkInfoBtn('room_'+roomId, 'Комната '+roomId, zoneId);
-  var dragHandle = mkDragHandle('room', roomId);
-  var moveSelect = _isEdit ? mkRoomMoveSelect(zoneId, roomId) : null;
-  hdr.appendChild(arr); 
-  hdr.appendChild(title);
-  if(_isEdit) { hdr.appendChild(dragHandle); hdr.appendChild(moveSelect); }
-  hdr.appendChild(infoBtn);
-  wrap.appendChild(hdr);
-
-  var body = document.createElement('div');
-  body.className = 'r-body';
-  body.style.cssText = 'padding:8px 0 10px;display:none;'; // Скрыто по умолчанию
-  arr.style.transform = 'rotate(-90deg)';
-
-  (_data.structure.roomPcs[roomId]||[]).forEach(function(pc) {
-    body.appendChild(buildPC(zoneId, roomId, pc));
-  });
-  wrap.appendChild(body);
-
-  if(_isEdit) {
-    body.appendChild(buildSpecEditor('room_'+roomId, false));
-  }
-  return wrap;
-}
-
-function buildPC(zoneId, roomId, pcId) {
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'margin:6px 0 6px 22px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:7px 10px;';
-
-  var hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;';
-  hdr.addEventListener('click', function(e){
-    if(e.target.tagName==='BUTTON' || e.target.tagName==='SELECT') return;
-    var body = wrap.querySelector('.p-body');
-    var open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'block';
-    arr.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
-  });
-
-  var arr = document.createElement('span');
-  arr.style.cssText = 'color:#adb5bd;transition:transform 0.18s;font-size:9px;';
-  arr.textContent = '▶';
-
-  var title = document.createElement('span');
-  title.style.cssText = 'font-size:11px;font-weight:600;color:#1a1a1a;flex:1;';
-  title.textContent = 'ПК ' + pcId;
-
-  var moveSelect = _isEdit ? mkPcMoveSelect(roomId, pcId) : null;
-
-  hdr.appendChild(arr); 
-  hdr.appendChild(title);
-  if(_isEdit) hdr.appendChild(moveSelect);  wrap.appendChild(hdr);
-
-  var body = document.createElement('div');
-  body.className = 'p-body';
-  body.style.cssText = 'padding:8px 0 6px;display:none;'; // Скрыто по умолчанию
-  arr.style.transform = 'rotate(-90deg)';
-  
-  var specs = getEffectiveSpecs(zoneId, roomId, pcId);
-  var specKeys = Object.keys(specs);
-  if(specKeys.length === 0) {
-    body.innerHTML = '<div style="font-size:10px;color:#adb5bd;padding:4px 8px;">Нет характеристик</div>';
-  } else {
-    specKeys.forEach(function(key) {
-      var s = specs[key];
-      var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f1f3f5;font-size:11px;';
-      
-      var k = document.createElement('span');
-      k.style.cssText = 'color:#868e96;min-width:80px;';
-      k.textContent = key + ':';
-      
-      var v = document.createElement('span');
-      v.style.cssText = 'color:#495057;flex:1;word-break:break-all;';
-      if(s.l) {
-        v.innerHTML = '<a href="'+s.l+'" target="_blank" style="color:#228be6;text-decoration:none;border-bottom:1px dashed rgba(34,139,230,0.3);transition:all 0.15s;">'+(s.v||'—')+'</a>';
-      } else {
-        v.textContent = s.v || '—';
-      }
-
-      row.appendChild(k); 
-      row.appendChild(v);
-      body.appendChild(row);
+    // Кнопка редактирования
+    var editBtn = el('button', 'background:'+ (_editMode ? 'rgba(204,0,1,0.2)' : 'rgba(255,255,255,0.06)')+';border:1px solid '+(_editMode ? 'rgba(204,0,1,0.4)' : 'rgba(255,255,255,0.1)')+';border-radius:7px;padding:5px 10px;color:'+(_editMode ? '#f87171' : 'rgba(255,255,255,0.5)')+';cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;font-family:inherit;transition:all .15s;');
+    editBtn.innerHTML = ICO.pencil + '<span>' + (_editMode ? 'Готово' : 'Редактировать') + '</span>';
+    editBtn.addEventListener('click', function () {
+        _editMode = !_editMode;
+        renderContent();
     });
-  }
-  wrap.appendChild(body);
-  return wrap;
-}
 
-/* ═══════════════════════════════════════════════════════
-   КОМПОНЕНТЫ UI
-   ═══════════════════════════════════════════════════════ */
-function mkInfoBtn(specKey, title, parentZoneId) {
-  var btn = document.createElement('button');
-  btn.title = 'Информация о характеристиках';
-  btn.style.cssText = 'background:none;border:none;color:#adb5bd;font-size:15px;cursor:pointer;padding:4px;border-radius:50%;transition:all 0.15s;';
-  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
-  btn.addEventListener('mouseenter', function(){btn.style.background='#e9ecef';btn.style.color='#495057';});
-  btn.addEventListener('mouseleave', function(){btn.style.background='none';btn.style.color='#adb5bd';});
-  btn.addEventListener('click', function(e){
-    e.stopPropagation();    showInfoPopup(btn, specKey, title, parentZoneId);
-  });
-  return btn;
-}
+    var closeBtn = el('button', 'background:none;border:none;color:rgba(255,255,255,0.3);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', closeModal);
 
-function showInfoPopup(anchor, specKey, title, parentZoneId) {
-  if(document.getElementById('godji-info-popup')) document.getElementById('godji-info-popup').remove();
-  
-  var box = document.createElement('div');
-  box.id = 'godji-info-popup';
-  box.style.cssText = 'position:absolute;z-index:99999;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 16px;width:300px;max-height:60vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-family:inherit;font-size:11px;color:#1a1a1a;';
-  
-  var rect = anchor.getBoundingClientRect();
-  box.style.top = (rect.bottom + 4) + 'px';
-  box.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+    hR.appendChild(editBtn); hR.appendChild(closeBtn);
+    hdr.appendChild(hL); hdr.appendChild(hR);
+    _modal.appendChild(hdr);
 
-  var h = document.createElement('div');
-  h.style.cssText = 'font-weight:700;color:#1a1a1a;margin-bottom:8px;border-bottom:1px solid #f0f0f0;padding-bottom:6px;';
-  h.textContent = 'Характеристики: ' + title;
-  box.appendChild(h);
+    // ── Тело ────────────────────────────────────────────
+    var body = el('div', 'overflow-y:auto;flex:1;min-height:0;padding:12px 16px;');
 
-  var specs = _data.specs[specKey] || {};
-  if(Object.keys(specs).length === 0) {
-    box.innerHTML += '<div style="color:#adb5bd;">Не заданы (наследуются от родителя)</div>';
-  } else {
-    Object.keys(specs).forEach(function(k){
-      var r = document.createElement('div');
-      r.style.cssText = 'display:flex;justify-content:space-between;padding:3px 0;color:#495057;';
-      r.innerHTML = '<span>'+k+'</span><span style="color:#228be6;">'+(specs[k].v||'—')+'</span>';
-      box.appendChild(r);
+    data.zones.forEach(function (zone) {
+        body.appendChild(buildZoneBlock(zone, data));
     });
-  }
 
-  if(parentZoneId) {
-    var dev = getDeviations(parentZoneId, specKey.split('_')[1]);
-    if(dev.room.length > 0) {
-      var dDiv = document.createElement('div');
-      dDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;color:#e67700;';
-      dDiv.textContent = '⚠ Отклоняется от зоны: ' + dev.room.map(d=>d.key).join(', ');
-      box.appendChild(dDiv);
+    // Кнопка добавить зону (в режиме редактирования)
+    if (_editMode) {
+        var addZoneBtn = mkTextBtn('+ Добавить зону', function () {
+            showAddZoneDialog(data);
+        });
+        addZoneBtn.style.marginTop = '8px';
+        body.appendChild(addZoneBtn);
     }
-    if(dev.pcs.length > 0) {
-      var dDiv2 = document.createElement('div');
-      dDiv2.style.cssText = 'color:#e67700;';
-      dDiv2.textContent = '⚠ Отклоняющиеся ПК: ' + dev.pcs.join(', ');
-      box.appendChild(dDiv2);
-    }
-  }
 
-  document.body.appendChild(box);  setTimeout(function(){
-    var close = function(e){ if(!box.contains(e.target)){box.remove();document.removeEventListener('click',close);} };
-    document.addEventListener('click', close);
-  }, 10);
+    _modal.appendChild(body);
 }
 
-function mkDragHandle(type, id) {
-  var el = document.createElement('div');
-  el.setAttribute('draggable', 'true');
-  el.style.cssText = 'cursor:grab;background:#f1f3f5;padding:4px 7px;border-radius:4px;font-size:12px;color:#868e96;user-select:none;';
-  el.textContent = '☰';
-  el.addEventListener('dragstart', function(e){
-    e.dataTransfer.effectAllowed = 'move';
-    e.target.style.opacity = '0.4';
-  });
-  el.addEventListener('dragend', function(e){ e.target.style.opacity='1'; });
-  el.addEventListener('dragover', function(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; this.style.background='#d0ebff'; });
-  el.addEventListener('dragleave', function(){ this.style.background='#f1f3f5'; });
-  el.addEventListener('drop', function(e){
-    e.stopPropagation();
-    e.preventDefault();
-    this.style.background='#f1f3f5';
-    // Упрощенная логика drop для примера, полная реализация требует отслеживания dragData глобально
-    // Но для зон/комнат это работает через mkRoomMoveSelect
-  });
-  return el;
-}
+// ── Блок зоны ───────────────────────────────────────────
+function buildZoneBlock(zone, data) {
+    var wrap = el('div', 'margin-bottom:8px;border-radius:10px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;');
 
-function mkRoomMoveSelect(zoneId, roomId) {
-  var sel = document.createElement('select');
-  sel.style.cssText = 'background:#fff;border:1px solid #ced4da;color:#1a1a1a;border-radius:4px;padding:2px 5px;font-size:10px;';
-  sel.addEventListener('mousedown', function(e){e.stopPropagation();});
-  sel.addEventListener('change', function(){
-    if(this.value !== zoneId) {
-      var oldZ = _data.structure.zones.find(z=>z.rooms.includes(roomId));
-      var newZ = _data.structure.zones.find(z=>z.id===this.value);
-      if(oldZ && newZ) {
-        oldZ.rooms = oldZ.rooms.filter(r=>r!==roomId);
-        newZ.rooms.push(roomId);
-        save(); renderBody();
-      }
+    // Заголовок зоны
+    var zHdr = el('div', 'display:flex;align-items:center;gap:0;background:rgba(255,255,255,0.04);cursor:pointer;user-select:none;');
+
+    var zChev = el('span', 'padding:10px 6px 10px 12px;color:rgba(255,255,255,0.3);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
+    zChev.innerHTML = ICO.chevron;
+    if (_expandedZones[zone.id]) zChev.style.transform = 'rotate(180deg)';
+
+    var zDot = el('span', 'width:10px;height:10px;border-radius:50%;background:'+zone.color+';flex-shrink:0;margin-right:8px;');
+
+    var zLbl = el('span', 'font-size:13px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);flex:1;padding:10px 0;');
+    zLbl.textContent = zone.label;
+
+    var zR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:10px;');
+
+    // Инфо-кнопка
+    var infoBtn = mkIconBtn(ICO.info, 'rgba(255,255,255,0.2)', function (e) {
+        e.stopPropagation();
+        showSpecsInfo(zone, null, data);
+    });
+    zR.appendChild(infoBtn);
+
+    if (_editMode) {
+        // Кнопка добавить характеристику зоне
+        var editZoneBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.15)', function (e) {
+            e.stopPropagation();
+            showEditSpecs(zone.id, null, null, data, function () { renderContent(); });
+        });
+        zR.appendChild(editZoneBtn);
     }
-  });
-  _data.structure.zones.forEach(function(z){
-    var o = document.createElement('option');
-    o.value = z.id; o.textContent = z.name;
-    if(z.id===zoneId) o.selected = true;
-    sel.appendChild(o);
-  });
-  return sel;}
 
-function mkPcMoveSelect(roomId, pcId) {
-  var sel = document.createElement('select');
-  sel.style.cssText = 'background:#fff;border:1px solid #ced4da;color:#1a1a1a;border-radius:4px;padding:2px 5px;font-size:10px;';
-  sel.addEventListener('mousedown', function(e){e.stopPropagation();});
-  sel.addEventListener('change', function(){
-    if(this.value !== roomId) {
-      var oldRpcs = _data.structure.roomPcs[roomId];
-      var newRpcs = _data.structure.roomPcs[this.value];
-      if(oldRpcs && newRpcs) {
-        oldRpcs.splice(oldRpcs.indexOf(pcId), 1);
-        newRpcs.push(pcId);
-        save(); renderBody();
-      }
+    zHdr.appendChild(zChev); zHdr.appendChild(zDot); zHdr.appendChild(zLbl); zHdr.appendChild(zR);
+
+    var zContent = el('div', 'display:'+(_expandedZones[zone.id] ? 'block' : 'none')+';');
+
+    zHdr.addEventListener('click', function () {
+        _expandedZones[zone.id] = !_expandedZones[zone.id];
+        zContent.style.display = _expandedZones[zone.id] ? 'block' : 'none';
+        zChev.style.transform = _expandedZones[zone.id] ? 'rotate(180deg)' : '';
+    });
+
+    // Комнаты
+    zone.rooms.forEach(function (room) {
+        zContent.appendChild(buildRoomBlock(room, zone, data));
+    });
+
+    if (_editMode) {
+        var addRoomBtn = mkTextBtn('+ Добавить комнату в ' + zone.label, function () {
+            showAddRoomDialog(zone, data);
+        });
+        addRoomBtn.style.cssText += 'margin:4px 8px 8px;';
+        zContent.appendChild(addRoomBtn);
     }
-  });
-  Object.keys(_data.structure.roomPcs).forEach(function(r){
-    var o = document.createElement('option');
-    o.value = r; o.textContent = r;
-    if(r===roomId) o.selected = true;
-    sel.appendChild(o);
-  });
-  return sel;
+
+    wrap.appendChild(zHdr); wrap.appendChild(zContent);
+    return wrap;
 }
 
-/* ═══════════════════════════════════════════════════════
-   РЕДАКТОР ХАРАКТЕРИСТИК
-   ═══════════════════════════════════════════════════════ */
-function buildSpecEditor(key, isZone) {
-  var wrap = document.createElement('div');
-  wrap.style.cssText = 'margin-top:10px;padding:10px;background:#f8f9fa;border:1px dashed #ced4da;border-radius:6px;';
+// ── Блок комнаты ─────────────────────────────────────────
+function buildRoomBlock(room, zone, data) {
+    var rKey = zone.id + '_' + room.id;
+    var wrap = el('div', 'margin:4px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;');
 
-  var title = document.createElement('div');
-  title.style.cssText = 'font-size:10px;font-weight:700;color:#e03131;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
-  title.textContent = 'Редактирование характеристик ' + (isZone ? 'зоны' : 'комнаты');
-  wrap.appendChild(title);
+    var rHdr = el('div', 'display:flex;align-items:center;background:rgba(255,255,255,0.02);cursor:pointer;user-select:none;');
 
-  var list = document.createElement('div');
-  list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
-  
-  var specs = _data.specs[key] || {};
-  Object.keys(specs).forEach(function(k) {
-    list.appendChild(mkSpecRow(key, k, specs[k]));
-  });
+    var rChev = el('span', 'padding:8px 6px 8px 10px;color:rgba(255,255,255,0.25);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
+    rChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 14);
+    if (_expandedRooms[rKey]) rChev.style.transform = 'rotate(180deg)';
 
-  var addBtn = document.createElement('button');
-  addBtn.textContent = '+ Добавить характеристику';
-  addBtn.style.cssText = 'margin-top:8px;background:transparent;border:1px solid #ced4da;color:#495057;border-radius:4px;padding:5px 10px;font-size:10px;cursor:pointer;width:100%;transition:background 0.15s;';
-  addBtn.addEventListener('mouseenter', function(){addBtn.style.background='#e9ecef';});  addBtn.addEventListener('mouseleave', function(){addBtn.style.background='transparent';});
-  addBtn.addEventListener('click', function(){
-    var k = prompt('Название характеристики:');
-    if(k && k.trim()) {
-      if(!_data.specs[key]) _data.specs[key] = {};
-      _data.specs[key][k.trim()] = { v: '', l: '' };
-      save(); renderBody();
+    var rLbl = el('span', 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);flex:1;padding:8px 4px;');
+    rLbl.textContent = 'Комната ' + room.id;
+
+    var rR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:8px;');
+    var rInfoBtn = mkIconBtn(ICO.info, 'rgba(255,255,255,0.15)', function (e) {
+        e.stopPropagation();
+        showSpecsInfo(zone, room, data);
+    });
+    rR.appendChild(rInfoBtn);
+
+    if (_editMode) {
+        var editRoomBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.1)', function (e) {
+            e.stopPropagation();
+            showEditSpecs(zone.id, room.id, null, data, function () { renderContent(); });
+        });
+        var moveRoomBtn = mkIconBtn(ICO.drag, 'rgba(255,255,255,0.1)', function (e) {
+            e.stopPropagation();
+            showMoveRoomDialog(room, zone, data);
+        });
+        rR.appendChild(editRoomBtn);
+        rR.appendChild(moveRoomBtn);
     }
-  });
 
-  wrap.appendChild(list);
-  wrap.appendChild(addBtn);
-  return wrap;
+    rHdr.appendChild(rChev); rHdr.appendChild(rLbl); rHdr.appendChild(rR);
+
+    var rContent = el('div', 'display:'+(_expandedRooms[rKey] ? 'block' : 'none')+';padding:2px 0 6px;');
+
+    rHdr.addEventListener('click', function () {
+        _expandedRooms[rKey] = !_expandedRooms[rKey];
+        rContent.style.display = _expandedRooms[rKey] ? 'block' : 'none';
+        rChev.style.transform = _expandedRooms[rKey] ? 'rotate(180deg)' : '';
+    });
+
+    // ПК
+    room.pcs.forEach(function (pcId) {
+        rContent.appendChild(buildPcBlock(pcId, room, zone, data));
+    });
+
+    if (_editMode) {
+        var addPcBtn = mkTextBtn('+ Добавить ПК', function () {
+            showAddPcDialog(room, zone, data);
+        });
+        addPcBtn.style.cssText += 'margin:2px 8px 4px;font-size:11px;';
+        rContent.appendChild(addPcBtn);
+    }
+
+    wrap.appendChild(rHdr); wrap.appendChild(rContent);
+    return wrap;
 }
 
-function mkSpecRow(key, specKey, data) {
-  var row = document.createElement('div');
-  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:5px;align-items:center;';
+// ── Блок ПК ──────────────────────────────────────────────
+function buildPcBlock(pcId, room, zone, data) {
+    var pKey = zone.id + '_' + room.id + '_' + pcId;
+    var pcData = (data.pcSpecs && data.pcSpecs[pcId]) || { specs: [] };
 
-  var inpV = document.createElement('input');
-  inpV.placeholder = 'Значение'; 
-  inpV.value = data.v || '';
-  inpV.style.cssText = 'background:#fff;border:1px solid #ced4da;color:#1a1a1a;border-radius:4px;padding:5px 7px;font-size:11px;';
-  inpV.addEventListener('change', function(){
-    _data.specs[key][specKey].v = this.value; 
-    save();
-  });
+    // Эффективные характеристики: комбинируем зона → комната → пк
+    var effSpecs = mergeSpecs(zone.specs || [], room.specs || [], pcData.specs || []);
 
-  var inpL = document.createElement('input');
-  inpL.placeholder = 'Ссылка'; 
-  inpL.value = data.l || '';
-  inpL.style.cssText = 'background:#fff;border:1px solid #ced4da;color:#868e96;border-radius:4px;padding:5px 7px;font-size:11px;';
-  inpL.addEventListener('change', function(){
-    _data.specs[key][specKey].l = this.value; 
-    save();
-  });
+    var wrap = el('div', 'margin:2px 10px;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);');
 
-  var del = document.createElement('button');
-  del.textContent = '×';
-  del.style.cssText = 'background:#fa5252;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;';
-  del.addEventListener('click', function(){
-    delete _data.specs[key][specKey]; 
-    save(); 
-    renderBody();
-  });
+    var pHdr = el('div', 'display:flex;align-items:center;background:rgba(255,255,255,0.01);cursor:pointer;user-select:none;padding:6px 8px;gap:6px;');
 
-  row.appendChild(inpV); 
-  row.appendChild(inpL); 
-  row.appendChild(del);
-  return row;}
+    var pChev = el('span', 'color:rgba(255,255,255,0.2);display:flex;align-items:center;flex-shrink:0;transition:transform .2s;');
+    pChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 12);
+    if (_expandedPcs[pKey]) pChev.style.transform = 'rotate(180deg)';
 
-/* ═══════════════════════════════════════════════════════
-   РЕГИСТРАЦИЯ В НАСТРОЙКАХ
-   ═══════════════════════════════════════════════════════ */
-function registerInSettings(){
-  if(typeof window.__godjiRegisterSetting !== 'function'){
-    setTimeout(registerInSettings, 300);
-    return;
-  }
-  window.__godjiRegisterSetting({
-    id: 'godji-pc-specs',
-    label: 'Характеристики ПК',
-    iconBg: '#cc0001',
-    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16"/><path d="M9 4v16"/></svg>',
-    type: 'button',
-    onClick: showModal
-  });
+    var pLbl = el('span', 'font-size:12px;font-weight:500;color:rgba(255,255,255,0.6);flex:1;');
+    pLbl.textContent = 'ПК ' + pcId;
+
+    // Краткий превью первой характеристики
+    if (effSpecs.length > 0) {
+        var preview = el('span', 'font-size:11px;color:rgba(255,255,255,0.25);margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;');
+        preview.textContent = effSpecs[0].label + ': ' + effSpecs[0].value;
+        pHdr.appendChild(pChev); pHdr.appendChild(pLbl); pHdr.appendChild(preview);
+    } else {
+        pHdr.appendChild(pChev); pHdr.appendChild(pLbl);
+    }
+
+    if (_editMode) {
+        var editPcBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.08)', function (e) {
+            e.stopPropagation();
+            showEditSpecs(zone.id, room.id, pcId, data, function () { renderContent(); });
+        });
+        var movePcBtn = mkIconBtn(ICO.drag, 'rgba(255,255,255,0.08)', function (e) {
+            e.stopPropagation();
+            showMovePcDialog(pcId, room, zone, data);
+        });
+        var delPcBtn = mkIconBtn(ICO.trash, 'rgba(180,40,40,0.2)', function (e) {
+            e.stopPropagation();
+            if (confirm('Удалить ПК ' + pcId + ' из комнаты ' + room.id + '?')) {
+                room.pcs = room.pcs.filter(function (p) { return p !== pcId; });
+                saveData(data);
+                renderContent();
+            }
+        });
+        delPcBtn.style.color = '#f87171';
+        pHdr.appendChild(editPcBtn);
+        pHdr.appendChild(movePcBtn);
+        pHdr.appendChild(delPcBtn);
+    }
+
+    var pContent = el('div', 'display:'+(_expandedPcs[pKey] ? 'block' : 'none')+';padding:6px 12px 8px;');
+
+    pHdr.addEventListener('click', function () {
+        _expandedPcs[pKey] = !_expandedPcs[pKey];
+        pContent.style.display = _expandedPcs[pKey] ? 'block' : 'none';
+        pChev.style.transform = _expandedPcs[pKey] ? 'rotate(180deg)' : '';
+    });
+
+    // Характеристики ПК
+    if (effSpecs.length === 0) {
+        pContent.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.2);padding:4px 0;">Нет характеристик</div>';
+    } else {
+        effSpecs.forEach(function (spec) {
+            var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
+            var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.35);flex-shrink:0;min-width:90px;');
+            lbl.textContent = spec.label;
+            var val = el('span', 'font-size:12px;font-weight:500;flex:1;');
+
+            if (spec.url) {
+                var a = document.createElement('a');
+                a.href = spec.url;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.style.cssText = 'color:#60a5fa;text-decoration:none;font-size:12px;font-weight:500;';
+                a.textContent = spec.value;
+                a.addEventListener('mouseenter', function () { a.style.textDecoration = 'underline'; });
+                a.addEventListener('mouseleave', function () { a.style.textDecoration = 'none'; });
+                val.appendChild(a);
+            } else {
+                val.style.color = 'rgba(255,255,255,0.7)';
+                val.textContent = spec.value;
+            }
+
+            // Пометка источника
+            if (spec._src === 'zone') {
+                var src = el('span', 'font-size:10px;color:rgba(255,255,255,0.2);flex-shrink:0;');
+                src.textContent = '(' + zone.label + ')';
+                row.appendChild(lbl); row.appendChild(val); row.appendChild(src);
+            } else if (spec._src === 'room') {
+                var src2 = el('span', 'font-size:10px;color:rgba(255,255,255,0.2);flex-shrink:0;');
+                src2.textContent = '(комн. ' + room.id + ')';
+                row.appendChild(lbl); row.appendChild(val); row.appendChild(src2);
+            } else {
+                row.appendChild(lbl); row.appendChild(val);
+            }
+
+            pContent.appendChild(row);
+        });
+    }
+
+    wrap.appendChild(pHdr); wrap.appendChild(pContent);
+    return wrap;
 }
 
-setTimeout(registerInSettings, 500);
+// ─────────────────────────────────────────────────────────
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ─────────────────────────────────────────────────────────
+
+// Мержим характеристики: зона → комната → ПК (ПК перебивает)
+function mergeSpecs(zoneSpecs, roomSpecs, pcSpecs) {
+    var map = {};
+    (zoneSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'zone'}); });
+    (roomSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'room'}); });
+    (pcSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'pc'}); });
+    return Object.values(map);
+}
+
+function el(tag, css) {
+    var e = document.createElement(tag);
+    if (css) e.style.cssText = css;
+    return e;
+}
+
+function mkIconBtn(iconHtml, bg, onClick) {
+    var b = el('button', 'background:'+bg+';border:none;border-radius:5px;padding:3px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.4);flex-shrink:0;transition:background .15s;');
+    b.innerHTML = iconHtml.replace('width="16" height="16"', 'width="12" height="12"');
+    b.addEventListener('click', onClick);
+    return b;
+}
+
+function mkTextBtn(text, onClick) {
+    var b = el('button', 'background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:inherit;display:block;width:100%;text-align:left;transition:background .15s;');
+    b.textContent = text;
+    b.addEventListener('mouseenter', function () { b.style.background = 'rgba(255,255,255,0.07)'; });
+    b.addEventListener('mouseleave', function () { b.style.background = 'rgba(255,255,255,0.04)'; });
+    b.addEventListener('click', onClick);
+    return b;
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ РЕДАКТИРОВАНИЯ ХАРАКТЕРИСТИК
+// ─────────────────────────────────────────────────────────
+function showEditSpecs(zoneId, roomId, pcId, data, onSave) {
+    // Определяем что редактируем
+    var zone = data.zones.find(function (z) { return z.id === zoneId; });
+    var room = roomId ? (zone && zone.rooms.find(function (r) { return r.id === roomId; })) : null;
+    var isPC = !!pcId;
+
+    var title = isPC ? ('ПК ' + pcId) : (room ? ('Комната ' + room.id) : ('Зона ' + (zone ? zone.label : '')));
+    var targetSpecs;
+    if (isPC) {
+        if (!data.pcSpecs) data.pcSpecs = {};
+        if (!data.pcSpecs[pcId]) data.pcSpecs[pcId] = { specs: [] };
+        targetSpecs = data.pcSpecs[pcId].specs;
+    } else if (room) {
+        targetSpecs = room.specs || (room.specs = []);
+    } else if (zone) {
+        targetSpecs = zone.specs || (zone.specs = []);
+    } else return;
+
+    // Копия для редактирования
+    var draft = JSON.parse(JSON.stringify(targetSpecs));
+
+    var dlg = buildDialog('Характеристики: ' + title, '480px');
+    var body = dlg.body;
+
+    function renderSpecs() {
+        body.innerHTML = '';
+        draft.forEach(function (spec, idx) {
+            var row = el('div', 'display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;');
+
+            var lInp = mkInput(spec.label, 'Название (CPU, GPU...)');
+            lInp.style.flex = '1';
+            lInp.addEventListener('input', function () { spec.label = lInp.value; });
+
+            var vInp = mkInput(spec.value, 'Значение');
+            vInp.style.flex = '2';
+            vInp.addEventListener('input', function () { spec.value = vInp.value; });
+
+            var uInp = mkInput(spec.url || '', 'Ссылка (необязательно)');
+            uInp.style.flex = '2';
+            uInp.placeholder = 'https://...';
+            uInp.addEventListener('input', function () { spec.url = uInp.value || ''; });
+
+            var del = el('button', 'background:rgba(180,40,40,0.2);border:none;border-radius:5px;padding:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#f87171;flex-shrink:0;margin-top:1px;');
+            del.innerHTML = ICO.trash.replace('width="16" height="16"', 'width="13" height="13"');
+            del.addEventListener('click', function () { draft.splice(idx, 1); renderSpecs(); });
+
+            row.appendChild(lInp); row.appendChild(vInp); row.appendChild(uInp); row.appendChild(del);
+            body.appendChild(row);
+        });
+
+        var addRow = el('button', 'background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.12);border-radius:6px;padding:6px;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:inherit;width:100%;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:5px;');
+        addRow.innerHTML = ICO.plus.replace('width="16"','width="13"').replace('height="16"','height="13"') + '<span>Добавить характеристику</span>';
+        addRow.addEventListener('click', function () {
+            draft.push({ label: '', value: '', url: '' });
+            renderSpecs();
+        });
+        body.appendChild(addRow);
+    }
+
+    renderSpecs();
+
+    dlg.addFooter([
+        { label: 'Сохранить', primary: true, onClick: function () {
+            var clean = draft.filter(function (s) { return s.label && s.value; });
+            if (isPC) {
+                data.pcSpecs[pcId].specs = clean;
+            } else if (room) {
+                room.specs = clean;
+            } else if (zone) {
+                zone.specs = clean;
+            }
+            saveData(data);
+            dlg.close();
+            if (onSave) onSave();
+        }},
+        { label: 'Отмена', onClick: function () { dlg.close(); }}
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ИНФО О ХАРАКТЕРИСТИКАХ ЗОНЫ/КОМНАТЫ
+// ─────────────────────────────────────────────────────────
+function showSpecsInfo(zone, room, data) {
+    var title = room ? ('Комната ' + room.id) : ('Зона ' + zone.label);
+    var baseSpecs = room ? (mergeSpecs(zone.specs || [], room.specs || [], [])) : (zone.specs || []);
+
+    var dlg = buildDialog('Характеристики: ' + title, '480px');
+    var body = dlg.body;
+
+    if (baseSpecs.length === 0) {
+        var empty = el('div', 'font-size:12px;color:rgba(255,255,255,0.25);padding:8px 0;');
+        empty.textContent = 'Нет общих характеристик';
+        body.appendChild(empty);
+    } else {
+        var sect = el('div', 'margin-bottom:12px;');
+        var sectLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;');
+        sectLbl.textContent = 'Общие характеристики';
+        sect.appendChild(sectLbl);
+        baseSpecs.forEach(function (spec) {
+            sect.appendChild(buildSpecRow(spec));
+        });
+        body.appendChild(sect);
+    }
+
+    // Отличия по комнатам (если зона) или по ПК (если комната)
+    var items = room ? room.pcs : (zone.rooms.map(function (r) { return r.id; }));
+    var diffs = [];
+
+    if (room) {
+        // Ищем ПК с отличиями
+        room.pcs.forEach(function (pcId) {
+            var pcS = (data.pcSpecs && data.pcSpecs[pcId] && data.pcSpecs[pcId].specs) || [];
+            if (pcS.length > 0) {
+                diffs.push({ label: 'ПК ' + pcId, specs: pcS });
+            }
+        });
+    } else {
+        // Ищем комнаты с отличиями
+        zone.rooms.forEach(function (r) {
+            if (r.specs && r.specs.length > 0) {
+                diffs.push({ label: 'Комната ' + r.id, specs: mergeSpecs(zone.specs || [], r.specs, []) });
+            }
+        });
+    }
+
+    if (diffs.length > 0) {
+        var divider = el('div', 'border-top:1px solid rgba(255,255,255,0.06);margin:10px 0;');
+        body.appendChild(divider);
+        var diffLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;');
+        diffLbl.textContent = 'Отличия';
+        body.appendChild(diffLbl);
+
+        diffs.forEach(function (diff) {
+            var s = el('div', 'margin-bottom:10px;');
+            var sl = el('div', 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.5);margin-bottom:4px;');
+            sl.textContent = diff.label;
+            s.appendChild(sl);
+            diff.specs.forEach(function (spec) { s.appendChild(buildSpecRow(spec)); });
+            body.appendChild(s);
+        });
+    }
+
+    dlg.addFooter([{ label: 'Закрыть', onClick: function () { dlg.close(); } }]);
+}
+
+function buildSpecRow(spec) {
+    var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
+    var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.3);min-width:90px;flex-shrink:0;');
+    lbl.textContent = spec.label;
+    var val = el('span', 'font-size:12px;');
+    if (spec.url) {
+        var a = document.createElement('a');
+        a.href = spec.url; a.target = '_blank'; a.rel = 'noopener';
+        a.style.cssText = 'color:#60a5fa;text-decoration:none;';
+        a.textContent = spec.value;
+        a.addEventListener('mouseenter', function () { a.style.textDecoration = 'underline'; });
+        a.addEventListener('mouseleave', function () { a.style.textDecoration = 'none'; });
+        val.appendChild(a);
+    } else {
+        val.style.color = 'rgba(255,255,255,0.7)';
+        val.textContent = spec.value;
+    }
+    row.appendChild(lbl); row.appendChild(val);
+    return row;
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ПЕРЕМЕЩЕНИЯ КОМНАТЫ
+// ─────────────────────────────────────────────────────────
+function showMoveRoomDialog(room, currentZone, data) {
+    var dlg = buildDialog('Переместить комнату ' + room.id, '340px');
+    var body = dlg.body;
+
+    var lbl = el('div', 'font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px;');
+    lbl.textContent = 'Выберите зону для комнаты ' + room.id + ':';
+    body.appendChild(lbl);
+
+    data.zones.forEach(function (z) {
+        var opt = el('button', 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:'+(z.id === currentZone.id ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)')+';border:1px solid rgba(255,255,255,0.07);border-radius:7px;cursor:pointer;font-family:inherit;margin-bottom:5px;color:var(--mantine-color-text,#c1c2c5);font-size:13px;');
+        var dot = el('span', 'width:8px;height:8px;border-radius:50%;background:'+z.color+';flex-shrink:0;');
+        opt.appendChild(dot);
+        opt.appendChild(document.createTextNode(z.label + (z.id === currentZone.id ? ' (текущая)' : '')));
+        opt.addEventListener('click', function () {
+            if (z.id === currentZone.id) { dlg.close(); return; }
+            // Удаляем из текущей зоны
+            currentZone.rooms = currentZone.rooms.filter(function (r) { return r.id !== room.id; });
+            // Добавляем в новую
+            z.rooms.push(room);
+            saveData(data);
+            dlg.close();
+            renderContent();
+        });
+        body.appendChild(opt);
+    });
+
+    dlg.addFooter([{ label: 'Отмена', onClick: function () { dlg.close(); } }]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ПЕРЕМЕЩЕНИЯ ПК
+// ─────────────────────────────────────────────────────────
+function showMovePcDialog(pcId, currentRoom, currentZone, data) {
+    var dlg = buildDialog('Переместить ПК ' + pcId, '360px');
+    var body = dlg.body;
+
+    var lbl = el('div', 'font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px;');
+    lbl.textContent = 'Выберите комнату для ПК ' + pcId + ':';
+    body.appendChild(lbl);
+
+    data.zones.forEach(function (z) {
+        var zSect = el('div', 'margin-bottom:8px;');
+        var zLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:5px;');
+        var dot = el('span', 'width:7px;height:7px;border-radius:50%;background:'+z.color+';');
+        zLbl.appendChild(dot); zLbl.appendChild(document.createTextNode(z.label));
+        zSect.appendChild(zLbl);
+
+        z.rooms.forEach(function (r) {
+            var isCurrent = r.id === currentRoom.id && z.id === currentZone.id;
+            var opt = el('button', 'display:block;width:100%;padding:6px 10px;background:'+(isCurrent ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)')+';border:1px solid rgba(255,255,255,0.06);border-radius:6px;cursor:pointer;font-family:inherit;margin-bottom:3px;color:rgba(255,255,255,0.6);font-size:12px;text-align:left;');
+            opt.textContent = 'Комната ' + r.id + (isCurrent ? ' (текущая)' : '');
+            opt.addEventListener('click', function () {
+                if (isCurrent) { dlg.close(); return; }
+                currentRoom.pcs = currentRoom.pcs.filter(function (p) { return p !== pcId; });
+                r.pcs.push(pcId);
+                saveData(data);
+                dlg.close();
+                renderContent();
+            });
+            zSect.appendChild(opt);
+        });
+        body.appendChild(zSect);
+    });
+
+    dlg.addFooter([{ label: 'Отмена', onClick: function () { dlg.close(); } }]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ДОБАВЛЕНИЯ ЗОНЫ
+// ─────────────────────────────────────────────────────────
+function showAddZoneDialog(data) {
+    var dlg = buildDialog('Новая зона', '340px');
+    var body = dlg.body;
+
+    var lInp = mkInput('', 'Название (VIP, Турнирная...)');
+    lInp.style.marginBottom = '8px';
+    var cInp = mkInput('#6366f1', 'Цвет (#hex)');
+    cInp.type = 'color';
+    cInp.style.cssText += 'height:36px;padding:2px 6px;cursor:pointer;';
+
+    body.appendChild(mkLabel('Название'));
+    body.appendChild(lInp);
+    body.appendChild(mkLabel('Цвет'));
+    body.appendChild(cInp);
+
+    dlg.addFooter([
+        { label: 'Добавить', primary: true, onClick: function () {
+            var label = lInp.value.trim();
+            if (!label) return;
+            data.zones.push({ id: 'zone_' + Date.now(), label: label, color: cInp.value, specs: [], rooms: [] });
+            saveData(data);
+            dlg.close();
+            renderContent();
+        }},
+        { label: 'Отмена', onClick: function () { dlg.close(); }}
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ДОБАВЛЕНИЯ КОМНАТЫ
+// ─────────────────────────────────────────────────────────
+function showAddRoomDialog(zone, data) {
+    var dlg = buildDialog('Новая комната в ' + zone.label, '340px');
+    var body = dlg.body;
+
+    var idInp = mkInput('', 'ID комнаты (A, B, Z...)');
+    body.appendChild(mkLabel('ID комнаты'));
+    body.appendChild(idInp);
+
+    dlg.addFooter([
+        { label: 'Добавить', primary: true, onClick: function () {
+            var id = idInp.value.trim();
+            if (!id) return;
+            zone.rooms.push({ id: id, pcs: [], specs: [] });
+            saveData(data);
+            dlg.close();
+            renderContent();
+        }},
+        { label: 'Отмена', onClick: function () { dlg.close(); }}
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ДИАЛОГ ДОБАВЛЕНИЯ ПК
+// ─────────────────────────────────────────────────────────
+function showAddPcDialog(room, zone, data) {
+    var dlg = buildDialog('Добавить ПК в комнату ' + room.id, '300px');
+    var body = dlg.body;
+    var idInp = mkInput('', 'Номер ПК (42, 43...)');
+    body.appendChild(mkLabel('Номер ПК'));
+    body.appendChild(idInp);
+
+    dlg.addFooter([
+        { label: 'Добавить', primary: true, onClick: function () {
+            var id = idInp.value.trim();
+            if (!id || room.pcs.indexOf(id) !== -1) return;
+            room.pcs.push(id);
+            saveData(data);
+            dlg.close();
+            renderContent();
+        }},
+        { label: 'Отмена', onClick: function () { dlg.close(); }}
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────
+// УТИЛИТЫ ДИАЛОГОВ
+// ─────────────────────────────────────────────────────────
+function buildDialog(title, width) {
+    var ov = el('div', 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;');
+    var box = el('div', 'background:var(--mantine-color-body,#1a1b1e);border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.7);width:'+width+';max-width:96vw;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;overflow:hidden;');
+
+    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
+    var htxt = el('span', 'font-size:14px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);');
+    htxt.textContent = title;
+    var xcl = el('button', 'background:none;border:none;color:rgba(255,255,255,0.3);font-size:18px;cursor:pointer;padding:0 2px;line-height:1;');
+    xcl.innerHTML = '&times;';
+    hdr.appendChild(htxt); hdr.appendChild(xcl);
+    box.appendChild(hdr);
+
+    var body = el('div', 'padding:14px 16px;overflow-y:auto;flex:1;');
+    box.appendChild(body);
+
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+
+    function close() { ov.remove(); }
+    xcl.addEventListener('click', close);
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+
+    function addFooter(buttons) {
+        var ft = el('div', 'display:flex;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid rgba(255,255,255,0.07);flex-shrink:0;');
+        buttons.forEach(function (b) {
+            var btn = el('button', 'padding:6px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;'+(b.primary ? 'background:#cc0001;color:#fff;' : 'background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);'));
+            btn.textContent = b.label;
+            btn.addEventListener('click', b.onClick);
+            ft.appendChild(btn);
+        });
+        box.appendChild(ft);
+    }
+
+    return { body: body, close: close, addFooter: addFooter };
+}
+
+function mkInput(value, placeholder) {
+    var inp = el('input', 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--mantine-color-text,#c1c2c5);font-family:inherit;outline:none;width:100%;box-sizing:border-box;');
+    inp.type = 'text';
+    inp.value = value || '';
+    inp.placeholder = placeholder || '';
+    return inp;
+}
+
+function mkLabel(text) {
+    var l = el('div', 'font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:4px;margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;');
+    l.textContent = text;
+    return l;
+}
+
+// ─────────────────────────────────────────────────────────
+// РЕГИСТРАЦИЯ В НАСТРОЙКАХ
+// ─────────────────────────────────────────────────────────
+function registerSetting() {
+    if (typeof window.__godjiRegisterSetting !== 'function') {
+        setTimeout(registerSetting, 400);
+        return;
+    }
+    window.__godjiRegisterSetting({
+        id: 'godji-pc-specs',
+        label: 'Характеристики ПК',
+        iconBg: '#374151',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+        type: 'button',
+        onClick: function () { openModal(); }
+    });
+}
+
+registerSetting();
+
 })();
