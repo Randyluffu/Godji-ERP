@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Характеристики ПК
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Карта характеристик ПК по комнатам с редактором
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -143,7 +143,7 @@ function buildModal() {
     _modal.style.cssText = [
         'position:fixed','top:50%','left:50%','transform:translate(-50%,-50%)',
         'z-index:99997','width:680px','max-width:96vw','max-height:88vh',
-        'background:var(--mantine-color-body,#1a1b1e)',
+        'background:#1a1b1e','color:#c1c2c5',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:12px','box-shadow:0 8px 48px rgba(0,0,0,0.7)',
         'display:none','flex-direction:column','font-family:inherit','overflow:hidden',
@@ -169,7 +169,7 @@ function renderContent() {
     hIco.innerHTML = svg('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>', 16);
     hIco.style.color = '#9ca3af';
     var hTxt = el('div');
-    hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);">Характеристики ПК</div>';
+    hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:#c1c2c5;">Характеристики ПК</div>';
     hL.appendChild(hIco); hL.appendChild(hTxt);
 
     var hR = el('div', 'display:flex;align-items:center;gap:8px;');
@@ -222,7 +222,7 @@ function buildZoneBlock(zone, data) {
 
     var zDot = el('span', 'width:10px;height:10px;border-radius:50%;background:'+zone.color+';flex-shrink:0;margin-right:8px;');
 
-    var zLbl = el('span', 'font-size:13px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);flex:1;padding:10px 0;');
+    var zLbl = el('span', 'font-size:13px;font-weight:700;color:#c1c2c5;flex:1;padding:10px 0;');
     zLbl.textContent = zone.label;
 
     var zR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:10px;');
@@ -654,7 +654,7 @@ function showMoveRoomDialog(room, currentZone, data) {
     body.appendChild(lbl);
 
     data.zones.forEach(function (z) {
-        var opt = el('button', 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:'+(z.id === currentZone.id ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)')+';border:1px solid rgba(255,255,255,0.07);border-radius:7px;cursor:pointer;font-family:inherit;margin-bottom:5px;color:var(--mantine-color-text,#c1c2c5);font-size:13px;');
+        var opt = el('button', 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:'+(z.id === currentZone.id ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)')+';border:1px solid rgba(255,255,255,0.07);border-radius:7px;cursor:pointer;font-family:inherit;margin-bottom:5px;color:#c1c2c5;font-size:13px;');
         var dot = el('span', 'width:8px;height:8px;border-radius:50%;background:'+z.color+';flex-shrink:0;');
         opt.appendChild(dot);
         opt.appendChild(document.createTextNode(z.label + (z.id === currentZone.id ? ' (текущая)' : '')));
@@ -795,10 +795,10 @@ function showAddPcDialog(room, zone, data) {
 // ─────────────────────────────────────────────────────────
 function buildDialog(title, width) {
     var ov = el('div', 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;');
-    var box = el('div', 'background:var(--mantine-color-body,#1a1b1e);border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.7);width:'+width+';max-width:96vw;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;overflow:hidden;');
+    var box = el('div', 'background:#1a1b1e;border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.7);color:#c1c2c5;width:'+width+';max-width:96vw;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;overflow:hidden;');
 
     var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
-    var htxt = el('span', 'font-size:14px;font-weight:700;color:var(--mantine-color-text,#c1c2c5);');
+    var htxt = el('span', 'font-size:14px;font-weight:700;color:#c1c2c5;');
     htxt.textContent = title;
     var xcl = el('button', 'background:none;border:none;color:rgba(255,255,255,0.3);font-size:18px;cursor:pointer;padding:0 2px;line-height:1;');
     xcl.innerHTML = '&times;';
@@ -830,7 +830,7 @@ function buildDialog(title, width) {
 }
 
 function mkInput(value, placeholder) {
-    var inp = el('input', 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--mantine-color-text,#c1c2c5);font-family:inherit;outline:none;width:100%;box-sizing:border-box;');
+    var inp = el('input', 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:#c1c2c5;font-family:inherit;outline:none;width:100%;box-sizing:border-box;');
     inp.type = 'text';
     inp.value = value || '';
     inp.placeholder = placeholder || '';
