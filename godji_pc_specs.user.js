@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Характеристики ПК
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Карта и менеджер характеристик ПК с иерархией зон/комнат, drag&drop и переопределением
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -34,7 +34,6 @@ const DEFAULT_STRUCTURE = {
   }
 };
 
-// Стандартные характеристики из Excel (столбец "Гоголя")
 const DEFAULT_SPECS = {
   zone_VIP: {
     'Процессор': { v: 'Intel Core i5-12400F', l: 'https://www.dns-shop.ru/product/0a2114a7fcc9ed20/processor-intel-core-i5-12400f-oem/' },
@@ -47,8 +46,8 @@ const DEFAULT_SPECS = {
     'Блок питания': { v: 'PROTON BDF-600S 600W', l: 'https://www.dns-shop.ru/product/d07d704607113330/blok-pitaniya-chieftec-proton-600w-bdf-600s-chernyy/?utm_medium=organic&utm_source=google&utm_referrer=https%3A%2F%2Fwww.google.com%2F' },
     'Корпус': { v: 'ZALMAN N4 Rev.1', l: 'https://www.dns-shop.ru/product/f1707d8a00b9ed20/korpus-zalman-n4-rev1-chernyy/' },
     'Материнская плата': { v: 'MSI MAG B760M MORTAR WIFI II', l: 'https://www.dns-shop.ru/product/4eb39d0e5602ed20/materinskaya-plata-msi-mag-b760m-mortar-wifi-ii/' },
-    'SSD M.2': { v: 'MSI 256 GB', l: '' },    'Кресло': { v: 'DXRacer Gladiator / ZONE 51 SOFA RIDER', l: 'https://www.dns-shop.kz/product/6b2fb03fcb222b06/kompyuternoe-kreslo-dxracer-gladiator-krasnyy/' }
-  },
+    'SSD M.2': { v: 'MSI 256 GB', l: '' },
+    'Кресло': { v: 'DXRacer Gladiator / ZONE 51 SOFA RIDER', l: 'https://www.dns-shop.kz/product/6b2fb03fcb222b06/kompyuternoe-kreslo-dxracer-gladiator-krasnyy/' }  },
   zone_VIP_PLUS: {
     'Процессор': { v: 'Intel Core i5-13400F', l: '' },
     'Видеокарта': { v: '5070 12 GB', l: 'https://www.dns-shop.ru/product/f1bfcf82de6eed20' },
@@ -94,11 +93,12 @@ const DEFAULT_SPECS = {
 };
 
 /* ═══════════════════════════════════════════════════════
-   СОСТОЯНИЕ И ХРАНИЛИЩЕ
+   СОСТОЯНИЕ
    ═══════════════════════════════════════════════════════ */
-var _data = null;var _isEdit = false;
-var _modal = null, _overlay = null;
+var _data = null;
+var _isEdit = false;var _modal = null, _overlay = null;
 var _dragData = null;
+var _expandedSections = {}; // zoneId -> true/false, roomKey -> true/false
 
 function load() {
   try {
@@ -157,50 +157,61 @@ function getDeviations(zoneId, roomId) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   UI: МОДАЛЬНОЕ ОКНО (СВЕТЛАЯ ТЕМА ERP)
+   UI: МОДАЛЬНОЕ ОКНО (ИСПРАВЛЕНО)
    ═══════════════════════════════════════════════════════ */
 function createModal() {
-  // Overlay с максимальным z-index
+  // Удаляем старые если есть
+  if (_overlay) _overlay.remove();
+  if (_modal) _modal.remove();
+
+  // Overlay — максимальный z-index, fixed positioning
   _overlay = document.createElement('div');
+  _overlay.id = 'godji-specs-overlay';
   _overlay.style.cssText = [
     'position:fixed',
-    'inset:0',
-    'background:rgba(0,0,0,0.55)',
-    'z-index:2147483647',
+    'top:0',
+    'left:0',
+    'right:0',
+    'bottom:0',
+    'width:100vw',
+    'height:100vh',
+    'background:rgba(0,0,0,0.6)',
+    'z-index:999999',
     'display:none',
     'align-items:center',
     'justify-content:center',
-    'padding:20px'
+    'padding:20px',
+    'box-sizing:border-box'
   ].join(';');
   _overlay.addEventListener('click', function(e) { if(e.target===_overlay) hideModal(); });
 
   // Модалка
   _modal = document.createElement('div');
+  _modal.id = 'godji-specs-modal';
   _modal.style.cssText = [
     'background:#ffffff',
     'border:1px solid #e0e0e0',
     'border-radius:12px',
     'width:100%',
     'max-width:720px',
-    'max-height:85vh',
-    'display:none',
+    'max-height:85vh',    'display:none',
     'flex-direction:column',
     'font-family:var(--mantine-font-family,inherit)',
     'box-shadow:0 24px 64px rgba(0,0,0,0.4)',
     'overflow:hidden',
     'color:#1a1a1a',
     'position:relative',
-    'z-index:2147483647'
+    'z-index:1000000'
   ].join(';');
 
   // Шапка
-  var hdr = document.createElement('div');  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fff;';
   hdr.innerHTML = '<div style="display:flex;align-items:center;gap:10px;"><div style="width:30px;height:30px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16"/><path d="M9 4v16"/></svg></div><span style="font-size:15px;font-weight:700;color:#1a1a1a;">Характеристики ПК</span></div>';
 
   var actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:8px;align-items:center;';
   
-  // Кнопка редактирования
   var pencil = document.createElement('button');
   pencil.title = 'Режим редактирования';
   pencil.style.cssText = 'background:none;border:none;color:#868e96;font-size:18px;cursor:pointer;padding:6px;border-radius:6px;transition:all 0.15s;';
@@ -213,7 +224,6 @@ function createModal() {
     renderBody();
   });
   
-  // Кнопка закрытия
   var close = document.createElement('button');
   close.innerHTML = '&times;'; 
   close.style.cssText = 'background:none;border:none;color:#868e96;font-size:22px;cursor:pointer;padding:0;line-height:1;';
@@ -224,17 +234,16 @@ function createModal() {
   hdr.appendChild(actions);
   _modal.appendChild(hdr);
 
-  // Тело
+  // Тело с прокруткой
   var body = document.createElement('div');
   body.id = 'godji-specs-body';
   body.style.cssText = 'overflow-y:auto;padding:12px 16px 16px;flex:1;background:#fafafa;';
   _modal.appendChild(body);
 
-  // Добавляем в DOM сразу в body
+  // Добавляем в body документа
   document.body.appendChild(_overlay);
   document.body.appendChild(_modal);
-  
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && _modal.style.display!=='none') hideModal(); });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape' && _modal.style.display!=='none') hideModal(); });
 }
 
 function hideModal() {
@@ -243,8 +252,10 @@ function hideModal() {
   _overlay.style.display='none';
 }
 
-function showModal() {  if(!_modal) createModal();
+function showModal() {
+  if(!_modal) createModal();
   load();
+  _expandedSections = {}; // Сбрасываем развёрнутые разделы
   renderBody();
   _modal.style.display='flex';
   _overlay.style.display='flex';
@@ -278,10 +289,10 @@ function buildZone(zone) {
     var open = body.style.display !== 'none';
     body.style.display = open ? 'none' : 'block';
     arr.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
+    _expandedSections['zone_'+zone.id] = !open;
   });
 
-  var arr = document.createElement('span');
-  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:11px;';
+  var arr = document.createElement('span');  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:11px;';
   arr.textContent = '▼';
 
   var title = document.createElement('span');
@@ -292,7 +303,8 @@ function buildZone(zone) {
   var dragHandle = mkDragHandle('zone', zone.id);
 
   hdr.appendChild(arr); 
-  hdr.appendChild(title);  if(_isEdit) hdr.appendChild(dragHandle);
+  hdr.appendChild(title);
+  if(_isEdit) hdr.appendChild(dragHandle);
   hdr.appendChild(infoBtn);
   wrap.appendChild(hdr);
 
@@ -325,11 +337,11 @@ function buildRoom(zoneId, roomId) {
     var open = body.style.display !== 'none';
     body.style.display = open ? 'none' : 'block';
     arr.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
+    _expandedSections['room_'+roomId] = !open;
   });
 
   var arr = document.createElement('span');
-  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:10px;';
-  arr.textContent = '▼';
+  arr.style.cssText = 'color:#868e96;transition:transform 0.18s;font-size:10px;';  arr.textContent = '▼';
 
   var title = document.createElement('span');
   title.style.cssText = 'font-size:12px;font-weight:600;color:#495057;flex:1;';
@@ -341,7 +353,8 @@ function buildRoom(zoneId, roomId) {
 
   hdr.appendChild(arr); 
   hdr.appendChild(title);
-  if(_isEdit) { hdr.appendChild(dragHandle); hdr.appendChild(moveSelect); }  hdr.appendChild(infoBtn);
+  if(_isEdit) { hdr.appendChild(dragHandle); hdr.appendChild(moveSelect); }
+  hdr.appendChild(infoBtn);
   wrap.appendChild(hdr);
 
   var body = document.createElement('div');
@@ -377,8 +390,7 @@ function buildPC(zoneId, roomId, pcId) {
   arr.textContent = '▶';
 
   var title = document.createElement('span');
-  title.style.cssText = 'font-size:11px;font-weight:600;color:#1a1a1a;flex:1;';
-  title.textContent = 'ПК ' + pcId;
+  title.style.cssText = 'font-size:11px;font-weight:600;color:#1a1a1a;flex:1;';  title.textContent = 'ПК ' + pcId;
 
   var moveSelect = _isEdit ? mkPcMoveSelect(roomId, pcId) : null;
 
@@ -390,7 +402,8 @@ function buildPC(zoneId, roomId, pcId) {
   var body = document.createElement('div');
   body.className = 'p-body';
   body.style.cssText = 'padding:8px 0 6px;display:none;';
-    var specs = getEffectiveSpecs(zoneId, roomId, pcId);
+  
+  var specs = getEffectiveSpecs(zoneId, roomId, pcId);
   var specKeys = Object.keys(specs);
   if(specKeys.length === 0) {
     body.innerHTML = '<div style="font-size:10px;color:#adb5bd;padding:4px 8px;">Нет характеристик</div>';
@@ -417,10 +430,15 @@ function buildPC(zoneId, roomId, pcId) {
       body.appendChild(row);
     });
   }
+
+  // Редактор для конкретного ПК
+  if(_isEdit) {
+    body.appendChild(buildSpecEditor('pc_'+pcId, false, true));
+  }
+
   wrap.appendChild(body);
   return wrap;
 }
-
 /* ═══════════════════════════════════════════════════════
    КОМПОНЕНТЫ UI
    ═══════════════════════════════════════════════════════ */
@@ -439,7 +457,8 @@ function mkInfoBtn(specKey, title, parentZoneId) {
 }
 
 function showInfoPopup(anchor, specKey, title, parentZoneId) {
-  if(document.getElementById('godji-info-popup')) document.getElementById('godji-info-popup').remove();  
+  if(document.getElementById('godji-info-popup')) document.getElementById('godji-info-popup').remove();
+  
   var box = document.createElement('div');
   box.id = 'godji-info-popup';
   box.style.cssText = 'position:absolute;z-index:99999;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 16px;width:300px;max-height:60vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-family:inherit;font-size:11px;color:#1a1a1a;';
@@ -469,8 +488,7 @@ function showInfoPopup(anchor, specKey, title, parentZoneId) {
     var dev = getDeviations(parentZoneId, specKey.split('_')[1]);
     if(dev.room.length > 0) {
       var dDiv = document.createElement('div');
-      dDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;color:#e67700;';
-      dDiv.textContent = '⚠ Отклоняется от зоны: ' + dev.room.map(d=>d.key).join(', ');
+      dDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;color:#e67700;';      dDiv.textContent = '⚠ Отклоняется от зоны: ' + dev.room.map(d=>d.key).join(', ');
       box.appendChild(dDiv);
     }
     if(dev.pcs.length > 0) {
@@ -488,7 +506,8 @@ function showInfoPopup(anchor, specKey, title, parentZoneId) {
   }, 10);
 }
 
-function mkDragHandle(type, id) {  var el = document.createElement('div');
+function mkDragHandle(type, id) {
+  var el = document.createElement('div');
   el.setAttribute('draggable', 'true');
   el.style.cssText = 'cursor:grab;background:#f1f3f5;padding:4px 7px;border-radius:4px;font-size:12px;color:#868e96;user-select:none;';
   el.textContent = '☰';
@@ -518,8 +537,7 @@ function handleDrop(targetType, targetId, dragType, dragId) {
       if(z.rooms.includes(dragId)){ srcZ=z; }
       if(z.rooms.includes(targetId)){ tgtZ=z; }
     });
-    if(srcZ && tgtZ) {
-      var idx = srcZ.rooms.indexOf(dragId);
+    if(srcZ && tgtZ) {      var idx = srcZ.rooms.indexOf(dragId);
       if(idx!==-1) srcZ.rooms.splice(idx, 1);
       tgtZ.rooms.splice(tgtZ.rooms.indexOf(targetId), 0, dragId);
       save();
@@ -537,7 +555,8 @@ function mkRoomMoveSelect(zoneId, roomId) {
       var newZ = _data.structure.zones.find(z=>z.id===this.value);
       if(oldZ && newZ) {
         oldZ.rooms = oldZ.rooms.filter(r=>r!==roomId);
-        newZ.rooms.push(roomId);        save(); renderBody();
+        newZ.rooms.push(roomId);
+        save(); renderBody();
       }
     }
   });
@@ -567,8 +586,7 @@ function mkPcMoveSelect(roomId, pcId) {
   });
   Object.keys(_data.structure.roomPcs).forEach(function(r){
     var o = document.createElement('option');
-    o.value = r; o.textContent = r;
-    if(r===roomId) o.selected = true;
+    o.value = r; o.textContent = r;    if(r===roomId) o.selected = true;
     sel.appendChild(o);
   });
   return sel;
@@ -577,16 +595,21 @@ function mkPcMoveSelect(roomId, pcId) {
 /* ═══════════════════════════════════════════════════════
    РЕДАКТОР ХАРАКТЕРИСТИК
    ═══════════════════════════════════════════════════════ */
-function buildSpecEditor(key, isZone) {
+function buildSpecEditor(key, isZone, isPc) {
   var wrap = document.createElement('div');
   wrap.style.cssText = 'margin-top:10px;padding:10px;background:#f8f9fa;border:1px dashed #ced4da;border-radius:6px;';
 
   var title = document.createElement('div');
   title.style.cssText = 'font-size:10px;font-weight:700;color:#e03131;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;';
-  title.textContent = 'Редактирование характеристик ' + (isZone ? 'зоны' : 'комнаты');
+  if(isPc) {
+    title.textContent = 'Редактирование характеристик ПК';
+  } else {
+    title.textContent = 'Редактирование характеристик ' + (isZone ? 'зоны' : 'комнаты');
+  }
   wrap.appendChild(title);
 
-  var list = document.createElement('div');  list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+  var list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
   
   var specs = _data.specs[key] || {};
   Object.keys(specs).forEach(function(k) {
@@ -612,8 +635,7 @@ function buildSpecEditor(key, isZone) {
   return wrap;
 }
 
-function mkSpecRow(key, specKey, data) {
-  var row = document.createElement('div');
+function mkSpecRow(key, specKey, data) {  var row = document.createElement('div');
   row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:5px;align-items:center;';
 
   var inpV = document.createElement('input');
@@ -635,7 +657,8 @@ function mkSpecRow(key, specKey, data) {
   });
 
   var del = document.createElement('button');
-  del.textContent = '×';  del.style.cssText = 'background:#fa5252;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;';
+  del.textContent = '×';
+  del.style.cssText = 'background:#fa5252;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;';
   del.addEventListener('click', function(){
     delete _data.specs[key][specKey]; 
     save(); 
@@ -661,8 +684,7 @@ function registerInSettings(){
     label: 'Характеристики ПК',
     iconBg: '#cc0001',
     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16"/><path d="M9 4v16"/></svg>',
-    type: 'button',
-    onClick: showModal
+    type: 'button',    onClick: showModal
   });
 }
 
