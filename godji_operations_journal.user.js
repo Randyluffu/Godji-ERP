@@ -123,10 +123,13 @@ function classifyOp(op){
     } else if(nl.indexOf('бесплатное время')!==-1||nl.indexOf('бесплатн')!==-1){
         type='free_time'; icon='⌛'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
     } else if(nl.indexOf('продление')!==-1||nl.indexOf('prolongat')!==-1){
-        type='session_prolong'; icon='⏩'; label='Продление сеанса'; color='#3355cc'; bg='#e8f0ff';
-    } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1&&!nl.indexOf('продлен'))){
-        type='session_start'; icon='▶️'; label='Запуск сеанса'; color='#0066cc'; bg='#e0f0ff';
-    } else if(nl.indexOf('пересадка')!==-1||nl.indexOf('перевод')!==-1){
+        type='session_prolong'; icon='⏩';
+        label='Продление сеанса ('+(op.money_type==='cash'?'₽':'бон.')+')';
+        color='#3355cc'; bg='#e8f0ff';
+    } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1)){
+        // Списание за бронирование — это денежная операция при запуске, показываем как часть продления/запуска
+        type='session_prolong'; icon='⏩'; label='Списание за сеанс ('+(op.money_type==='cash'?'₽':'бон.')+')'; color='#3355cc'; bg='#e8f0ff';
+    } else if(nl.indexOf('пересадк')!==-1||nl.indexOf('перевод')!==-1||nl.indexOf('transfer')!==-1||nl.indexOf('переместил')!==-1){
         type='session_transfer'; icon='🔀'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
     } else if(nl.indexOf('завершени')!==-1&&nl.indexOf('сессии')!==-1){
         type='session_finish'; icon='⏹️'; label='Завершение сеанса'; color='#cc2200'; bg='#fde8e8';
@@ -137,8 +140,9 @@ function classifyOp(op){
         // Списание бонусов вручную (не за сессию)
         type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
     } else if(op.operation_type==='withdraw'&&resId){
-        // Любое списание за сессию — относим к сессии
-        type='session_prolong'; icon='⏩'; label='Продление сеанса'; color='#3355cc'; bg='#e8f0ff';
+        type='session_prolong'; icon='⏩';
+        label='Продление ('+(op.money_type==='cash'?'₽':'бон.')+')';
+        color='#3355cc'; bg='#e8f0ff';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='cash'){
         type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='non_cash'){
@@ -177,7 +181,7 @@ function checkSuspicious(op, userId, cls){
 }
 
 // ── GQL запрос ────────────────────────────────────────────
-var GQL_OPS = 'query GojOps($since:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$since},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}} wallet_operation_digest{name description reservation_id}}}';
+var GQL_OPS = 'query GojOps($since:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$since},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}} wallet_operation_digest{name description reservation_id reservation{reservations_club_device{name}}}}}';
 
 function fetchNewOps(){
     var auth=getAuth();
@@ -218,7 +222,19 @@ function fetchNewOps(){
                 bg: isSusp ? '#fef3c7' : cls.bg,
                 amount: formatAmt(op.amount),
                 comment: cls.desc||'',
-                extra: cls.resId ? 'Сеанс #'+cls.resId : ('ОП #'+op.id),
+                extra: (function(){
+                    var e='';
+                    if(cls.resId){
+                        e='Сеанс #'+cls.resId;
+                        var dev=op.wallet_operation_digest&&op.wallet_operation_digest.reservation&&
+                                op.wallet_operation_digest.reservation.reservations_club_device&&
+                                op.wallet_operation_digest.reservation.reservations_club_device.name;
+                        if(dev) e+=' · ПК '+dev;
+                    } else {
+                        e='ОП #'+op.id;
+                    }
+                    return e;
+                })(),
                 client: userInfo,
                 clientUrl: userUrl,
                 suspicious: isSusp,
@@ -364,7 +380,7 @@ function fmtDate(ts){
 
 // ── Модальное окно ────────────────────────────────────────
 var _modal=null,_overlay=null,_visible=false;
-var _filterType='',_filterText='';
+var _filterType='',_filterText='',_filterNick='';
 
 function buildModal(){
     _overlay=document.createElement('div');
@@ -430,8 +446,10 @@ function renderModal(){
      ['deposit_cash','💵 Пополнение наличными'],['deposit_card','💳 Пополнение по карте'],
      ['deposit_bonus','🎁 Начисление бонусов'],['refund_bonus','↩️ Возврат бонусов'],
      ['free_time','⌛ Бесплатное время'],['session_start','▶️ Запуск сеанса'],
-     ['session_prolong','⏩ Продление сеанса'],['debit_money','➖💵 Списание с баланса'],
-     ['debit_bonus','➖🎁 Списание бонусов'],['other','• Прочее']
+     ['session_finish','⏹️ Завершение сеанса'],
+     ['session_prolong','⏩ Продление сеанса'],['session_transfer','🔀 Пересадка'],
+     ['debit_money','➖💵 Списание с баланса'],['debit_bonus','➖🎁 Списание бонусов'],
+     ['other','• Прочее']
     ].forEach(function(o){
         var opt=document.createElement('option');
         opt.value=o[0]; opt.textContent=o[1];
@@ -439,11 +457,25 @@ function renderModal(){
         typeSelect.appendChild(opt);
     });
     typeSelect.addEventListener('change',function(){_filterType=this.value;renderModal();});
+
+    // Фильтр по нику — берём уникальные ники из журнала
+    var allNicks=[''];
+    journal.forEach(function(r){ if(r.client&&allNicks.indexOf(r.client)===-1) allNicks.push(r.client); });
+    allNicks.sort();
+    var nickSelect=document.createElement('select');
+    nickSelect.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;max-width:140px;';
+    allNicks.forEach(function(n){
+        var opt=document.createElement('option'); opt.value=n; opt.textContent=n||'Все клиенты';
+        if(n===_filterNick) opt.selected=true;
+        nickSelect.appendChild(opt);
+    });
+    nickSelect.addEventListener('change',function(){_filterNick=this.value;renderModal();});
+
     var searchInp=document.createElement('input');
     searchInp.type='text'; searchInp.placeholder='Поиск…'; searchInp.value=_filterText;
-    searchInp.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;outline:none;width:190px;';
+    searchInp.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;outline:none;width:150px;';
     searchInp.addEventListener('input',function(){_filterText=this.value.toLowerCase();renderModal();});
-    fBar.appendChild(typeSelect); fBar.appendChild(searchInp);
+    fBar.appendChild(typeSelect); fBar.appendChild(nickSelect); fBar.appendChild(searchInp);
     _modal.appendChild(fBar);
 
     // Тело
@@ -457,9 +489,12 @@ function renderModal(){
     } else if(_filterType){
         filtered=filtered.filter(function(r){return r.type===_filterType;});
     }
+    if(_filterNick){
+        filtered=filtered.filter(function(r){ return r.client===_filterNick; });
+    }
     if(_filterText){
         filtered=filtered.filter(function(r){
-            return [r.comment||'',r.extra||'',r.amount||'',r.label||''].join(' ').toLowerCase().indexOf(_filterText)!==-1;
+            return [r.comment||'',r.extra||'',r.amount||'',r.label||'',r.client||''].join(' ').toLowerCase().indexOf(_filterText)!==-1;
         });
     }
 
@@ -467,8 +502,7 @@ function renderModal(){
         body.innerHTML='<div style="text-align:center;color:#aaa;padding:50px;font-size:14px;">Нет операций</div>';
         return;
     }
-    // Сортируем от старых к новым (новые внизу)
-    filtered=filtered.slice().reverse();
+    // journal уже хранит от старых к новым (push в конец) — новые внизу
 
     var table=document.createElement('table');
     table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;';
