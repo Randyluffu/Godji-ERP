@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Характеристики ПК
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Карта характеристик ПК по комнатам с редактором
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -65,8 +65,26 @@ function loadData() {
     try {
         var raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
-        return JSON.parse(raw);
-    } catch (e) { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+        var parsed = JSON.parse(raw);
+        // Если нет zones или не массив — сбрасываем повреждённые данные
+        if (!parsed || !Array.isArray(parsed.zones)) {
+            localStorage.removeItem(STORAGE_KEY);
+            return JSON.parse(JSON.stringify(DEFAULT_DATA));
+        }
+        if (!parsed.pcSpecs) parsed.pcSpecs = {};
+        parsed.zones.forEach(function(z) {
+            if (!z.specs) z.specs = [];
+            if (!Array.isArray(z.rooms)) z.rooms = [];
+            z.rooms.forEach(function(r) {
+                if (!r.specs) r.specs = [];
+                if (!Array.isArray(r.pcs)) r.pcs = [];
+            });
+        });
+        return parsed;
+    } catch (e) {
+        localStorage.removeItem(STORAGE_KEY);
+        return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    }
 }
 function saveData(d) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch (e) {}
@@ -428,7 +446,9 @@ function mergeSpecs(zoneSpecs, roomSpecs, pcSpecs) {
     (zoneSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'zone'}); });
     (roomSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'room'}); });
     (pcSpecs || []).forEach(function (s) { map[s.label] = Object.assign({}, s, {_src: 'pc'}); });
-    return Object.values(map);
+    var result = [];
+    for (var k in map) { if (map.hasOwnProperty(k)) result.push(map[k]); }
+    return result;
 }
 
 function el(tag, css) {
