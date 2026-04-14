@@ -22,7 +22,17 @@ var DEFAULT_DATA = {
     zones: [
         {
             id: 'vip', label: 'VIP', color: '#7c3aed',
-            specs: [],
+            specs: [
+                {label:'Процессор', value:'Intel Core i5-12400F', url:''},
+                {label:'Видеокарта', value:'GeForce RTX 4060 Ti 8GB', url:''},
+                {label:'Монитор', value:'AOC 27" 240 Гц VA', url:''},
+                {label:'Наушники', value:'HyperX Cloud v2', url:''},
+                {label:'Клавиатура', value:'Dark Project KD87A Gateron Teal Cap', url:''},
+                {label:'Мышь', value:'ARDOR GAMING Phantom PRO V2', url:''},
+                {label:'ОЗУ', value:'ADATA XPG SPECTRIX D50 32GB 3200 МГц / Kingston FURY Beast 32GB 6000 МГц', url:''},
+                {label:'Материнская плата', value:'GIGABYTE B760M DS3H DDR4 LGA1700 / MSI MAG B760M MORTAR WIFI II', url:''},
+                {label:'Кресло', value:'DXRacer Gladiator / ZONE 51 SOFA RIDER', url:''},
+            ],
             rooms: [
                 { id: 'O', pcs: ['30','31','32','33','34','35'], specs: [] },
                 { id: 'Y', pcs: ['23','24','25','26','27','28','29'], specs: [] },
@@ -32,7 +42,17 @@ var DEFAULT_DATA = {
         },
         {
             id: 'vipplus', label: 'VIP+', color: '#b45309',
-            specs: [],
+            specs: [
+                {label:'Процессор', value:'Intel Core i5-14600K', url:''},
+                {label:'Видеокарта', value:'GeForce RTX 4070 SUPER 12GB', url:''},
+                {label:'Монитор', value:'Titan Army 24.5" 360 Гц IPS / Acer Nitro 360 Гц', url:''},
+                {label:'Наушники', value:'HyperX Cloud v2', url:''},
+                {label:'Клавиатура', value:'Dark Project KD87A Gateron Teal Cap', url:''},
+                {label:'Мышь', value:'ARDOR GAMING Phantom PRO Nordic', url:''},
+                {label:'ОЗУ', value:'Kingston FURY Beast Black 32GB 6000 МГц', url:''},
+                {label:'Материнская плата', value:'MSI MAG B760M MORTAR WIFI II LGA1700', url:''},
+                {label:'Кресло', value:'DXRacer Gladiator / ZONE 51 SOFA RIDER', url:''},
+            ],
             rooms: [
                 { id: 'L', pcs: ['1','2','3','4','5'], specs: [] },
                 { id: 'X', pcs: ['36','37','38','39','40'], specs: [] },
@@ -41,7 +61,17 @@ var DEFAULT_DATA = {
         },
         {
             id: 'duo', label: 'DUO', color: '#0369a1',
-            specs: [],
+            specs: [
+                {label:'Процессор', value:'Intel Core i5-14600KF', url:''},
+                {label:'Видеокарта', value:'GeForce RTX 4070 SUPER 12GB', url:''},
+                {label:'Монитор', value:'Acer 2K 300 Гц', url:''},
+                {label:'Наушники', value:'HyperX Cloud v2', url:''},
+                {label:'Клавиатура', value:'Dark Project KD87A', url:''},
+                {label:'Мышь', value:'ARDOR GAMING Phantom PRO V2', url:''},
+                {label:'ОЗУ', value:'32GB 6000 МГц', url:''},
+                {label:'Материнская плата', value:'GIGABYTE B760M DS3H DDR4 LGA1700', url:''},
+                {label:'Кресло', value:'DXRacer Gladiator / ZONE 51 SOFA RIDER', url:''},
+            ],
             rooms: [
                 { id: 'V', pcs: ['6','7'], specs: [] },
                 { id: 'E', pcs: ['8','9'], specs: [] },
@@ -49,13 +79,23 @@ var DEFAULT_DATA = {
         },
         {
             id: 'solo', label: 'SOLO', color: '#166534',
-            specs: [],
+            specs: [
+                {label:'Процессор', value:'Intel Core i5-14600KF', url:''},
+                {label:'Видеокарта', value:'GeForce RTX 5070 Ti 16GB', url:''},
+                {label:'Монитор', value:'Samsung G6 2K 350 Гц', url:''},
+                {label:'Наушники', value:'Logitech G PRO X', url:''},
+                {label:'Клавиатура', value:'AKKO 5087S', url:''},
+                {label:'Мышь', value:'Razer DeathAdder V3 Pro', url:''},
+                {label:'ОЗУ', value:'32GB 6000 МГц', url:''},
+                {label:'Материнская плата', value:'MSI MAG B760M MORTAR WIFI II LGA1700', url:''},
+                {label:'Кресло', value:'DXRacer Gladiator / ZONE 51 SOFA RIDER', url:''},
+            ],
             rooms: [
                 { id: 'S', pcs: ['41'], specs: [] },
             ]
         }
     ],
-    pcSpecs: {} // pcId -> { specs: [{label, value, url}] }
+    pcSpecs: {}
 };
 
 // ─────────────────────────────────────────────────────────
@@ -165,9 +205,9 @@ function renderContent() {
     var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
 
     var hL = el('div', 'display:flex;align-items:center;gap:10px;');
-    var hIco = el('div', 'width:32px;height:32px;border-radius:8px;background:#374151;display:flex;align-items:center;justify-content:center;flex-shrink:0;');
+    var hIco = el('div', 'width:32px;height:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;');
     hIco.innerHTML = svg('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>', 16);
-    hIco.style.color = '#9ca3af';
+    hIco.style.color = '#fff';
     var hTxt = el('div');
     hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:#e0e1e8;">Характеристики ПК</div>';
     hL.appendChild(hIco); hL.appendChild(hTxt);
@@ -211,10 +251,10 @@ function renderContent() {
 
 // ── Блок зоны ───────────────────────────────────────────
 function buildZoneBlock(zone, data) {
-    var wrap = el('div', 'margin-bottom:8px;border-radius:10px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;');
+    var wrap = el('div', 'margin-bottom:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);overflow:hidden;background:rgba(255,255,255,0.02);');
 
     // Заголовок зоны
-    var zHdr = el('div', 'display:flex;align-items:center;gap:0;background:rgba(255,255,255,0.04);cursor:pointer;user-select:none;');
+    var zHdr = el('div', 'display:flex;align-items:center;gap:0;background:rgba(255,255,255,0.05);cursor:pointer;user-select:none;border-radius:8px 8px 0 0;transition:background 0.12s;');
 
     var zChev = el('span', 'padding:10px 6px 10px 12px;color:rgba(255,255,255,0.3);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
     zChev.innerHTML = ICO.chevron;
@@ -275,7 +315,7 @@ function buildRoomBlock(room, zone, data) {
     var rKey = zone.id + '_' + room.id;
     var wrap = el('div', 'margin:4px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;');
 
-    var rHdr = el('div', 'display:flex;align-items:center;background:rgba(255,255,255,0.02);cursor:pointer;user-select:none;');
+    var rHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;border-top:1px solid rgba(255,255,255,0.05);transition:background 0.12s;');
 
     var rChev = el('span', 'padding:8px 6px 8px 10px;color:rgba(255,255,255,0.5);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
     rChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 14);
@@ -341,7 +381,7 @@ function buildPcBlock(pcId, room, zone, data) {
 
     var wrap = el('div', 'margin:2px 10px;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);');
 
-    var pHdr = el('div', 'display:flex;align-items:center;background:rgba(255,255,255,0.01);cursor:pointer;user-select:none;padding:6px 8px;gap:6px;');
+    var pHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;padding:5px 8px;gap:6px;border-top:1px solid rgba(255,255,255,0.04);transition:background 0.1s;');
 
     var pChev = el('span', 'color:rgba(255,255,255,0.45);display:flex;align-items:center;flex-shrink:0;transition:transform .2s;');
     pChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 12);
@@ -396,7 +436,7 @@ function buildPcBlock(pcId, room, zone, data) {
     } else {
         effSpecs.forEach(function (spec) {
             var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
-            var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.35);flex-shrink:0;min-width:90px;');
+            var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.45);flex-shrink:0;min-width:100px;font-weight:500;');
             lbl.textContent = spec.label;
             var val = el('span', 'font-size:12px;font-weight:500;flex:1;');
 
@@ -405,7 +445,7 @@ function buildPcBlock(pcId, room, zone, data) {
                 a.href = spec.url;
                 a.target = '_blank';
                 a.rel = 'noopener';
-                a.style.cssText = 'color:#60a5fa;text-decoration:none;font-size:12px;font-weight:500;';
+                a.style.cssText = 'color:#60a5fa;text-decoration:none;font-size:12px;font-weight:600;';
                 a.textContent = spec.value;
                 a.addEventListener('mouseenter', function () { a.style.textDecoration = 'underline'; });
                 a.addEventListener('mouseleave', function () { a.style.textDecoration = 'none'; });
@@ -847,15 +887,15 @@ function mkLabel(text) {
 // РЕГИСТРАЦИЯ В НАСТРОЙКАХ
 // ─────────────────────────────────────────────────────────
 function registerSetting() {
+    if(!window.__godjiSettingsQueue) window.__godjiSettingsQueue=[];
     if (typeof window.__godjiRegisterSetting !== 'function') {
-        if(!window.__godjiSettingsQueue) window.__godjiSettingsQueue=[];
         setTimeout(registerSetting, 400);
         return;
     }
     window.__godjiRegisterSetting({
         id: 'godji-pc-specs',
         label: 'Характеристики ПК',
-        iconBg: '#374151',
+        iconBg: '#cc0001',
         icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
         type: 'button',
         onClick: function () { openModal(); }
