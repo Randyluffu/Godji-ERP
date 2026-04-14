@@ -99,7 +99,14 @@ function scan(){
         }
         state[pc]=current[pc];
     }
-    if(changed){saveHistory(history);updateModal();}
+    if(changed){
+        saveHistory(history);updateModal();
+        // Уведомляем историю операций о событиях сеансов
+        try{ localStorage.setItem('godji_session_events', JSON.stringify({
+            ts: Date.now(),
+            events: history.filter(function(r){return Date.now()-r.ts<15000;}).slice(0,5)
+        })); } catch(e){}
+    }
 }
 
 function tryInit(){
