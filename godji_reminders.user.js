@@ -61,7 +61,9 @@ function showNotify(title){
     }
 
     var ico=document.createElement('div');
-    ico.style.cssText='width:28px;height:28px;border-radius:7px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    ico.className='m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
+    ico.style.cssText='width:32px;height:32px;min-width:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
     ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></svg>';
 
     var txt=document.createElement('div');
