@@ -254,55 +254,42 @@ function fetchNewOps(){
 var GQL_INIT = 'query GojInit($clubId:Int!){wallet_operations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:1){id}}';
 
 // Отдельный polling для резервирований (сеансы)
-var _lastResUpdated = null;  // ISO timestamp последнего виденного updated_at
-var _resStatusCache = {};    // id → status, для отслеживания смены статуса
-var GQL_RESERVATIONS = 'query GojRes($since:timestamptz!,$clubId:Int!){reservations(where:{updated_at:{_gt:$since},club_id:{_eq:$clubId}},order_by:{updated_at:asc},limit:100){id status time_from ended_at updated_at user_id reservations_club_device{name} reservations_user{phone users_user_profile{name surname login}}}}';
+// ── Слушаем события сеансов от godji_session_history ─────
+// session_history делает DOM-скан каждые 2 сек и записывает события в localStorage
+var _lastSessionEventTs = 0;
 
-function fetchNewReservations(){
-    var auth=getAuth();
-    if(!auth||!_lastResUpdated) return;
-    fetch('https://hasura.godji.cloud/v1/graphql',{
-        method:'POST',
-        headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
-        body:JSON.stringify({operationName:'GojRes',variables:{since:_lastResUpdated,clubId:CLUB_ID},query:GQL_RESERVATIONS})
-    }).then(function(r){return r.json();}).then(function(data){
-        var res=data&&data.data&&data.data.reservations;
-        if(!res||!res.length) return;
-        res.forEach(function(r){
-            if(r.updated_at>_lastResUpdated) _lastResUpdated=r.updated_at;
-            var prevStatus=_resStatusCache[r.id];
-            var curStatus=r.status;
-            _resStatusCache[r.id]=curStatus;
+function checkSessionEvents(){
+    try{
+        var raw = localStorage.getItem('godji_session_events');
+        if(!raw) return;
+        var data = JSON.parse(raw);
+        if(!data||!data.ts||data.ts<=_lastSessionEventTs) return;
+        _lastSessionEventTs = data.ts;
 
-            var p=r.reservations_user&&r.reservations_user.users_user_profile;
-            var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
-            var device=r.reservations_club_device&&r.reservations_club_device.name||'';
-            var extra='Сеанс #'+r.id+(device?' · ПК '+device:'');
-            var clientUrl=r.user_id?'/clients/'+r.user_id:'';
+        var events = data.events||[];
+        events.forEach(function(ev){
+            var nick = ev.nick ? '@'+ev.nick : (ev.userName||'');
+            var extra = 'ПК '+ev.pc+(ev.pastTime?' · '+ev.pastTime:'');
+            var clientUrl = ev.clientUrl||'';
+            var evTs = ev.ts||Date.now();
 
-            // Завершение: статус стал finished/canceled
-            if((curStatus==='finished'||curStatus==='canceled')&&prevStatus&&prevStatus!==curStatus){
-                addEntry({opId:'res_fin_'+r.id,id:'res_fin_'+r.id,
-                    ts:r.ended_at?new Date(r.ended_at).getTime():Date.now(),
+            if(ev.type==='transfer'){
+                var opId = 'sess_transfer_'+ev.pc+'_'+evTs;
+                addEntry({opId:opId,id:opId,ts:evTs,
+                    type:'session_transfer',icon:'🔀',label:'Пересадка',
+                    color:'#cc6600',bg:'#fff0e0',amount:'',
+                    comment:(ev.toNick?'→ @'+ev.toNick:''),
+                    extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
+            } else {
+                // Завершение сеанса
+                var opId2 = 'sess_fin_'+ev.pc+'_'+evTs;
+                addEntry({opId:opId2,id:opId2,ts:evTs,
                     type:'session_finish',icon:'⏹️',label:'Завершение сеанса',
                     color:'#cc2200',bg:'#fde8e8',amount:'',comment:'',
                     extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
             }
-            // Запуск: только если это реально новая сессия (time_from недавно)
-            // prevStatus===undefined значит мы впервые видим эту запись в polling
-            else if((curStatus==='session_acting'||curStatus==='active')&&!prevStatus){
-                // Проверяем что сеанс начался недавно (не из кэша инициализации)
-                var sessionAge = Date.now() - new Date(r.time_from).getTime();
-                if(sessionAge < 90000){ // не старше 90 секунд
-                    addEntry({opId:'res_start_'+r.id,id:'res_start_'+r.id,
-                        ts:new Date(r.time_from).getTime(),
-                        type:'session_start',icon:'▶️',label:'Запуск сеанса',
-                        color:'#0066cc',bg:'#e0f0ff',amount:'',comment:'',
-                        extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
-                }
-            }
         });
-    }).catch(function(){});
+    }catch(e){}
 }
 
 function initLastId(){
@@ -328,23 +315,12 @@ function initLastId(){
             if(e.opId && typeof e.opId==='number' && e.opId>_lastMaxId) _lastMaxId=e.opId;
         });
         // Инициализируем _lastReservationId
-        // Инициализируем _lastResUpdated = сейчас (ловим только новые события)
-        _lastResUpdated = new Date().toISOString();
-        // Также загружаем текущие активные сессии в кэш статусов
-        fetch('https://hasura.godji.cloud/v1/graphql',{
-            method:'POST',
-            headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
-            body:JSON.stringify({operationName:'GojResInit',
-                query:'query GojResInit($clubId:Int!){reservations(where:{club_id:{_eq:$clubId},status:{_in:["session_acting","active","created"]}},limit:200){id status}}',
-                variables:{clubId:CLUB_ID}})
-        }).then(function(r){return r.json();}).then(function(data){
-            var res=data&&data.data&&data.data.reservations;
-            if(res) res.forEach(function(r){ _resStatusCache[r.id]=r.status; });
-        }).catch(function(){});
+        // Инициализируем метку времени для событий сеансов
+        _lastSessionEventTs = Date.now();
 
-        // Запускаем polling
+        // Запускаем polling операций и проверку событий сеансов
         setInterval(fetchNewOps, POLL_MS);
-        setInterval(fetchNewReservations, POLL_MS);
+        setInterval(checkSessionEvents, 2500); // чуть чаще чем scan() в session_history
     }).catch(function(){
         setTimeout(initLastId,3000);
     });
