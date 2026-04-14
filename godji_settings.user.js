@@ -62,20 +62,30 @@ function renderItems(){
     if(!_inner) return;
     _inner.innerHTML = '';
     _items.forEach(function(cfg){
-        var row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px 8px 12px;height:44px;box-sizing:border-box;cursor:pointer;transition:background 0.12s;';
-        row.addEventListener('mouseenter',function(){ row.style.background='rgba(255,255,255,0.06)'; });
-        row.addEventListener('mouseleave',function(){ row.style.background=''; });
+        // Используем точный класс NavLink как у кнопок сайдбара
+        var row = document.createElement('a');
+        row.href = 'javascript:void(0)';
+        row.className = 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+        row.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;box-sizing:border-box;text-decoration:none;';
 
+        var icoSec = document.createElement('span');
+        icoSec.className = 'm_690090b5 mantine-NavLink-section';
+        icoSec.setAttribute('data-position','left');
         var ico = document.createElement('div');
-        ico.style.cssText = 'width:28px;height:28px;border-radius:7px;background:'+(cfg.iconBg||'#555')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+        ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+        ico.setAttribute('data-variant','filled');
+        ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:'+(cfg.iconBg||'#555')+';--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
         ico.innerHTML = cfg.icon || '';
-        row.appendChild(ico);
+        icoSec.appendChild(ico);
+        row.appendChild(icoSec);
 
+        var body = document.createElement('div');
+        body.className = 'm_f07af9d2 mantine-NavLink-body';
         var lbl = document.createElement('span');
-        lbl.style.cssText = 'font-size:13px;color:rgba(255,255,255,0.9);font-weight:500;flex:1;white-space:nowrap;';
+        lbl.className = 'm_1f6ac4c4 mantine-NavLink-label';
         lbl.textContent = cfg.label;
-        row.appendChild(lbl);
+        body.appendChild(lbl);
+        row.appendChild(body);
 
         if(cfg.type === 'toggle'){
             var track = document.createElement('div');
@@ -99,6 +109,11 @@ function renderItems(){
                 if(cfg.onToggle) cfg.onToggle(!on);
                 setTimeout(sync, 80);
             }
+            var rightSec = document.createElement('span');
+            rightSec.className = 'm_690090b5 mantine-NavLink-section';
+            rightSec.setAttribute('data-position','right');
+            rightSec.appendChild(track);
+            row.appendChild(rightSec);
             track.addEventListener('click', toggle);
             row.addEventListener('click', toggle);
         } else {
