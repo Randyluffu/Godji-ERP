@@ -660,6 +660,9 @@
     // Регистрируем в панели настроек вместо fixed-кнопки
     function registerInSettings(){
         if(typeof window.__godjiRegisterSetting !== 'function'){
+            // Кладём в очередь если settings ещё не загружен
+            if(!window.__godjiSettingsQueue) window.__godjiSettingsQueue=[];
+            // Проверим через 300мс — вдруг settings уже загрузится
             setTimeout(registerInSettings, 300);
             return;
         }
