@@ -14,7 +14,7 @@
 
 var STORAGE_KEY = 'godji_opjournal';
 var SAFE_KEY    = 'godji_opjournal_safe';
-var MAX_DAYS    = 7;
+var MAX_DAYS    = 3;
 var CLUB_ID     = 14;
 var POLL_MS     = 10000;
 
@@ -124,11 +124,11 @@ function classifyOp(op){
         type='free_time'; icon='⌛'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
     } else if(nl.indexOf('продление')!==-1||nl.indexOf('prolongat')!==-1){
         type='session_prolong'; icon='⏩';
-        label='Продление сеанса ('+(op.money_type==='cash'?'₽':'✦ бон')+')';
+        label='Продление сеанса';
         color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1)){
         // Списание за бронирование — это денежная операция при запуске, показываем как часть продления/запуска
-        type='session_prolong'; icon='⏩'; label='Списание за сеанс ('+(op.money_type==='cash'?'₽':'✦ бон')+')'; color='#3355cc'; bg='#e8f0ff';
+        type='session_prolong'; icon='⏩'; label='Списание за сеанс'; color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('пересадк')!==-1||nl.indexOf('перевод')!==-1||nl.indexOf('transfer')!==-1||nl.indexOf('переместил')!==-1){
         type='session_transfer'; icon='🔀'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
     } else if(nl.indexOf('завершени')!==-1&&nl.indexOf('сессии')!==-1){
@@ -141,7 +141,7 @@ function classifyOp(op){
         type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
     } else if(op.operation_type==='withdraw'&&resId){
         type='session_prolong'; icon='⏩';
-        label='Продление ('+(op.money_type==='cash'?'₽':'✦ бон')+')';
+        label='Продление сеанса';
         color='#3355cc'; bg='#e8f0ff';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='cash'){
         type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
@@ -220,7 +220,7 @@ function fetchNewOps(){
                 label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
                 color: isSusp ? '#b45309' : cls.color,
                 bg: isSusp ? '#fef3c7' : cls.bg,
-                amount: formatAmt(op.amount),
+                amount: formatAmt(op.amount, op.money_type),
                 comment: cls.desc||'',
                 extra: (function(){
                     var e='';
@@ -288,13 +288,18 @@ function fetchNewReservations(){
                     color:'#cc2200',bg:'#fde8e8',amount:'',comment:'',
                     extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
             }
-            // Запуск: новая резервация или смена на активный
+            // Запуск: только если это реально новая сессия (time_from недавно)
+            // prevStatus===undefined значит мы впервые видим эту запись в polling
             else if((curStatus==='session_acting'||curStatus==='active')&&!prevStatus){
-                addEntry({opId:'res_start_'+r.id,id:'res_start_'+r.id,
-                    ts:new Date(r.time_from).getTime(),
-                    type:'session_start',icon:'▶️',label:'Запуск сеанса',
-                    color:'#0066cc',bg:'#e0f0ff',amount:'',comment:'',
-                    extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
+                // Проверяем что сеанс начался недавно (не из кэша инициализации)
+                var sessionAge = Date.now() - new Date(r.time_from).getTime();
+                if(sessionAge < 90000){ // не старше 90 секунд
+                    addEntry({opId:'res_start_'+r.id,id:'res_start_'+r.id,
+                        ts:new Date(r.time_from).getTime(),
+                        type:'session_start',icon:'▶️',label:'Запуск сеанса',
+                        color:'#0066cc',bg:'#e0f0ff',amount:'',comment:'',
+                        extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
+                }
             }
         });
     }).catch(function(){});
@@ -380,10 +385,11 @@ function showSuspiciousToast(){
 }
 
 // ── Форматирование ────────────────────────────────────────
-function formatAmt(n){
+function formatAmt(n, moneyType){
     if(n===undefined||n===null||n==='') return '';
     var v=parseFloat(n); if(isNaN(v)) return '';
-    return (v>=0?'+':'')+Math.round(v)+' ₽';
+    var sym = moneyType==='non_cash' ? ' G' : ' ₽';
+    return (v>=0?'+':'')+Math.round(v)+sym;
 }
 function fmtDate(ts){
     var d=new Date(ts);
