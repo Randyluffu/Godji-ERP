@@ -30,16 +30,32 @@ var _panel = null;
 var _inner = null;
 var _open  = false;
 
-// Принимаем регистрации которые пришли до инициализации settings
+// Подхватываем регистрации которые пришли до загрузки этого скрипта
+// (другие скрипты пишут в window.__godjiSettingsQueue напрямую)
 if(window.__godjiSettingsQueue && window.__godjiSettingsQueue.length){
     window.__godjiSettingsQueue.forEach(function(cfg){ _items.push(cfg); });
 }
 
+// Устанавливаем функцию регистрации — другие скрипты ждут её через retry
 window.__godjiRegisterSetting = function(cfg){
+    if(!cfg||!cfg.id) return;
     var i = _items.findIndex(function(x){ return x.id === cfg.id; });
     if(i !== -1) _items[i] = cfg; else _items.push(cfg);
     if(_open && _inner) renderItems();
 };
+
+// Также обрабатываем очередь которая могла накопиться пока мы инициализировались
+function _drainQueue(){
+    if(window.__godjiSettingsQueue && window.__godjiSettingsQueue.length){
+        window.__godjiSettingsQueue.forEach(function(cfg){
+            if(!cfg||!cfg.id) return;
+            var i=_items.findIndex(function(x){return x.id===cfg.id;});
+            if(i===-1) _items.push(cfg); else _items[i]=cfg;
+        });
+        window.__godjiSettingsQueue = [];
+    }
+}
+setInterval(_drainQueue, 500);
 
 // ── Рендер ────────────────────────────────────────────────
 function renderItems(){
@@ -136,7 +152,7 @@ function alignPanel(){
     _panel.style.bottom = Math.max(0, window.innerHeight - r.bottom) + 'px';
 }
 
-function openPanel(){ buildPanel(); renderItems(); alignPanel(); _panel.style.display='flex'; _open=true; var b=document.getElementById('godji-settings-btn'); if(b) b.style.background='rgba(204,0,1,0.2)'; }
+function openPanel(){ _drainQueue(); buildPanel(); renderItems(); alignPanel(); _panel.style.display='flex'; _open=true; var b=document.getElementById('godji-settings-btn'); if(b) b.style.background='rgba(204,0,1,0.2)'; }
 function closePanel(){ if(_panel) _panel.style.display='none'; _open=false; var b=document.getElementById('godji-settings-btn'); if(b) b.style.background='rgba(255,255,255,0.07)'; }
 function togglePanel(){ if(_open) closePanel(); else openPanel(); }
 
