@@ -551,8 +551,8 @@ function inject(mc){
 
         // Регистрируем в панели настроек
         function registerMapInSettings(){
+            if(!window.__godjiSettingsQueue) window.__godjiSettingsQueue=[];
             if(typeof window.__godjiRegisterSetting !== 'function'){
-                if(!window.__godjiSettingsQueue) window.__godjiSettingsQueue=[];
                 setTimeout(registerMapInSettings, 300);
                 return;
             }
