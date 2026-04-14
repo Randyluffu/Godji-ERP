@@ -30,6 +30,11 @@ var _panel = null;
 var _inner = null;
 var _open  = false;
 
+// Принимаем регистрации которые пришли до инициализации settings
+if(window.__godjiSettingsQueue && window.__godjiSettingsQueue.length){
+    window.__godjiSettingsQueue.forEach(function(cfg){ _items.push(cfg); });
+}
+
 window.__godjiRegisterSetting = function(cfg){
     var i = _items.findIndex(function(x){ return x.id === cfg.id; });
     if(i !== -1) _items[i] = cfg; else _items.push(cfg);
