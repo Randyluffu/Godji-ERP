@@ -124,11 +124,11 @@ function classifyOp(op){
         type='free_time'; icon='⌛'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
     } else if(nl.indexOf('продление')!==-1||nl.indexOf('prolongat')!==-1){
         type='session_prolong'; icon='⏩';
-        label='Продление сеанса ('+(op.money_type==='cash'?'₽':'бон.')+')';
+        label='Продление сеанса ('+(op.money_type==='cash'?'₽':'✦ бон')+')';
         color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1)){
         // Списание за бронирование — это денежная операция при запуске, показываем как часть продления/запуска
-        type='session_prolong'; icon='⏩'; label='Списание за сеанс ('+(op.money_type==='cash'?'₽':'бон.')+')'; color='#3355cc'; bg='#e8f0ff';
+        type='session_prolong'; icon='⏩'; label='Списание за сеанс ('+(op.money_type==='cash'?'₽':'✦ бон')+')'; color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('пересадк')!==-1||nl.indexOf('перевод')!==-1||nl.indexOf('transfer')!==-1||nl.indexOf('переместил')!==-1){
         type='session_transfer'; icon='🔀'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
     } else if(nl.indexOf('завершени')!==-1&&nl.indexOf('сессии')!==-1){
@@ -141,7 +141,7 @@ function classifyOp(op){
         type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
     } else if(op.operation_type==='withdraw'&&resId){
         type='session_prolong'; icon='⏩';
-        label='Продление ('+(op.money_type==='cash'?'₽':'бон.')+')';
+        label='Продление ('+(op.money_type==='cash'?'₽':'✦ бон')+')';
         color='#3355cc'; bg='#e8f0ff';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='cash'){
         type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
@@ -254,34 +254,42 @@ function fetchNewOps(){
 var GQL_INIT = 'query GojInit($clubId:Int!){wallet_operations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:1){id}}';
 
 // Отдельный polling для резервирований (сеансы)
-var _lastReservationId = null;
-var GQL_RESERVATIONS = 'query GojRes($sinceId:Int!,$clubId:Int!){reservations(where:{id:{_gt:$sinceId},club_id:{_eq:$clubId}},order_by:{id:asc},limit:50){id status time_from ended_at device_id reservations_club_device{name} reservations_user{phone users_user_profile{name surname login}}}}';
+var _lastResUpdated = null;  // ISO timestamp последнего виденного updated_at
+var _resStatusCache = {};    // id → status, для отслеживания смены статуса
+var GQL_RESERVATIONS = 'query GojRes($since:timestamptz!,$clubId:Int!){reservations(where:{updated_at:{_gt:$since},club_id:{_eq:$clubId}},order_by:{updated_at:asc},limit:100){id status time_from ended_at updated_at user_id reservations_club_device{name} reservations_user{phone users_user_profile{name surname login}}}}';
 
 function fetchNewReservations(){
     var auth=getAuth();
-    if(!auth||_lastReservationId===null) return;
+    if(!auth||!_lastResUpdated) return;
     fetch('https://hasura.godji.cloud/v1/graphql',{
         method:'POST',
         headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
-        body:JSON.stringify({operationName:'GojRes',variables:{sinceId:_lastReservationId,clubId:CLUB_ID},query:GQL_RESERVATIONS})
+        body:JSON.stringify({operationName:'GojRes',variables:{since:_lastResUpdated,clubId:CLUB_ID},query:GQL_RESERVATIONS})
     }).then(function(r){return r.json();}).then(function(data){
         var res=data&&data.data&&data.data.reservations;
         if(!res||!res.length) return;
         res.forEach(function(r){
-            if(r.id>_lastReservationId) _lastReservationId=r.id;
+            if(r.updated_at>_lastResUpdated) _lastResUpdated=r.updated_at;
+            var prevStatus=_resStatusCache[r.id];
+            var curStatus=r.status;
+            _resStatusCache[r.id]=curStatus;
+
             var p=r.reservations_user&&r.reservations_user.users_user_profile;
             var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
             var device=r.reservations_club_device&&r.reservations_club_device.name||'';
             var extra='Сеанс #'+r.id+(device?' · ПК '+device:'');
-            var clientUrl=r.reservations_user?'/clients/'+r.reservations_user.id:'';
+            var clientUrl=r.user_id?'/clients/'+r.user_id:'';
 
-            if(r.status==='finished'||r.status==='canceled'){
+            // Завершение: статус стал finished/canceled
+            if((curStatus==='finished'||curStatus==='canceled')&&prevStatus&&prevStatus!==curStatus){
                 addEntry({opId:'res_fin_'+r.id,id:'res_fin_'+r.id,
                     ts:r.ended_at?new Date(r.ended_at).getTime():Date.now(),
                     type:'session_finish',icon:'⏹️',label:'Завершение сеанса',
                     color:'#cc2200',bg:'#fde8e8',amount:'',comment:'',
                     extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
-            } else if(r.status==='session_acting'||r.status==='active'||r.status==='created'){
+            }
+            // Запуск: новая резервация или смена на активный
+            else if((curStatus==='session_acting'||curStatus==='active')&&!prevStatus){
                 addEntry({opId:'res_start_'+r.id,id:'res_start_'+r.id,
                     ts:new Date(r.time_from).getTime(),
                     type:'session_start',icon:'▶️',label:'Запуск сеанса',
@@ -315,14 +323,19 @@ function initLastId(){
             if(e.opId && typeof e.opId==='number' && e.opId>_lastMaxId) _lastMaxId=e.opId;
         });
         // Инициализируем _lastReservationId
+        // Инициализируем _lastResUpdated = сейчас (ловим только новые события)
+        _lastResUpdated = new Date().toISOString();
+        // Также загружаем текущие активные сессии в кэш статусов
         fetch('https://hasura.godji.cloud/v1/graphql',{
             method:'POST',
             headers:{'authorization':auth,'content-type':'application/json','x-hasura-role':getRole()},
-            body:JSON.stringify({operationName:'GojResInit',query:'query GojResInit($clubId:Int!){reservations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:1){id}}',variables:{clubId:CLUB_ID}})
+            body:JSON.stringify({operationName:'GojResInit',
+                query:'query GojResInit($clubId:Int!){reservations(where:{club_id:{_eq:$clubId},status:{_in:["session_acting","active","created"]}},limit:200){id status}}',
+                variables:{clubId:CLUB_ID}})
         }).then(function(r){return r.json();}).then(function(data){
             var res=data&&data.data&&data.data.reservations;
-            _lastReservationId=res&&res.length?res[0].id:0;
-        }).catch(function(){ _lastReservationId=0; });
+            if(res) res.forEach(function(r){ _resStatusCache[r.id]=r.status; });
+        }).catch(function(){});
 
         // Запускаем polling
         setInterval(fetchNewOps, POLL_MS);
@@ -709,40 +722,46 @@ function createSidebarBtn(){
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    
 
+    // Точная структура оригинального NavLink
+    var sec=document.createElement('span');
+    sec.className='m_690090b5 mantine-NavLink-section';
+    sec.setAttribute('data-position','left');
     var ico=document.createElement('div');
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1a1a2e;--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    sec.appendChild(ico);
 
     var bodyDiv=document.createElement('div');
     bodyDiv.className='m_f07af9d2 mantine-NavLink-body';
     var lbl=document.createElement('span');
     lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.style.cssText='font-size:14px;font-weight:600;color:var(--mantine-color-white,#fff);white-space:nowrap;';
     lbl.textContent='История операций';
 
     var badge=document.createElement('span');
     badge.id='goj-sidebar-badge';
-    badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;';
+    badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;flex-shrink:0;';
 
     bodyDiv.appendChild(lbl);
-    btn.appendChild(ico); btn.appendChild(bodyDiv); btn.appendChild(badge);
+    btn.appendChild(sec); btn.appendChild(bodyDiv); btn.appendChild(badge);
     btn.addEventListener('click',function(e){
         e.stopPropagation();
         if(_visible) hideModal(); else showModal();
     });
 
-    // История операций — первая (выше истории сеансов)
-    // Вставляем в конец linksInner (перед блоком часов)
-    // Порядок: opj-btn ПЕРЕД history-btn
+    // Вставляем перед первым скрытым NavLink — это ровно под "Ещё"
     var histBtn=sb.querySelector('#godji-history-btn');
     if(histBtn){
         sb.insertBefore(btn, histBtn);
     } else {
-        sb.appendChild(btn);
+        var all=sb.children, anchor=null;
+        for(var ci=0;ci<all.length;ci++){
+            if(all[ci].style&&all[ci].style.display==='none'){anchor=all[ci];break;}
+        }
+        if(anchor) sb.insertBefore(btn,anchor);
+        else sb.appendChild(btn);
     }
     updateBadge();
 }
