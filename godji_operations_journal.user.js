@@ -380,7 +380,7 @@ function fmtDate(ts){
 
 // ── Модальное окно ────────────────────────────────────────
 var _modal=null,_overlay=null,_visible=false;
-var _filterType='',_filterText='',_filterNick='';
+var _filterTypes=[],_filterText='',_filterNick='';
 
 function buildModal(){
     _overlay=document.createElement('div');
@@ -416,7 +416,7 @@ function renderModal(){
         var sB=document.createElement('span');
         sB.style.cssText='background:#b45309;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;cursor:pointer;';
         sB.textContent='⚠️ '+suspCount+' подозрительных';
-        sB.addEventListener('click',function(){_filterType='suspicious';renderModal();});
+        sB.addEventListener('click',function(){_filterTypes=['suspicious'];renderModal();});
         hL.appendChild(sB);
     }
     var hR=document.createElement('div');
@@ -437,33 +437,56 @@ function renderModal(){
     hdr.appendChild(hL); hdr.appendChild(hR);
     _modal.appendChild(hdr);
 
-    // Фильтры
-    var fBar=document.createElement('div');
-    fBar.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fafafa;flex-wrap:wrap;';
-    var typeSelect=document.createElement('select');
-    typeSelect.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;';
-    [['','Все операции'],['suspicious','⚠️ Подозрительные'],
-     ['deposit_cash','💵 Пополнение наличными'],['deposit_card','💳 Пополнение по карте'],
-     ['deposit_bonus','🎁 Начисление бонусов'],['refund_bonus','↩️ Возврат бонусов'],
-     ['free_time','⌛ Бесплатное время'],['session_start','▶️ Запуск сеанса'],
-     ['session_finish','⏹️ Завершение сеанса'],
-     ['session_prolong','⏩ Продление сеанса'],['session_transfer','🔀 Пересадка'],
-     ['debit_money','➖💵 Списание с баланса'],['debit_bonus','➖🎁 Списание бонусов'],
-     ['other','• Прочее']
-    ].forEach(function(o){
-        var opt=document.createElement('option');
-        opt.value=o[0]; opt.textContent=o[1];
-        if(o[0]===_filterType) opt.selected=true;
-        typeSelect.appendChild(opt);
-    });
-    typeSelect.addEventListener('change',function(){_filterType=this.value;renderModal();});
+    // Фильтры — два ряда: типы (мультивыбор тегами) + ник + поиск
+    var fWrap=document.createElement('div');
+    fWrap.style.cssText='border-bottom:1px solid #f0f0f0;flex-shrink:0;background:#fafafa;';
 
-    // Фильтр по нику — берём уникальные ники из журнала
+    // Ряд 1: теги типов
+    var typeRow=document.createElement('div');
+    typeRow.style.cssText='display:flex;flex-wrap:wrap;gap:5px;padding:8px 16px 6px;';
+
+    var TYPE_OPTS=[
+        ['suspicious','⚠️ Подозрит.','#b45309','#fef3c7'],
+        ['deposit_cash','💵 Нал.','#166534','#dcfce7'],
+        ['deposit_card','💳 Карта','#1d4ed8','#dbeafe'],
+        ['deposit_bonus','🎁 Бонусы','#c87800','#fff4e0'],
+        ['refund_bonus','↩️ Возврат','#0369a1','#e0f2fe'],
+        ['free_time','⌛ Бесплатно','#007799','#e8f8ff'],
+        ['session_start','▶️ Запуск','#0066cc','#e0f0ff'],
+        ['session_finish','⏹️ Заверш.','#cc2200','#fde8e8'],
+        ['session_prolong','⏩ Продление','#3355cc','#e8f0ff'],
+        ['session_transfer','🔀 Пересадка','#cc6600','#fff0e0'],
+        ['debit_money','➖₽','#991b1b','#fee2e2'],
+        ['debit_bonus','➖🎁','#7c3aed','#ede9fe'],
+        ['other','• Прочее','#555','#f5f5f5']
+    ];
+
+    TYPE_OPTS.forEach(function(o){
+        var tag=document.createElement('button');
+        tag.type='button';
+        var active=_filterTypes.indexOf(o[0])!==-1;
+        tag.style.cssText='padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid '+(active?o[2]:'#e0e0e0')+';'+
+            'background:'+(active?o[3]:'#fff')+';color:'+(active?o[2]:'#888')+';transition:all 0.12s;white-space:nowrap;';
+        tag.textContent=o[1];
+        tag.addEventListener('click',function(){
+            var idx=_filterTypes.indexOf(o[0]);
+            if(idx===-1) _filterTypes.push(o[0]); else _filterTypes.splice(idx,1);
+            renderModal();
+        });
+        typeRow.appendChild(tag);
+    });
+    fWrap.appendChild(typeRow);
+
+    // Ряд 2: ник + поиск
+    var fBar=document.createElement('div');
+    fBar.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 16px 8px;flex-wrap:wrap;';
+
+    // Фильтр по нику
     var allNicks=[''];
     journal.forEach(function(r){ if(r.client&&allNicks.indexOf(r.client)===-1) allNicks.push(r.client); });
     allNicks.sort();
     var nickSelect=document.createElement('select');
-    nickSelect.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;max-width:140px;';
+    nickSelect.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;max-width:150px;';
     allNicks.forEach(function(n){
         var opt=document.createElement('option'); opt.value=n; opt.textContent=n||'Все клиенты';
         if(n===_filterNick) opt.selected=true;
@@ -473,10 +496,22 @@ function renderModal(){
 
     var searchInp=document.createElement('input');
     searchInp.type='text'; searchInp.placeholder='Поиск…'; searchInp.value=_filterText;
-    searchInp.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;outline:none;width:150px;';
+    searchInp.style.cssText='background:#fff;border:1px solid #e0e0e0;color:#444;border-radius:6px;padding:4px 10px;font-size:12px;font-family:inherit;outline:none;width:160px;';
     searchInp.addEventListener('input',function(){_filterText=this.value.toLowerCase();renderModal();});
-    fBar.appendChild(typeSelect); fBar.appendChild(nickSelect); fBar.appendChild(searchInp);
-    _modal.appendChild(fBar);
+
+    // Сброс фильтров
+    if(_filterTypes.length||_filterNick||_filterText){
+        var resetBtn=document.createElement('button');
+        resetBtn.type='button';
+        resetBtn.style.cssText='padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #e0e0e0;background:#fff;color:#888;';
+        resetBtn.textContent='× Сбросить';
+        resetBtn.addEventListener('click',function(){_filterTypes=[];_filterNick='';_filterText='';renderModal();});
+        fBar.appendChild(resetBtn);
+    }
+
+    fBar.appendChild(nickSelect); fBar.appendChild(searchInp);
+    fWrap.appendChild(fBar);
+    _modal.appendChild(fWrap);
 
     // Тело
     var body=document.createElement('div');
@@ -484,10 +519,12 @@ function renderModal(){
     _modal.appendChild(body);
 
     var filtered=journal.slice();
-    if(_filterType==='suspicious'){
-        filtered=filtered.filter(function(r){return r.suspicious&&safeIds.indexOf(r.id)===-1;});
-    } else if(_filterType){
-        filtered=filtered.filter(function(r){return r.type===_filterType;});
+    if(_filterTypes.length){
+        filtered=filtered.filter(function(r){
+            // suspicious — отдельная проверка
+            if(_filterTypes.indexOf('suspicious')!==-1&&r.suspicious&&safeIds.indexOf(r.id)===-1) return true;
+            return _filterTypes.indexOf(r.type)!==-1;
+        });
     }
     if(_filterNick){
         filtered=filtered.filter(function(r){ return r.client===_filterNick; });
@@ -672,7 +709,7 @@ function createSidebarBtn(){
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    
 
     var ico=document.createElement('div');
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
