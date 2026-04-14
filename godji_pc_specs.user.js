@@ -183,9 +183,9 @@ function buildModal() {
     _modal.style.cssText = [
         'position:fixed','top:50%','left:50%','transform:translate(-50%,-50%)',
         'z-index:99997','width:680px','max-width:96vw','max-height:88vh',
-        'background:#1a1b2e','color:#e0e1e8',
-        'border:1px solid rgba(255,255,255,0.1)',
-        'border-radius:12px','box-shadow:0 8px 48px rgba(0,0,0,0.7)',
+        'background:#ffffff','color:#1a1a1a',
+        'border:none',
+        'border-radius:12px','box-shadow:0 8px 40px rgba(0,0,0,0.22)',
         'display:none','flex-direction:column','font-family:inherit','overflow:hidden',
     ].join(';');
     document.body.appendChild(_modal);
@@ -202,27 +202,27 @@ function renderContent() {
     var data = loadData();
 
     // ── Header ──────────────────────────────────────────
-    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
+    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;');
 
     var hL = el('div', 'display:flex;align-items:center;gap:10px;');
     var hIco = el('div', 'width:32px;height:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;');
     hIco.innerHTML = svg('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>', 16);
     hIco.style.color = '#fff';
     var hTxt = el('div');
-    hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:#e0e1e8;">Характеристики ПК</div>';
+    hTxt.innerHTML = '<div style="font-size:15px;font-weight:700;color:#1a1a1a;">Характеристики ПК</div>';
     hL.appendChild(hIco); hL.appendChild(hTxt);
 
     var hR = el('div', 'display:flex;align-items:center;gap:8px;');
 
     // Кнопка редактирования
-    var editBtn = el('button', 'background:'+ (_editMode ? 'rgba(204,0,1,0.2)' : 'rgba(255,255,255,0.06)')+';border:1px solid '+(_editMode ? 'rgba(204,0,1,0.4)' : 'rgba(255,255,255,0.1)')+';border-radius:7px;padding:5px 10px;color:'+(_editMode ? '#f87171' : 'rgba(255,255,255,0.5)')+';cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;font-family:inherit;transition:all .15s;');
+    var editBtn = el('button', 'background:'+(_editMode ? '#fff0f0' : '#f5f5f5')+';border:1px solid '+(_editMode ? '#fca5a5' : '#e0e0e0')+';border-radius:7px;padding:5px 10px;color:'+(_editMode ? '#cc2200' : '#666')+';cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;font-family:inherit;transition:all .15s;');
     editBtn.innerHTML = ICO.pencil + '<span>' + (_editMode ? 'Готово' : 'Редактировать') + '</span>';
     editBtn.addEventListener('click', function () {
         _editMode = !_editMode;
         renderContent();
     });
 
-    var closeBtn = el('button', 'background:none;border:none;color:rgba(255,255,255,0.3);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;');
+    var closeBtn = el('button', 'background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;');
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', closeModal);
 
@@ -231,7 +231,7 @@ function renderContent() {
     _modal.appendChild(hdr);
 
     // ── Тело ────────────────────────────────────────────
-    var body = el('div', 'overflow-y:auto;flex:1;min-height:0;padding:12px 16px;color:#e0e1e8;');
+    var body = el('div', 'overflow-y:auto;flex:1;min-height:0;padding:12px 16px;');
 
     data.zones.forEach(function (zone) {
         body.appendChild(buildZoneBlock(zone, data));
@@ -251,18 +251,18 @@ function renderContent() {
 
 // ── Блок зоны ───────────────────────────────────────────
 function buildZoneBlock(zone, data) {
-    var wrap = el('div', 'margin-bottom:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);overflow:hidden;background:rgba(255,255,255,0.02);');
+    var wrap = el('div', 'margin-bottom:6px;border-radius:8px;border:1px solid #efefef;overflow:hidden;background:#fff;');
 
     // Заголовок зоны
-    var zHdr = el('div', 'display:flex;align-items:center;gap:0;background:rgba(255,255,255,0.05);cursor:pointer;user-select:none;border-radius:8px 8px 0 0;transition:background 0.12s;');
+    var zHdr = el('div', 'display:flex;align-items:center;gap:0;background:#f9f9f9;cursor:pointer;user-select:none;border-radius:8px 8px 0 0;transition:background 0.12s;');
 
-    var zChev = el('span', 'padding:10px 6px 10px 12px;color:rgba(255,255,255,0.3);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
+    var zChev = el('span', 'padding:10px 6px 10px 12px;color:#bbb;transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
     zChev.innerHTML = ICO.chevron;
     if (_expandedZones[zone.id]) zChev.style.transform = 'rotate(180deg)';
 
     var zDot = el('span', 'width:10px;height:10px;border-radius:50%;background:'+zone.color+';flex-shrink:0;margin-right:8px;');
 
-    var zLbl = el('span', 'font-size:13px;font-weight:700;color:#e0e1e8;flex:1;padding:10px 0;');
+    var zLbl = el('span', 'font-size:13px;font-weight:700;color:#1a1a1a;flex:1;padding:10px 0;');
     zLbl.textContent = zone.label;
 
     var zR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:10px;');
@@ -315,13 +315,13 @@ function buildRoomBlock(room, zone, data) {
     var rKey = zone.id + '_' + room.id;
     var wrap = el('div', 'margin:4px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;');
 
-    var rHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;border-top:1px solid rgba(255,255,255,0.05);transition:background 0.12s;');
+    var rHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;border-top:1px solid #f5f5f5;transition:background 0.1s;');
 
-    var rChev = el('span', 'padding:8px 6px 8px 10px;color:rgba(255,255,255,0.5);transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
+    var rChev = el('span', 'padding:8px 6px 8px 10px;color:#aaa;transition:transform .2s;display:flex;align-items:center;flex-shrink:0;');
     rChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 14);
     if (_expandedRooms[rKey]) rChev.style.transform = 'rotate(180deg)';
 
-    var rLbl = el('span', 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.88);flex:1;padding:8px 4px;');
+    var rLbl = el('span', 'font-size:12px;font-weight:600;color:#333;flex:1;padding:8px 4px;');
     rLbl.textContent = 'Комната ' + room.id;
 
     var rR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:8px;');
@@ -381,18 +381,18 @@ function buildPcBlock(pcId, room, zone, data) {
 
     var wrap = el('div', 'margin:2px 10px;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);');
 
-    var pHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;padding:5px 8px;gap:6px;border-top:1px solid rgba(255,255,255,0.04);transition:background 0.1s;');
+    var pHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;padding:5px 8px;gap:6px;border-top:1px solid #f9f9f9;transition:background 0.1s;');
 
-    var pChev = el('span', 'color:rgba(255,255,255,0.45);display:flex;align-items:center;flex-shrink:0;transition:transform .2s;');
+    var pChev = el('span', 'color:#999;display:flex;align-items:center;flex-shrink:0;transition:transform .2s;');
     pChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 12);
     if (_expandedPcs[pKey]) pChev.style.transform = 'rotate(180deg)';
 
-    var pLbl = el('span', 'font-size:12px;font-weight:500;color:rgba(255,255,255,0.82);flex:1;');
+    var pLbl = el('span', 'font-size:12px;font-weight:500;color:#444;flex:1;');
     pLbl.textContent = 'ПК ' + pcId;
 
     // Краткий превью первой характеристики
     if (effSpecs.length > 0) {
-        var preview = el('span', 'font-size:11px;color:rgba(255,255,255,0.5);margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;');
+        var preview = el('span', 'font-size:11px;color:#aaa;margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;');
         preview.textContent = effSpecs[0].label + ': ' + effSpecs[0].value;
         pHdr.appendChild(pChev); pHdr.appendChild(pLbl); pHdr.appendChild(preview);
     } else {
@@ -432,11 +432,11 @@ function buildPcBlock(pcId, room, zone, data) {
 
     // Характеристики ПК
     if (effSpecs.length === 0) {
-        pContent.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.45);padding:4px 0;">Нет характеристик</div>';
+        pContent.innerHTML = '<div style="font-size:11px;color:#999;padding:4px 0;">Нет характеристик</div>';
     } else {
         effSpecs.forEach(function (spec) {
             var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
-            var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.45);flex-shrink:0;min-width:100px;font-weight:500;');
+            var lbl = el('span', 'font-size:11px;color:#888;flex-shrink:0;min-width:100px;font-weight:500;');
             lbl.textContent = spec.label;
             var val = el('span', 'font-size:12px;font-weight:500;flex:1;');
 
@@ -457,11 +457,11 @@ function buildPcBlock(pcId, room, zone, data) {
 
             // Пометка источника
             if (spec._src === 'zone') {
-                var src = el('span', 'font-size:10px;color:rgba(255,255,255,0.45);flex-shrink:0;');
+                var src = el('span', 'font-size:10px;color:#999;flex-shrink:0;');
                 src.textContent = '(' + zone.label + ')';
                 row.appendChild(lbl); row.appendChild(val); row.appendChild(src);
             } else if (spec._src === 'room') {
-                var src2 = el('span', 'font-size:10px;color:rgba(255,255,255,0.45);flex-shrink:0;');
+                var src2 = el('span', 'font-size:10px;color:#999;flex-shrink:0;');
                 src2.textContent = '(комн. ' + room.id + ')';
                 row.appendChild(lbl); row.appendChild(val); row.appendChild(src2);
             } else {
@@ -505,10 +505,10 @@ function mkIconBtn(iconHtml, bg, onClick) {
 }
 
 function mkTextBtn(text, onClick) {
-    var b = el('button', 'background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:inherit;display:block;width:100%;text-align:left;transition:background .15s;');
+    var b = el('button', 'background:#f5f5f5;border:1px dashed #d0d0d0;border-radius:6px;padding:5px 10px;color:#aaa;font-size:12px;cursor:pointer;font-family:inherit;display:block;width:100%;text-align:left;transition:background .15s;');
     b.textContent = text;
-    b.addEventListener('mouseenter', function () { b.style.background = 'rgba(255,255,255,0.07)'; });
-    b.addEventListener('mouseleave', function () { b.style.background = 'rgba(255,255,255,0.04)'; });
+    b.addEventListener('mouseenter', function () { b.style.background = '#efefef'; });
+    b.addEventListener('mouseleave', function () { b.style.background = '#f5f5f5'; });
     b.addEventListener('click', onClick);
     return b;
 }
@@ -558,7 +558,7 @@ function showEditSpecs(zoneId, roomId, pcId, data, onSave) {
             uInp.placeholder = 'https://...';
             uInp.addEventListener('input', function () { spec.url = uInp.value || ''; });
 
-            var del = el('button', 'background:rgba(180,40,40,0.2);border:none;border-radius:5px;padding:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#f87171;flex-shrink:0;margin-top:1px;');
+            var del = el('button', 'background:#fff0f0;border:1px solid #fca5a5;border-radius:5px;padding:0;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#cc2200;flex-shrink:0;margin-top:1px;');
             del.innerHTML = ICO.trash.replace('width="16" height="16"', 'width="13" height="13"');
             del.addEventListener('click', function () { draft.splice(idx, 1); renderSpecs(); });
 
@@ -566,7 +566,7 @@ function showEditSpecs(zoneId, roomId, pcId, data, onSave) {
             body.appendChild(row);
         });
 
-        var addRow = el('button', 'background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.12);border-radius:6px;padding:6px;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:inherit;width:100%;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:5px;');
+        var addRow = el('button', 'background:#f5f5f5;border:1px dashed #d0d0d0;border-radius:6px;padding:6px;color:#aaa;font-size:12px;cursor:pointer;font-family:inherit;width:100%;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:5px;');
         addRow.innerHTML = ICO.plus.replace('width="16"','width="13"').replace('height="16"','height="13"') + '<span>Добавить характеристику</span>';
         addRow.addEventListener('click', function () {
             draft.push({ label: '', value: '', url: '' });
@@ -606,12 +606,12 @@ function showSpecsInfo(zone, room, data) {
     var body = dlg.body;
 
     if (baseSpecs.length === 0) {
-        var empty = el('div', 'font-size:12px;color:rgba(255,255,255,0.5);padding:8px 0;');
+        var empty = el('div', 'font-size:12px;color:#aaa;padding:8px 0;');
         empty.textContent = 'Нет общих характеристик';
         body.appendChild(empty);
     } else {
         var sect = el('div', 'margin-bottom:12px;');
-        var sectLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;');
+        var sectLbl = el('div', 'font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;');
         sectLbl.textContent = 'Общие характеристики';
         sect.appendChild(sectLbl);
         baseSpecs.forEach(function (spec) {
@@ -644,13 +644,13 @@ function showSpecsInfo(zone, room, data) {
     if (diffs.length > 0) {
         var divider = el('div', 'border-top:1px solid rgba(255,255,255,0.06);margin:10px 0;');
         body.appendChild(divider);
-        var diffLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;');
+        var diffLbl = el('div', 'font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;');
         diffLbl.textContent = 'Отличия';
         body.appendChild(diffLbl);
 
         diffs.forEach(function (diff) {
             var s = el('div', 'margin-bottom:10px;');
-            var sl = el('div', 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.5);margin-bottom:4px;');
+            var sl = el('div', 'font-size:12px;font-weight:600;color:#aaa;margin-bottom:4px;');
             sl.textContent = diff.label;
             s.appendChild(sl);
             diff.specs.forEach(function (spec) { s.appendChild(buildSpecRow(spec)); });
@@ -663,7 +663,7 @@ function showSpecsInfo(zone, room, data) {
 
 function buildSpecRow(spec) {
     var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
-    var lbl = el('span', 'font-size:11px;color:rgba(255,255,255,0.3);min-width:90px;flex-shrink:0;');
+    var lbl = el('span', 'font-size:11px;color:#888;min-width:90px;flex-shrink:0;');
     lbl.textContent = spec.label;
     var val = el('span', 'font-size:12px;');
     if (spec.url) {
@@ -689,7 +689,7 @@ function showMoveRoomDialog(room, currentZone, data) {
     var dlg = buildDialog('Переместить комнату ' + room.id, '340px');
     var body = dlg.body;
 
-    var lbl = el('div', 'font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px;');
+    var lbl = el('div', 'font-size:12px;color:#aaa;margin-bottom:10px;');
     lbl.textContent = 'Выберите зону для комнаты ' + room.id + ':';
     body.appendChild(lbl);
 
@@ -721,20 +721,20 @@ function showMovePcDialog(pcId, currentRoom, currentZone, data) {
     var dlg = buildDialog('Переместить ПК ' + pcId, '360px');
     var body = dlg.body;
 
-    var lbl = el('div', 'font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px;');
+    var lbl = el('div', 'font-size:12px;color:#aaa;margin-bottom:10px;');
     lbl.textContent = 'Выберите комнату для ПК ' + pcId + ':';
     body.appendChild(lbl);
 
     data.zones.forEach(function (z) {
         var zSect = el('div', 'margin-bottom:8px;');
-        var zLbl = el('div', 'font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:5px;');
+        var zLbl = el('div', 'font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:5px;');
         var dot = el('span', 'width:7px;height:7px;border-radius:50%;background:'+z.color+';');
         zLbl.appendChild(dot); zLbl.appendChild(document.createTextNode(z.label));
         zSect.appendChild(zLbl);
 
         z.rooms.forEach(function (r) {
             var isCurrent = r.id === currentRoom.id && z.id === currentZone.id;
-            var opt = el('button', 'display:block;width:100%;padding:6px 10px;background:'+(isCurrent ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)')+';border:1px solid rgba(255,255,255,0.06);border-radius:6px;cursor:pointer;font-family:inherit;margin-bottom:3px;color:rgba(255,255,255,0.6);font-size:12px;text-align:left;');
+            var opt = el('button', 'display:block;width:100%;padding:6px 10px;background:'+(isCurrent ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)')+';border:1px solid rgba(255,255,255,0.06);border-radius:6px;cursor:pointer;font-family:inherit;margin-bottom:3px;color:#444;font-size:12px;text-align:left;');
             opt.textContent = 'Комната ' + r.id + (isCurrent ? ' (текущая)' : '');
             opt.addEventListener('click', function () {
                 if (isCurrent) { dlg.close(); return; }
@@ -835,17 +835,17 @@ function showAddPcDialog(room, zone, data) {
 // ─────────────────────────────────────────────────────────
 function buildDialog(title, width) {
     var ov = el('div', 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;');
-    var box = el('div', 'background:#1a1b2e;border:1px solid rgba(255,255,255,0.12);border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.7);color:#e0e1e8;width:'+width+';max-width:96vw;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;overflow:hidden;');
+    var box = el('div', 'background:#ffffff;border:none;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.22);color:#1a1a1a;width:'+width+';max-width:96vw;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;overflow:hidden;');
 
-    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;');
-    var htxt = el('span', 'font-size:14px;font-weight:700;color:#e0e1e8;');
+    var hdr = el('div', 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #f0f0f0;flex-shrink:0;');
+    var htxt = el('span', 'font-size:14px;font-weight:700;color:#1a1a1a;');
     htxt.textContent = title;
-    var xcl = el('button', 'background:none;border:none;color:rgba(255,255,255,0.3);font-size:18px;cursor:pointer;padding:0 2px;line-height:1;');
+    var xcl = el('button', 'background:none;border:none;color:#aaa;font-size:18px;cursor:pointer;padding:0 2px;line-height:1;');
     xcl.innerHTML = '&times;';
     hdr.appendChild(htxt); hdr.appendChild(xcl);
     box.appendChild(hdr);
 
-    var body = el('div', 'padding:14px 16px;overflow-y:auto;flex:1;');
+    var body = el('div', 'padding:14px 16px;overflow-y:auto;flex:1;color:#1a1a1a;');
     box.appendChild(body);
 
     ov.appendChild(box);
@@ -856,9 +856,9 @@ function buildDialog(title, width) {
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
 
     function addFooter(buttons) {
-        var ft = el('div', 'display:flex;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid rgba(255,255,255,0.07);flex-shrink:0;');
+        var ft = el('div', 'display:flex;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid #f0f0f0;flex-shrink:0;');
         buttons.forEach(function (b) {
-            var btn = el('button', 'padding:6px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;'+(b.primary ? 'background:#cc0001;color:#fff;' : 'background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);'));
+            var btn = el('button', 'padding:6px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none;'+(b.primary ? 'background:#cc0001;color:#fff;' : 'background:#f0f0f0;color:#555;'));
             btn.textContent = b.label;
             btn.addEventListener('click', b.onClick);
             ft.appendChild(btn);
@@ -870,7 +870,7 @@ function buildDialog(title, width) {
 }
 
 function mkInput(value, placeholder) {
-    var inp = el('input', 'background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:7px;padding:7px 10px;font-size:12px;color:#e0e1e8;font-family:inherit;outline:none;width:100%;box-sizing:border-box;color-scheme:dark;');
+    var inp = el('input', 'background:#f9f9f9;border:1px solid #e0e0e0;border-radius:7px;padding:7px 10px;font-size:12px;color:#333;font-family:inherit;outline:none;width:100%;box-sizing:border-box;');
     inp.type = 'text';
     inp.value = value || '';
     inp.placeholder = placeholder || '';
@@ -878,7 +878,7 @@ function mkInput(value, placeholder) {
 }
 
 function mkLabel(text) {
-    var l = el('div', 'font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:4px;margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;');
+    var l = el('div', 'font-size:11px;color:#888;margin-bottom:4px;margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;');
     l.textContent = text;
     return l;
 }
