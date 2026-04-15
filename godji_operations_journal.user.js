@@ -62,14 +62,7 @@ function loadJournal(){
         var cutoff=Date.now()-MAX_DAYS*86400000;
         var result = raw.filter(function(r){return r.ts>cutoff;});
         // Миграция: исправляем старые записи с G у сессионных операций
-        var sessionTypes = ['session_prolong','session_start','session_finish','session_transfer','debit_money','deposit_cash','deposit_card'];
-        result.forEach(function(r){
-            if(r.amount && typeof r.amount==='string' && r.amount.indexOf(' G')!==-1){
-                if(sessionTypes.indexOf(r.type)!==-1){
-                    r.amount = r.amount.replace(' G',' ₽');
-                }
-            }
-        });
+
         return result;
     }catch(e){return[];}
 }
@@ -230,7 +223,7 @@ function fetchNewOps(){
                 label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
                 color: isSusp ? '#b45309' : cls.color,
                 bg: isSusp ? '#fef3c7' : cls.bg,
-                amount: formatAmt(op.amount, op.money_type, cls.type),
+                amount: formatAmt(op.amount, op.money_type),
                 comment: cls.desc||'',
                 extra: (function(){
                     var e='';
@@ -353,7 +346,7 @@ document.addEventListener('__godji_debit__', function(ev){
         ts:dd.ts||Date.now(),
         type:'debit_money', icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/></svg>', label:'Списание с баланса',
         color:'#991b1b', bg:'#fee2e2',
-        amount:formatAmt(-Math.abs(dd.amount)),
+        amount:formatAmt(-Math.abs(dd.amount),"cash"),
         comment:dd.comment||'', extra:''
     });
 });
@@ -371,15 +364,11 @@ function showSuspiciousToast(){
 }
 
 // ── Форматирование ────────────────────────────────────────
-function formatAmt(n, moneyType, opType){
+function formatAmt(n, moneyType){
     if(n===undefined||n===null||n==='') return '';
     var v=parseFloat(n); if(isNaN(v)) return '';
-    // Для сессионных операций не указываем тип валюты отдельно — они видны по контексту
-    // G только для явных ручных пополнений/списаний бонусов
-    var showG = moneyType==='non_cash' && 
-                (opType==='deposit_bonus'||opType==='debit_bonus'||opType==='refund_bonus');
-    var sym = showG ? ' G' : ' ₽';
-    return (v>=0?'+':'')+Math.round(v)+sym;
+    var sym = moneyType==='non_cash' ? ' G' : ' ₽';
+    return (v>=0?'+':'')+v.toFixed(v%1?2:0)+sym;
 }
 function fmtDate(ts){
     var d=new Date(ts);
@@ -731,12 +720,13 @@ function createSidebarBtn(){
     var section = document.createElement('div');
     section.id = 'godji-opj-btn-wrap';
     section.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    section.style.cssText = 'padding:0 var(--mantine-spacing-md);';
+    section.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
+    btn.style.cssText='width:100%;box-sizing:border-box;text-decoration:none;';
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
