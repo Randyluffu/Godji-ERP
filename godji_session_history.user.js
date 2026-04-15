@@ -281,7 +281,7 @@ function updateModal(){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Дата и время','110px'],['ПК','55px'],['Клиент','150px'],['Ник','130px'],['Телефон','115px'],['Время сеанса','95px']].forEach(function(c){
+    [['Дата и время','100px'],['Тип','80px'],['ПК','50px'],['Клиент','130px'],['Ник','110px'],['Телефон','110px'],['Время','85px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0];hr.appendChild(th);
@@ -289,7 +289,8 @@ function updateModal(){
     thead.appendChild(hr);table.appendChild(thead);
 
     var tbody=document.createElement('tbody');
-    history.forEach(function(rec){
+    // Новые внизу (история хранится от новых к старым)
+    history.slice().reverse().forEach(function(rec){
         var tr=document.createElement('tr');
         tr.style.cssText='border-bottom:1px solid #f5f5f5;transition:background 0.1s;';
         tr.addEventListener('mouseenter',function(){tr.style.background='#f7f9ff';});
@@ -299,6 +300,19 @@ function updateModal(){
         var tdD=document.createElement('td');
         tdD.style.cssText='padding:9px 12px;color:#999;font-size:12px;white-space:nowrap;';
         tdD.textContent=formatDate(rec.ts);
+
+        // Тип
+        var tdType=document.createElement('td');
+        tdType.style.cssText='padding:9px 12px;';
+        var typeBadge=document.createElement('span');
+        if(rec.type==='transfer'){
+            typeBadge.style.cssText='background:rgba(204,102,0,0.1);color:#cc6600;border-radius:4px;padding:2px 6px;font-weight:700;font-size:11px;white-space:nowrap;';
+            typeBadge.textContent='↔ Пересадка';
+        } else {
+            typeBadge.style.cssText='background:rgba(204,34,0,0.08);color:#cc2200;border-radius:4px;padding:2px 6px;font-weight:700;font-size:11px;white-space:nowrap;';
+            typeBadge.textContent='⏹ Завершение';
+        }
+        tdType.appendChild(typeBadge);
 
         // ПК
         var tdPc=document.createElement('td');
@@ -343,10 +357,11 @@ function updateModal(){
         tdT.style.cssText='padding:9px 12px;color:#888;font-size:12px;';
         tdT.textContent=rec.pastTime||'—';
 
-        [tdD,tdPc,tdN,tdNk,tdPh,tdT].forEach(function(td){tr.appendChild(td);});
+        [tdD,tdType,tdPc,tdN,tdNk,tdPh,tdT].forEach(function(td){tr.appendChild(td);});
         tbody.appendChild(tr);
     });
     table.appendChild(tbody);wrap.innerHTML='';wrap.appendChild(table);
+    setTimeout(function(){wrap.scrollTop=wrap.scrollHeight;},10);
 }
 
 function showModal(){
@@ -355,12 +370,14 @@ function showModal(){
     modal.style.display='flex';
     document.getElementById('godji-history-overlay').style.display='block';
     modalVisible=true;
+    var b=document.getElementById('godji-history-btn');if(b)b.setAttribute('data-active','true');
 }
 function hideModal(){
     if(!modal)return;
     modal.style.display='none';
     document.getElementById('godji-history-overlay').style.display='none';
     modalVisible=false;
+    var b=document.getElementById('godji-history-btn');if(b)b.removeAttribute('data-active');
 }
 
 // ── Кнопка в сайдбаре ────────────────────────────────────
@@ -382,7 +399,7 @@ function createSidebarButton(){
 
     var section = document.createElement('div');
     section.id = 'godji-history-btn-wrap';
-    section.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    section.className = 'm_6dcfc7c7 mantine-AppShell-section onest';
     section.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
 
     var wrap=document.createElement('a');
