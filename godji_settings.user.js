@@ -135,7 +135,7 @@ function buildPanel(){
     _panel.id = 'godji-settings-panel';
     _panel.style.cssText = [
         'position:fixed','left:280px','bottom:0','width:280px',
-        'background:var(--mantine-color-body,#1a1b2e)',
+        'background:#1a1b2e',
         'border-left:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
         'border-top:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
         'box-shadow:4px 0 20px rgba(0,0,0,0.5)',
