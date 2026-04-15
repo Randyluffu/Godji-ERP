@@ -132,23 +132,25 @@ function buildPanel(){
     _panel = document.createElement('div');
     _panel.id = 'godji-settings-panel';
     _panel.style.cssText = [
-        'position:fixed','left:280px','bottom:0','width:260px',
-        'background:#1a1b2e',
-        'border:1px solid rgba(255,255,255,0.12)',
-        'border-radius:0 10px 10px 0',
-        'box-shadow:6px 0 24px rgba(0,0,0,0.6)',
+        'position:fixed','left:280px','bottom:0','width:280px',
+        'background:var(--mantine-color-body,#1a1b2e)',
+        'border-left:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
+        'border-right:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
+        'border-top:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
+        'border-radius:0 8px 0 0',
+        'box-shadow:4px 0 20px rgba(0,0,0,0.5)',
         'z-index:9998','display:none','flex-direction:column',
         'overflow:hidden','font-family:var(--mantine-font-family,inherit)',
+        'padding:var(--mantine-spacing-md)',
     ].join(';');
 
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'padding:8px 14px 6px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;';
-    hdr.innerHTML = '<span style="color:rgba(255,255,255,0.3);line-height:0"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg></span>'
-        + '<span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.25);letter-spacing:1.2px;text-transform:uppercase;">Настройки</span>';
+    hdr.style.cssText = 'padding:0 0 var(--mantine-spacing-xs) 0;display:flex;align-items:center;gap:var(--mantine-spacing-xs);flex-shrink:0;';
+    hdr.innerHTML = '<span style="font-size:calc(0.6875rem * var(--mantine-scale));font-weight:700;color:var(--mantine-color-dimmed);letter-spacing:0.05em;text-transform:uppercase;">Настройки</span>';
     _panel.appendChild(hdr);
 
     _inner = document.createElement('div');
-    _inner.style.cssText = 'display:flex;flex-direction:column;padding:4px 0;';
+    _inner.style.cssText = 'display:flex;flex-direction:column;gap:calc(0.25rem * var(--mantine-scale));';
     _panel.appendChild(_inner);
     document.body.appendChild(_panel);
 
@@ -161,10 +163,16 @@ function buildPanel(){
 
 function alignPanel(){
     if(!_panel) return;
-    var f = document.querySelector('.Sidebar_footer__1BA98');
-    if(!f) return;
-    var r = f.getBoundingClientRect();
-    _panel.style.bottom = Math.max(0, window.innerHeight - r.bottom) + 'px';
+    // Panel starts from top of shifts/clock section, extends to bottom
+    var shifts = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(shifts){
+        var r = shifts.getBoundingClientRect();
+        _panel.style.top = r.top + 'px';
+        _panel.style.bottom = '0';
+        _panel.style.maxHeight = (window.innerHeight - r.top) + 'px';
+    } else {
+        _panel.style.top = ''; _panel.style.bottom = '0';
+    }
 }
 
 function openPanel(){ _drainQueue(); buildPanel(); renderItems(); alignPanel(); _panel.style.display='flex'; _open=true; var b=document.getElementById('godji-settings-btn'); if(b) b.style.background='rgba(204,0,1,0.2)'; }
