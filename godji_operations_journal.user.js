@@ -60,7 +60,17 @@ function loadJournal(){
     try{
         var raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
         var cutoff=Date.now()-MAX_DAYS*86400000;
-        return raw.filter(function(r){return r.ts>cutoff;});
+        var result = raw.filter(function(r){return r.ts>cutoff;});
+        // Миграция: исправляем старые записи с G у сессионных операций
+        var sessionTypes = ['session_prolong','session_start','session_finish','session_transfer','debit_money','deposit_cash','deposit_card'];
+        result.forEach(function(r){
+            if(r.amount && typeof r.amount==='string' && r.amount.indexOf(' G')!==-1){
+                if(sessionTypes.indexOf(r.type)!==-1){
+                    r.amount = r.amount.replace(' G',' ₽');
+                }
+            }
+        });
+        return result;
     }catch(e){return[];}
 }
 function saveJournal(j){
@@ -111,42 +121,42 @@ function classifyOp(op){
     var type, icon, label, color, bg;
 
     if(nl.indexOf('пополнение наличными')!==-1){
-        type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
+        type='deposit_cash'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M6 12h.01M18 12h.01"/></svg>'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
     } else if(nl.indexOf('пополнение по карте')!==-1||nl.indexOf('пополнение картой')!==-1||
               (nl.indexOf('пополнение')!==-1&&op.money_type==='non_cash'&&amt>0&&!resId&&nl.indexOf('бонус')===-1)){
-        type='deposit_card'; icon='💳'; label='Пополнение по карте'; color='#1d4ed8'; bg='#dbeafe';
+        type='deposit_card'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>'; label='Пополнение по карте'; color='#1d4ed8'; bg='#dbeafe';
     } else if(nl.indexOf('пополнение бонусов')!==-1||nl.indexOf('начисление бонусов')!==-1){
-        type='deposit_bonus'; icon='🎁'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
+        type='deposit_bonus'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/></svg>'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
     } else if(nl.indexOf('возврат бонусов')!==-1||nl.indexOf('возврат стоимости')!==-1||nl.indexOf('возврат')!==-1){
         // Возврат бонусов при завершении — НЕ подозрительно, это стандарт
-        type='refund_bonus'; icon='↩️'; label='Возврат бонусов'; color='#0369a1'; bg='#e0f2fe';
+        type='refund_bonus'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-4-4 4-4"/><path d="M5 10h10a4 4 0 1 1 0 8h-1"/></svg>'; label='Возврат бонусов'; color='#0369a1'; bg='#e0f2fe';
     } else if(nl.indexOf('бесплатное время')!==-1||nl.indexOf('бесплатн')!==-1){
-        type='free_time'; icon='⌛'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
+        type='free_time'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>'; label='Бесплатное время'; color='#007799'; bg='#e8f8ff';
     } else if(nl.indexOf('продление')!==-1||nl.indexOf('prolongat')!==-1){
-        type='session_prolong'; icon='⏩';
+        type='session_prolong'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="4" x2="19" y2="20"/></svg>';
         label='Продление сеанса';
         color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('бронирование')!==-1||(nl.indexOf('списание')!==-1&&nl.indexOf('сессию')!==-1)){
         // Списание за бронирование — это денежная операция при запуске, показываем как часть продления/запуска
-        type='session_prolong'; icon='⏩'; label='Списание за сеанс'; color='#3355cc'; bg='#e8f0ff';
+        type='session_prolong'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="4" x2="19" y2="20"/></svg>'; label='Списание за сеанс'; color='#3355cc'; bg='#e8f0ff';
     } else if(nl.indexOf('пересадк')!==-1||nl.indexOf('перевод')!==-1||nl.indexOf('transfer')!==-1||nl.indexOf('переместил')!==-1){
-        type='session_transfer'; icon='🔀'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
+        type='session_transfer'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>'; label='Пересадка'; color='#cc6600'; bg='#fff0e0';
     } else if(nl.indexOf('завершени')!==-1&&nl.indexOf('сессии')!==-1){
-        type='session_finish'; icon='⏹️'; label='Завершение сеанса'; color='#cc2200'; bg='#fde8e8';
+        type='session_finish'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>'; label='Завершение сеанса'; color='#cc2200'; bg='#fde8e8';
     } else if(nl.indexOf('наш скрипт')!==-1||nl.indexOf('списание с баланса')!==-1||
               (op.money_type==='cash'&&op.operation_type==='withdraw')){
-        type='debit_money'; icon='➖💵'; label='Списание с баланса'; color='#991b1b'; bg='#fee2e2';
+        type='debit_money'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'; label='Списание с баланса'; color='#991b1b'; bg='#fee2e2';
     } else if(op.operation_type==='withdraw'&&op.money_type==='non_cash'&&!resId){
         // Списание бонусов вручную (не за сессию)
-        type='debit_bonus'; icon='➖🎁'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
+        type='debit_bonus'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'; label='Списание бонусов'; color='#7c3aed'; bg='#ede9fe';
     } else if(op.operation_type==='withdraw'&&resId){
-        type='session_prolong'; icon='⏩';
+        type='session_prolong'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="4" x2="19" y2="20"/></svg>';
         label='Продление сеанса';
         color='#3355cc'; bg='#e8f0ff';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='cash'){
-        type='deposit_cash'; icon='💵'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
+        type='deposit_cash'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M6 12h.01M18 12h.01"/></svg>'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
     } else if(amt>0&&op.operation_type==='deposit'&&op.money_type==='non_cash'){
-        type='deposit_bonus'; icon='🎁'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
+        type='deposit_bonus'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12h6M12 9v6"/></svg>'; label='Начисление бонусов'; color='#c87800'; bg='#fff4e0';
     } else {
         type='other'; icon='•'; label=name||'Операция'; color='#555'; bg='#f5f5f5';
     }
@@ -216,11 +226,11 @@ function fetchNewOps(){
                 id: 'op'+op.id,
                 ts: new Date(op.created_at).getTime(),
                 type: isSusp ? 'suspicious' : cls.type,
-                icon: isSusp ? '⚠️' : cls.icon,
+                icon: isSusp ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' : cls.icon,
                 label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
                 color: isSusp ? '#b45309' : cls.color,
                 bg: isSusp ? '#fef3c7' : cls.bg,
-                amount: formatAmt(op.amount, op.money_type),
+                amount: formatAmt(op.amount, op.money_type, cls.type),
                 comment: cls.desc||'',
                 extra: (function(){
                     var e='';
@@ -231,7 +241,7 @@ function fetchNewOps(){
                                 op.wallet_operation_digest.reservation.reservations_club_device.name;
                         if(dev) e+=' · ПК '+dev;
                     } else {
-                        e='ОП #'+op.id;
+                        e='';
                     }
                     return e;
                 })(),
@@ -276,7 +286,7 @@ function checkSessionEvents(){
             if(ev.type==='transfer'){
                 var opId = 'sess_transfer_'+ev.pc+'_'+evTs;
                 addEntry({opId:opId,id:opId,ts:evTs,
-                    type:'session_transfer',icon:'🔀',label:'Пересадка',
+                    type:'session_transfer',icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>',label:'Пересадка',
                     color:'#cc6600',bg:'#fff0e0',amount:'',
                     comment:(ev.toNick?'→ @'+ev.toNick:''),
                     extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
@@ -284,7 +294,7 @@ function checkSessionEvents(){
                 // Завершение сеанса
                 var opId2 = 'sess_fin_'+ev.pc+'_'+evTs;
                 addEntry({opId:opId2,id:opId2,ts:evTs,
-                    type:'session_finish',icon:'⏹️',label:'Завершение сеанса',
+                    type:'session_finish',icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',label:'Завершение сеанса',
                     color:'#cc2200',bg:'#fde8e8',amount:'',comment:'',
                     extra:extra,client:nick,clientUrl:clientUrl,suspicious:false});
             }
@@ -341,7 +351,7 @@ document.addEventListener('__godji_debit__', function(ev){
         opId:'debit_'+dd.ts,
         id:'debit_'+dd.ts,
         ts:dd.ts||Date.now(),
-        type:'debit_money', icon:'➖💵', label:'Списание с баланса',
+        type:'debit_money', icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/></svg>', label:'Списание с баланса',
         color:'#991b1b', bg:'#fee2e2',
         amount:formatAmt(-Math.abs(dd.amount)),
         comment:dd.comment||'', extra:''
@@ -361,10 +371,14 @@ function showSuspiciousToast(){
 }
 
 // ── Форматирование ────────────────────────────────────────
-function formatAmt(n, moneyType){
+function formatAmt(n, moneyType, opType){
     if(n===undefined||n===null||n==='') return '';
     var v=parseFloat(n); if(isNaN(v)) return '';
-    var sym = moneyType==='non_cash' ? ' G' : ' ₽';
+    // Для сессионных операций не указываем тип валюты отдельно — они видны по контексту
+    // G только для явных ручных пополнений/списаний бонусов
+    var showG = moneyType==='non_cash' && 
+                (opType==='deposit_bonus'||opType==='debit_bonus'||opType==='refund_bonus');
+    var sym = showG ? ' G' : ' ₽';
     return (v>=0?'+':'')+Math.round(v)+sym;
 }
 function fmtDate(ts){
@@ -541,7 +555,7 @@ function renderModal(){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Время','100px'],['Тип','200px'],['Клиент','110px'],['ID / Сеанс','100px'],['Сумма','80px'],['Комментарий','auto']].forEach(function(c){
+    [['Время','100px'],['Тип','200px'],['Клиент','110px'],['Сеанс / ПК','110px'],['Сумма','80px'],['Комментарий','auto']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 14px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #efefef;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -565,8 +579,16 @@ function renderModal(){
         var tdType=document.createElement('td');
         tdType.style.cssText='padding:9px 14px;';
         var badge=document.createElement('span');
-        badge.style.cssText='background:'+(rec.bg||'#f5f5f5')+';color:'+(rec.color||'#555')+';border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap;';
-        badge.textContent=(rec.icon||'')+(rec.icon?' ':'')+rec.label;
+        badge.style.cssText='background:'+(rec.bg||'#f5f5f5')+';color:'+(rec.color||'#555')+';border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;';
+        if(rec.icon){
+            var icoSpan=document.createElement('span');
+            icoSpan.style.cssText='display:inline-flex;align-items:center;flex-shrink:0;';
+            icoSpan.innerHTML=rec.icon;
+            badge.appendChild(icoSpan);
+        }
+        var lblSpan=document.createElement('span');
+        lblSpan.textContent=rec.label;
+        badge.appendChild(lblSpan);
         tdType.appendChild(badge);
 
         var tdExtra=document.createElement('td');
@@ -697,23 +719,33 @@ function watchCashboxCloseBtn(){
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb) return;
+    var shifts = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(!shifts) return;
+    var shiftsSection = shifts.closest('.m_6dcfc7c7');
+    if(!shiftsSection) return;
+    var nav = shiftsSection.parentNode;
+
+    var oldW = document.getElementById('godji-opj-btn-wrap');
+    if(oldW) oldW.remove();
+
+    var section = document.createElement('div');
+    section.id = 'godji-opj-btn-wrap';
+    section.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    section.style.cssText = 'padding:0 var(--mantine-spacing-md);';
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
 
-    // Точная структура оригинального NavLink
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
     var ico=document.createElement('div');
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1a1a2e;--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     sec.appendChild(ico);
 
     var bodyDiv=document.createElement('div');
@@ -721,42 +753,33 @@ function createSidebarBtn(){
     var lbl=document.createElement('span');
     lbl.className='m_1f6ac4c4 mantine-NavLink-label';
     lbl.textContent='История операций';
-
     var badge=document.createElement('span');
     badge.id='goj-sidebar-badge';
     badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;flex-shrink:0;';
-
     bodyDiv.appendChild(lbl);
+
     btn.appendChild(sec); btn.appendChild(bodyDiv); btn.appendChild(badge);
     btn.addEventListener('click',function(e){
         e.stopPropagation();
-        if(_visible) hideModal(); else showModal();
+        if(_visible){hideModal();btn.removeAttribute('data-active');}
+        else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Вставляем перед первым скрытым NavLink — это ровно под "Ещё"
-    var histBtn=sb.querySelector('#godji-history-btn');
-    if(histBtn){
-        sb.insertBefore(btn, histBtn);
-    } else {
-        var all=sb.children, anchor=null;
-        for(var ci=0;ci<all.length;ci++){
-            if(all[ci].style&&all[ci].style.display==='none'){anchor=all[ci];break;}
-        }
-        if(anchor) sb.insertBefore(btn,anchor);
-        else sb.appendChild(btn);
-    }
+    section.appendChild(btn);
+    // История операций — ПЕРЕД историей сеансов (которая тоже перед часами)
+    nav.insertBefore(section, shiftsSection);
     updateBadge();
 }
 
+
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(!document.querySelector('.Shifts_shiftsPaper__9Jml_')){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
 var _obs=new MutationObserver(function(){
-    if(!document.getElementById('godji-opj-btn')) tryCreateSidebarBtn();
+    if(!document.getElementById('godji-opj-btn')||!document.getElementById('godji-history-btn')) tryCreateSidebarBtn();
 });
 
 if(document.body){
