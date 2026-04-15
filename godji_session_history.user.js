@@ -360,25 +360,35 @@ function hasSidebar(){
 }
 
 function createSidebarButton(){
-    if(!hasSidebar()) return;
     if(document.getElementById('godji-history-btn')) return;
-    var sb = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb) return;
+    var shifts = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(!shifts) return;
+    var shiftsSection = shifts.closest('.m_6dcfc7c7');
+    if(!shiftsSection) return;
+    var nav = shiftsSection.parentNode;
+
+    // Удаляем предыдущую обёртку
+    var oldW = document.getElementById('godji-history-btn-wrap');
+    if(oldW) oldW.remove();
+
+    var section = document.createElement('div');
+    section.id = 'godji-history-btn-wrap';
+    section.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    section.style.cssText = 'padding:0 var(--mantine-spacing-md);';
 
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
     wrap.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     wrap.href='javascript:void(0)';
 
-    // Точная структура оригинального NavLink
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
     var ico=document.createElement('div');
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1565c0;--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
 
     var body=document.createElement('div');
@@ -391,22 +401,18 @@ function createSidebarButton(){
     wrap.appendChild(sec); wrap.appendChild(body);
     wrap.addEventListener('click',function(e){
         e.stopPropagation();
-        if(modalVisible) hideModal(); else showModal();
+        if(modalVisible){hideModal();wrap.removeAttribute('data-active');}
+        else{showModal();wrap.setAttribute('data-active','true');}
     });
 
-    // Вставляем сразу после opj-btn, иначе перед первым display:none
-    var opj = sb.querySelector('#godji-opj-btn');
-    if(opj && opj.nextSibling){
-        sb.insertBefore(wrap, opj.nextSibling);
-    } else if(opj){
-        sb.appendChild(wrap);
+    section.appendChild(wrap);
+
+    // Вставляем ПЕРЕД секцией с часами, но ПОСЛЕ godji-opj-btn-wrap если есть
+    var opjWrap = document.getElementById('godji-opj-btn-wrap');
+    if(opjWrap && opjWrap.nextSibling){
+        nav.insertBefore(section, opjWrap.nextSibling);
     } else {
-        var allCh=sb.children, anch=null;
-        for(var ci=0;ci<allCh.length;ci++){
-            if(allCh[ci].style&&allCh[ci].style.display==='none'){anch=allCh[ci];break;}
-        }
-        if(anch) sb.insertBefore(wrap,anch);
-        else sb.appendChild(wrap);
+        nav.insertBefore(section, shiftsSection);
     }
 }
 
@@ -414,8 +420,7 @@ setTimeout(tryInit,5000);
 setInterval(scan,2000);
 function tryCreateHistBtn(){
     if(document.getElementById('godji-history-btn')) return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb){ setTimeout(tryCreateHistBtn,500); return; }
+    if(!document.querySelector('.Shifts_shiftsPaper__9Jml_')){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
 setTimeout(tryCreateHistBtn,1000);
