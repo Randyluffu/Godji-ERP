@@ -12,6 +12,32 @@
 (function(){
 'use strict';
 
+// ── Блюр сумм ─────────────────────────────────────────────
+var _valuesHidden = true; // В модале: скрыты по умолчанию
+
+function mkBlur(el){
+    el.style.filter='blur(5px)';
+    el.style.userSelect='none';
+    el.style.transition='filter 0.2s';
+    el.style.cursor='pointer';
+    el.addEventListener('mouseenter',function(){el.style.filter='none';});
+    el.addEventListener('mouseleave',function(){el.style.filter='blur(5px)';});
+}
+
+function applyModalBlur(container, hidden){
+    // Все элементы с data-cashval в модале
+    container.querySelectorAll('[data-cashval]').forEach(function(el){
+        el.style.filter = hidden ? 'blur(5px)' : 'none';
+        el.style.userSelect = hidden ? 'none' : '';
+        el.style.transition = 'filter 0.2s';
+        if(hidden){
+            el.addEventListener('mouseenter',function(){el.style.filter='none';});
+            el.addEventListener('mouseleave',function(){if(_valuesHidden)el.style.filter='blur(5px)';});
+        }
+    });
+}
+
+
 var STORAGE_KEY = 'godji_cashbox';
 var SHIFTS_KEY  = 'godji_shifts';
 
@@ -427,6 +453,7 @@ function renderModal(){
         var tBadge=document.createElement('span');
         tBadge.style.cssText='font-size:18px;font-weight:800;color:#1a1a1a;margin-left:2px;';
         tBadge.textContent=fmtAmtAbs(total);
+        mkBlur(tBadge);
         tw.appendChild(tBadge);
     }
     var xBtn=document.createElement('button');
@@ -704,6 +731,7 @@ function renderCurrentTab(body, shift){
         lbl.textContent=label;
         top.appendChild(i); top.appendChild(lbl);
         var val=document.createElement('div');
+        val.setAttribute('data-cashval','1');
         val.style.cssText='font-size:22px;font-weight:800;color:#1a1a1a;';
         val.textContent=value;
         c.appendChild(top); c.appendChild(val);
@@ -739,8 +767,28 @@ function renderCurrentTab(body, shift){
     infoL.style.cssText='font-size:12px;color:#aaa;';
     infoL.textContent='Открыта: '+fmtDate(shift.openedAt);
     var infoR=document.createElement('div');
-    infoR.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
-    infoR.textContent='В кассе: '+fmtAmtAbs(total);
+    infoR.style.cssText='display:flex;align-items:center;gap:8px;';
+    var infoRTxt=document.createElement('div');
+    infoRTxt.setAttribute('data-cashval','1');
+    infoRTxt.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
+    infoRTxt.textContent='В кассе: '+fmtAmtAbs(total);
+    // Кнопка скрыть/показать значения
+    var toggleBtn=document.createElement('button');
+    toggleBtn.style.cssText='background:none;border:none;cursor:pointer;color:#bbb;padding:2px;display:flex;align-items:center;position:relative;';
+    toggleBtn.title=_valuesHidden?'Показать значения':'Скрыть значения';
+    toggleBtn.innerHTML=_valuesHidden
+        ?'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+        :'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    toggleBtn.addEventListener('click',function(e){
+        e.stopPropagation();
+        _valuesHidden=!_valuesHidden;
+        applyModalBlur(_modal, _valuesHidden);
+        toggleBtn.title=_valuesHidden?'Показать значения':'Скрыть значения';
+        toggleBtn.innerHTML=_valuesHidden
+            ?'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+            :'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    });
+    infoR.appendChild(infoRTxt); infoR.appendChild(toggleBtn);
     infoRow.appendChild(infoL); infoRow.appendChild(infoR);
     body.appendChild(infoRow);
 
@@ -964,8 +1012,8 @@ function showShiftDetail(s){
 
 // ── Диагностика ───────────────────────────────────────────
 // ── Показ/скрытие модалки ────────────────────────────────
-function showModal(){ if(!_modal)buildModal(); renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.setAttribute('data-active','true'); }
-function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; var b=document.getElementById('godji-cashbox-btn');if(b)b.removeAttribute('data-active'); }
+function showModal(){ if(!_modal)buildModal(); _valuesHidden=true; renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.setAttribute('data-active','true'); setTimeout(function(){applyModalBlur(_modal,true);},50); }
+function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; _valuesHidden=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.removeAttribute('data-active'); }
 function updateModalIfOpen(){ if(_isOpen)renderModal(); }
 
 // ── Кнопка (NavLink стиль, перед divider) ────────────────
@@ -1026,6 +1074,9 @@ function createBtn(){
     var sumEl=document.createElement('span');
     sumEl.className='gcb-sum m_57492dcc mantine-NavLink-description';
     sumEl.style.cssText='font-size:11px;white-space:nowrap;font-weight:500;';
+    sumEl.style.filter='blur(4px)';sumEl.style.transition='filter 0.2s';
+    sumEl.addEventListener('mouseenter',function(){sumEl.style.filter='none';});
+    sumEl.addEventListener('mouseleave',function(){sumEl.style.filter='blur(4px)';});
     bodyDiv.appendChild(lbl); bodyDiv.appendChild(sumEl);
 
     btn.appendChild(ico); btn.appendChild(bodyDiv);
