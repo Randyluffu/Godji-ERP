@@ -330,6 +330,30 @@ function initLastId(){
 }
 
 // Ждём токен потом инициализируемся
+
+// ── Слушаем пересадку через __gcb__ (касса перехватывает все запросы) ──
+document.addEventListener('__gcb__', function(ev){
+    var d=ev.detail;
+    if(!d||!d.res||!d.res.data) return;
+    var data=d.res.data;
+    // Пересадка: userReservationTransferDevice
+    if(data.userReservationTransferDevice){
+        var result=data.userReservationTransferDevice;
+        var resId=result.reservationId||'';
+        // Пытаемся получить info из запроса
+        var req=''; try{req=JSON.parse(d.req);}catch(e){}
+        var deviceFrom=req.variables&&req.variables.deviceFrom||'';
+        var deviceTo=req.variables&&req.variables.deviceTo||'';
+        var extra=deviceFrom&&deviceTo?'ПК '+deviceFrom+' → ПК '+deviceTo:(resId?'Сеанс #'+resId:'');
+        var opId='transfer_res_'+(resId||Date.now());
+        addEntry({opId:opId,id:opId,ts:Date.now(),
+            type:'session_transfer',
+            icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>',
+            label:'Пересадка',color:'#cc6600',bg:'#fff0e0',
+            amount:'',comment:'',extra:extra,client:'',clientUrl:'',suspicious:false});
+    }
+});
+
 function waitForToken(){
     if(getAuth()){ initLastId(); return; }
     setTimeout(waitForToken,1000);
@@ -719,7 +743,7 @@ function createSidebarBtn(){
 
     var section = document.createElement('div');
     section.id = 'godji-opj-btn-wrap';
-    section.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    section.className = 'm_6dcfc7c7 mantine-AppShell-section onest';
     section.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
 
     var btn=document.createElement('a');
