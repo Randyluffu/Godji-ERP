@@ -85,28 +85,37 @@ function scan(){
         var oldSession=state[pc]?state[pc].session:undefined;
         var newSession=current[pc].session;
         if(oldSession==='Играет'&&newSession!=='Играет'){
-            var prev=state[pc];
-            var now=Date.now();
-            var isDup=history.some(function(r){return r.pc===pc&&now-r.ts<10000;});
-            if(!isDup){
-                history.unshift({ts:now,pc:pc,
-                    userName:prev.userName||'',nick:prev.nick,
-                    clientUrl:prev.clientUrl,phone:prev.phone,pastTime:prev.pastTime});
-                var cutoff=Date.now()-MAX_HOURS*3600000;
-                history=history.filter(function(r){return r.ts>cutoff;});
-                changed=true;
-            }
+            // Задержка 4 сек — пересадка кратковременно убирает клиента
+            (function(capturedPc, capturedPrev){
+                setTimeout(function(){
+                    var latest=getTableState();
+                    if(latest[capturedPc]&&latest[capturedPc].session==='Играет'){
+                        // ПК снова играет — была пересадка, не завершение
+                        return;
+                    }
+                    var hist=loadHistory();
+                    var nowT=Date.now();
+                    var isDup=hist.some(function(r){return r.pc===capturedPc&&nowT-r.ts<12000;});
+                    if(!isDup){
+                        hist.unshift({ts:nowT,pc:capturedPc,type:'finish',
+                            userName:capturedPrev.userName||'',nick:capturedPrev.nick,
+                            clientUrl:capturedPrev.clientUrl,phone:capturedPrev.phone,
+                            pastTime:capturedPrev.pastTime});
+                        var cutoff=Date.now()-MAX_HOURS*3600000;
+                        hist=hist.filter(function(r){return r.ts>cutoff;});
+                        saveHistory(hist);updateModal();
+                        try{ localStorage.setItem('godji_session_events', JSON.stringify({
+                            ts:nowT, events:[{type:'finish',pc:capturedPc,
+                                nick:capturedPrev.nick,userName:capturedPrev.userName||'',
+                                clientUrl:capturedPrev.clientUrl,pastTime:capturedPrev.pastTime,ts:nowT}]
+                        })); } catch(e){}
+                    }
+                }, 4000);
+            })(pc, state[pc]);
         }
         state[pc]=current[pc];
     }
-    if(changed){
-        saveHistory(history);updateModal();
-        // Уведомляем историю операций о событиях сеансов
-        try{ localStorage.setItem('godji_session_events', JSON.stringify({
-            ts: Date.now(),
-            events: history.filter(function(r){return Date.now()-r.ts<15000;}).slice(0,5)
-        })); } catch(e){}
-    }
+    if(changed){ saveHistory(history); updateModal(); }
 }
 
 function tryInit(){
@@ -374,12 +383,13 @@ function createSidebarButton(){
     var section = document.createElement('div');
     section.id = 'godji-history-btn-wrap';
     section.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    section.style.cssText = 'padding:0 var(--mantine-spacing-md);';
+    section.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
 
     var wrap=document.createElement('a');
     wrap.id='godji-history-btn';
     wrap.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     wrap.href='javascript:void(0)';
+    wrap.style.cssText='width:100%;box-sizing:border-box;text-decoration:none;';
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
