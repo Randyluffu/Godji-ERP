@@ -160,6 +160,10 @@ var _expandedZones = {}, _expandedRooms = {}, _expandedPcs = {};
 // ─────────────────────────────────────────────────────────
 function openModal() {
     if (!_modal) buildModal();
+    // Сбрасываем раскрытые разделы при каждом открытии
+    _expandedZones = {};
+    _expandedRooms = {};
+    _expandedPcs = {};
     renderContent();
     _modal.style.display = 'flex';
     _overlay.style.display = 'block';
@@ -268,7 +272,7 @@ function buildZoneBlock(zone, data) {
     var zR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:10px;');
 
     // Инфо-кнопка
-    var infoBtn = mkIconBtn(ICO.info, 'rgba(255,255,255,0.2)', function (e) {
+    var infoBtn = mkIconBtn(ICO.info, '#efefef', function (e) {
         e.stopPropagation();
         showSpecsInfo(zone, null, data);
     });
@@ -276,7 +280,7 @@ function buildZoneBlock(zone, data) {
 
     if (_editMode) {
         // Кнопка добавить характеристику зоне
-        var editZoneBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.15)', function (e) {
+        var editZoneBtn = mkIconBtn(ICO.pencil, '#efefef', function (e) {
             e.stopPropagation();
             showEditSpecs(zone.id, null, null, data, function () { renderContent(); });
         });
@@ -325,18 +329,18 @@ function buildRoomBlock(room, zone, data) {
     rLbl.textContent = 'Комната ' + room.id;
 
     var rR = el('div', 'display:flex;align-items:center;gap:4px;padding-right:8px;');
-    var rInfoBtn = mkIconBtn(ICO.info, 'rgba(255,255,255,0.15)', function (e) {
+    var rInfoBtn = mkIconBtn(ICO.info, '#efefef', function (e) {
         e.stopPropagation();
         showSpecsInfo(zone, room, data);
     });
     rR.appendChild(rInfoBtn);
 
     if (_editMode) {
-        var editRoomBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.1)', function (e) {
+        var editRoomBtn = mkIconBtn(ICO.pencil, '#efefef', function (e) {
             e.stopPropagation();
             showEditSpecs(zone.id, room.id, null, data, function () { renderContent(); });
         });
-        var moveRoomBtn = mkIconBtn(ICO.drag, 'rgba(255,255,255,0.1)', function (e) {
+        var moveRoomBtn = mkIconBtn(ICO.drag, '#efefef', function (e) {
             e.stopPropagation();
             showMoveRoomDialog(room, zone, data);
         });
@@ -379,9 +383,9 @@ function buildPcBlock(pcId, room, zone, data) {
     // Эффективные характеристики: комбинируем зона → комната → пк
     var effSpecs = mergeSpecs(zone.specs || [], room.specs || [], pcData.specs || []);
 
-    var wrap = el('div', 'margin:2px 10px;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);');
+    var wrap = el('div', 'margin:2px 10px;border-radius:6px;overflow:hidden;border:1px solid #f0f0f0;background:#fff;');
 
-    var pHdr = el('div', 'display:flex;align-items:center;background:transparent;cursor:pointer;user-select:none;padding:5px 8px;gap:6px;border-top:1px solid #f9f9f9;transition:background 0.1s;');
+    var pHdr = el('div', 'display:flex;align-items:center;background:#fafafa;cursor:pointer;user-select:none;padding:5px 8px;gap:6px;border-top:1px solid #f0f0f0;transition:background 0.1s;');
 
     var pChev = el('span', 'color:#999;display:flex;align-items:center;flex-shrink:0;transition:transform .2s;');
     pChev.innerHTML = svg('<polyline points="6 9 12 15 18 9"/>', 12);
@@ -400,15 +404,15 @@ function buildPcBlock(pcId, room, zone, data) {
     }
 
     if (_editMode) {
-        var editPcBtn = mkIconBtn(ICO.pencil, 'rgba(255,255,255,0.08)', function (e) {
+        var editPcBtn = mkIconBtn(ICO.pencil, '#efefef', function (e) {
             e.stopPropagation();
             showEditSpecs(zone.id, room.id, pcId, data, function () { renderContent(); });
         });
-        var movePcBtn = mkIconBtn(ICO.drag, 'rgba(255,255,255,0.08)', function (e) {
+        var movePcBtn = mkIconBtn(ICO.drag, '#efefef', function (e) {
             e.stopPropagation();
             showMovePcDialog(pcId, room, zone, data);
         });
-        var delPcBtn = mkIconBtn(ICO.trash, 'rgba(180,40,40,0.2)', function (e) {
+        var delPcBtn = mkIconBtn(ICO.trash, '#fff0f0', function (e) {
             e.stopPropagation();
             if (confirm('Удалить ПК ' + pcId + ' из комнаты ' + room.id + '?')) {
                 room.pcs = room.pcs.filter(function (p) { return p !== pcId; });
@@ -416,13 +420,13 @@ function buildPcBlock(pcId, room, zone, data) {
                 renderContent();
             }
         });
-        delPcBtn.style.color = '#f87171';
+        delPcBtn.style.color = '#cc2200';
         pHdr.appendChild(editPcBtn);
         pHdr.appendChild(movePcBtn);
         pHdr.appendChild(delPcBtn);
     }
 
-    var pContent = el('div', 'display:'+(_expandedPcs[pKey] ? 'block' : 'none')+';padding:6px 12px 8px;');
+    var pContent = el('div', 'display:'+(_expandedPcs[pKey] ? 'block' : 'none')+';padding:6px 12px 8px;background:#fff;');
 
     pHdr.addEventListener('click', function () {
         _expandedPcs[pKey] = !_expandedPcs[pKey];
@@ -432,13 +436,13 @@ function buildPcBlock(pcId, room, zone, data) {
 
     // Характеристики ПК
     if (effSpecs.length === 0) {
-        pContent.innerHTML = '<div style="font-size:11px;color:#999;padding:4px 0;">Нет характеристик</div>';
+        pContent.innerHTML = '<div style="font-size:11px;color:#bbb;padding:4px 0;">Нет характеристик</div>';
     } else {
         effSpecs.forEach(function (spec) {
-            var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);');
+            var row = el('div', 'display:flex;align-items:baseline;gap:8px;padding:3px 0;border-bottom:1px solid #f5f5f5;');
             var lbl = el('span', 'font-size:11px;color:#888;flex-shrink:0;min-width:100px;font-weight:500;');
             lbl.textContent = spec.label;
-            var val = el('span', 'font-size:12px;font-weight:500;flex:1;');
+            var val = el('span', 'font-size:12px;font-weight:500;flex:1;color:#222;');
 
             if (spec.url) {
                 var a = document.createElement('a');
@@ -498,7 +502,7 @@ function el(tag, css) {
 }
 
 function mkIconBtn(iconHtml, bg, onClick) {
-    var b = el('button', 'background:'+bg+';border:none;border-radius:5px;padding:3px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.75);flex-shrink:0;transition:background .15s;');
+    var b = el('button', 'background:'+bg+';border:none;border-radius:5px;padding:3px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#555;flex-shrink:0;transition:background .15s;');
     b.innerHTML = iconHtml.replace('width="16" height="16"', 'width="12" height="12"');
     b.addEventListener('click', onClick);
     return b;
@@ -566,7 +570,7 @@ function showEditSpecs(zoneId, roomId, pcId, data, onSave) {
             body.appendChild(row);
         });
 
-        var addRow = el('button', 'background:#f5f5f5;border:1px dashed #d0d0d0;border-radius:6px;padding:6px;color:#aaa;font-size:12px;cursor:pointer;font-family:inherit;width:100%;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:5px;');
+        var addRow = el('button', 'background:#f9f9f9;border:1px dashed #ccc;border-radius:6px;padding:7px;color:#888;font-size:12px;cursor:pointer;font-family:inherit;width:100%;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:5px;transition:background 0.12s;');
         addRow.innerHTML = ICO.plus.replace('width="16"','width="13"').replace('height="16"','height="13"') + '<span>Добавить характеристику</span>';
         addRow.addEventListener('click', function () {
             draft.push({ label: '', value: '', url: '' });
