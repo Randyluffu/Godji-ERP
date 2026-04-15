@@ -67,6 +67,8 @@ function renderItems(){
         row.href = 'javascript:void(0)';
         row.className = 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
         row.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;box-sizing:border-box;text-decoration:none;';
+        row.addEventListener('mouseenter',function(){row.style.background='rgba(255,255,255,0.05)';});
+        row.addEventListener('mouseleave',function(){row.style.background='';});
 
         var icoSec = document.createElement('span');
         icoSec.className = 'm_690090b5 mantine-NavLink-section';
@@ -135,22 +137,19 @@ function buildPanel(){
         'position:fixed','left:280px','bottom:0','width:280px',
         'background:var(--mantine-color-body,#1a1b2e)',
         'border-left:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
-        'border-right:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
         'border-top:1px solid var(--mantine-color-default-border,rgba(255,255,255,0.1))',
-        'border-radius:0 8px 0 0',
         'box-shadow:4px 0 20px rgba(0,0,0,0.5)',
         'z-index:9998','display:none','flex-direction:column',
         'overflow:hidden','font-family:var(--mantine-font-family,inherit)',
-        'padding:var(--mantine-spacing-md)',
     ].join(';');
 
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'padding:0 0 var(--mantine-spacing-xs) 0;display:flex;align-items:center;gap:var(--mantine-spacing-xs);flex-shrink:0;';
+    hdr.style.cssText = 'padding:var(--mantine-spacing-sm) var(--mantine-spacing-md) var(--mantine-spacing-xs);display:flex;align-items:center;gap:var(--mantine-spacing-xs);flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.07);';
     hdr.innerHTML = '<span style="font-size:calc(0.6875rem * var(--mantine-scale));font-weight:700;color:var(--mantine-color-dimmed);letter-spacing:0.05em;text-transform:uppercase;">Настройки</span>';
     _panel.appendChild(hdr);
 
     _inner = document.createElement('div');
-    _inner.style.cssText = 'display:flex;flex-direction:column;gap:calc(0.25rem * var(--mantine-scale));';
+    _inner.style.cssText = 'display:flex;flex-direction:column;padding:calc(0.25rem * var(--mantine-scale)) 0;';
     _panel.appendChild(_inner);
     document.body.appendChild(_panel);
 
