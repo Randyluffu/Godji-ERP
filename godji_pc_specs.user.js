@@ -455,7 +455,7 @@ function buildPcBlock(pcId, room, zone, data) {
                 a.addEventListener('mouseleave', function () { a.style.textDecoration = 'none'; });
                 val.appendChild(a);
             } else {
-                val.style.color = 'rgba(255,255,255,0.7)';
+                val.style.color = '#333';
                 val.textContent = spec.value;
             }
 
@@ -679,7 +679,7 @@ function buildSpecRow(spec) {
         a.addEventListener('mouseleave', function () { a.style.textDecoration = 'none'; });
         val.appendChild(a);
     } else {
-        val.style.color = 'rgba(255,255,255,0.7)';
+        val.style.color = '#333';
         val.textContent = spec.value;
     }
     row.appendChild(lbl); row.appendChild(val);
