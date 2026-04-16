@@ -143,13 +143,8 @@ function buildPanel(){
         'overflow:hidden','font-family:var(--mantine-font-family,inherit)',
     ].join(';');
 
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'padding:var(--mantine-spacing-sm) var(--mantine-spacing-md) var(--mantine-spacing-xs);display:flex;align-items:center;gap:var(--mantine-spacing-xs);flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.07);';
-    hdr.innerHTML = '<span style="font-size:calc(0.6875rem * var(--mantine-scale));font-weight:700;color:var(--mantine-color-dimmed);letter-spacing:0.05em;text-transform:uppercase;">Настройки</span>';
-    _panel.appendChild(hdr);
-
     _inner = document.createElement('div');
-    _inner.style.cssText = 'display:flex;flex-direction:column;padding:calc(0.25rem * var(--mantine-scale)) 0;';
+    _inner.style.cssText = 'display:flex;flex-direction:column;';
     _panel.appendChild(_inner);
     document.body.appendChild(_panel);
 
@@ -196,6 +191,27 @@ function createBtn(){
     btn.addEventListener('click',function(e){ e.stopPropagation(); togglePanel(); });
     footer.appendChild(btn);
 }
+
+
+// ── Встроенная кнопка "Цвета меню" (fallback если godji_menu_colors не установлен) ──
+setTimeout(function(){
+    if(document.getElementById('godji-settings-btn')&&
+       !_items.find(function(x){return x.id==='godji-colors-toggle';})){
+        // Регистрируем встроенный переключатель
+        window.__godjiRegisterSetting({
+            id:'godji-colors-toggle',
+            label:'Цвета меню',
+            iconBg:'#cc0001',
+            icon:'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M2 12h2m16 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+            type:'toggle',
+            getState:function(){return localStorage.getItem('godji_colors_enabled')==='true';},
+            onToggle:function(v){
+                localStorage.setItem('godji_colors_enabled',v?'true':'false');
+                document.dispatchEvent(new CustomEvent('godji_colors_toggle',{detail:{enabled:v}}));
+            }
+        });
+    }
+},3000);
 
 window.addEventListener('resize', alignPanel);
 new MutationObserver(function(){ if(!document.getElementById('godji-settings-btn')) createBtn(); })
