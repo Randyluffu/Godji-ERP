@@ -126,18 +126,28 @@
     }
 
     // --- Получить поминутный тариф и рассчитать стоимость ---
-    function getCostAndTariff(sessionId, minutes) {
-        return gql(
-            'query availableTariffsForProlongation($minutes: Int, $sessionId: Int!) { getAvailableTariffsForProlongation(params: {minutes: $minutes, sessionId: $sessionId}) { tariffs { id name durationMin cost } } }',
-            { sessionId: sessionId, minutes: 1 }
-        ).then(function(r) {
-            var tariffs = r.data && r.data.getAvailableTariffsForProlongation && r.data.getAvailableTariffsForProlongation.tariffs;
+    function getCostAndTariff(sessionId, minutes, fallbackTariffId) {
+        // Пробуем с разными значениями minutes (некоторые тарифы не поддерживают minutes=1)
+        function tryFetch(mins) {
+            return gql(
+                'query availableTariffsForProlongation($minutes: Int, $sessionId: Int!) { getAvailableTariffsForProlongation(params: {minutes: $minutes, sessionId: $sessionId}) { tariffs { id name durationMin cost } } }',
+                { sessionId: sessionId, minutes: mins }
+            ).then(function(r) {
+                return r.data && r.data.getAvailableTariffsForProlongation && r.data.getAvailableTariffsForProlongation.tariffs;
+            });
+        }
+        return tryFetch(1).then(function(tariffs) {
+            if (!tariffs || tariffs.length === 0) return tryFetch(60);
+            return tariffs;
+        }).then(function(tariffs) {
+            if (!tariffs || tariffs.length === 0) return tryFetch(30);
+            return tariffs;
+        }).then(function(tariffs) {
             if (!tariffs || tariffs.length === 0) return null;
             var sorted = tariffs.slice().sort(function(a, b) { return a.durationMin - b.durationMin; });
             var minTariff = sorted[0];
             var costPerMin = minTariff.cost / minTariff.durationMin;
             var totalCost = Math.round(costPerMin * minutes * 100) / 100;
-            // Кэшируем для godji_wallet_debit
             saveTariffCache(minTariff.id, minTariff.name, costPerMin);
             return {
                 tariffId: minTariff.id,
@@ -296,7 +306,7 @@
 
             clearTimeout(costTimer);
             costTimer = setTimeout(function() {
-                getCostAndTariff(session.sessionId, mins).then(function(result) {
+                getCostAndTariff(session.sessionId, mins, session.tariffId).then(function(result) {
                     if (result !== null) {
                         currentCost = result.cost;
                         currentTariffId = result.tariffId;
