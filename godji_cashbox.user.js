@@ -451,10 +451,27 @@ function renderModal(){
     if(shift){
         var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0)-(shift.debit||0);
         var tBadge=document.createElement('span');
+        tBadge.setAttribute('data-cashval','1');
         tBadge.style.cssText='font-size:18px;font-weight:800;color:#1a1a1a;margin-left:2px;';
         tBadge.textContent=fmtAmtAbs(total);
         mkBlur(tBadge);
-        tw.appendChild(tBadge);
+        // Кнопка глаза рядом с итогом в шапке
+        var hdrEye=document.createElement('button');
+        hdrEye.style.cssText='background:none;border:none;cursor:pointer;color:#bbb;padding:2px 4px;display:flex;align-items:center;margin-left:4px;';
+        hdrEye.title=_valuesHidden?'Показать суммы':'Скрыть суммы';
+        function setEyeIcon(hidden){
+            hdrEye.innerHTML=hidden
+                ?'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+                :'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+        }
+        setEyeIcon(_valuesHidden);
+        hdrEye.addEventListener('click',function(e){
+            e.stopPropagation();
+            _valuesHidden=!_valuesHidden;
+            applyModalBlur(_modal,_valuesHidden);
+            setEyeIcon(_valuesHidden);
+        });
+        tw.appendChild(tBadge); tw.appendChild(hdrEye);
     }
     var xBtn=document.createElement('button');
     xBtn.style.cssText='background:none;border:none;color:#bbb;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0;';
@@ -767,29 +784,10 @@ function renderCurrentTab(body, shift){
     infoL.style.cssText='font-size:12px;color:#aaa;';
     infoL.textContent='Открыта: '+fmtDate(shift.openedAt);
     var infoR=document.createElement('div');
-    infoR.style.cssText='display:flex;align-items:center;gap:8px;';
-    var infoRTxt=document.createElement('div');
-    infoRTxt.setAttribute('data-cashval','1');
-    infoRTxt.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
-    infoRTxt.textContent='В кассе: '+fmtAmtAbs(total);
-    // Кнопка скрыть/показать значения
-    var toggleBtn=document.createElement('button');
-    toggleBtn.style.cssText='background:none;border:none;cursor:pointer;color:#bbb;padding:2px;display:flex;align-items:center;position:relative;';
-    toggleBtn.title=_valuesHidden?'Показать значения':'Скрыть значения';
-    toggleBtn.innerHTML=_valuesHidden
-        ?'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
-        :'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    toggleBtn.addEventListener('click',function(e){
-        e.stopPropagation();
-        _valuesHidden=!_valuesHidden;
-        applyModalBlur(_modal, _valuesHidden);
-        toggleBtn.title=_valuesHidden?'Показать значения':'Скрыть значения';
-        toggleBtn.innerHTML=_valuesHidden
-            ?'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
-            :'<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    });
-    infoR.appendChild(infoRTxt); infoR.appendChild(toggleBtn);
-    infoRow.appendChild(infoL); infoRow.appendChild(infoR);
+    infoR.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
+    infoR.setAttribute('data-cashval','1');
+    infoR.textContent='В кассе: '+fmtAmtAbs(total);
+    infoRow.appendChild(infoL); infoRow.appendChild(infoR);R);
     body.appendChild(infoRow);
 
     // Формы: внесение + выемка рядом
