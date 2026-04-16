@@ -34,6 +34,21 @@ var _seenIds    = {};    // быстрая проверка дублей
         '      window._godjiAuthToken=opts.headers.authorization;',
         '      window._godjiHasuraRole=opts.headers["x-hasura-role"]||"club_admin";',
         '    }',
+        '    // Перехват пересадки',
+        '    if(opts&&opts.body){',
+        '      try{',
+        '        var b=JSON.parse(opts.body);',
+        '        if(b.operationName==="UserReservationTransferDevice"){',
+        '          var vars=b.variables||{};',
+        '          var prom=_f.apply(this,arguments);',
+        '          prom.then(function(r){return r.clone().json();}).then(function(d){',
+        '            window._godjiLastTransfer={deviceFrom:vars.deviceFrom,deviceTo:vars.deviceTo,reservationId:vars.reservationId,ts:Date.now()};',
+        '            document.dispatchEvent(new CustomEvent("__goj_transfer__",{detail:{deviceFrom:vars.deviceFrom,deviceTo:vars.deviceTo,reservationId:vars.reservationId}}));',
+        '          }).catch(function(){});',
+        '          return prom;',
+        '        }',
+        '      }catch(e){}',
+        '    }',
         '    return _f.apply(this,arguments);',
         '  };',
         '})();'
@@ -198,10 +213,27 @@ function fetchNewOps(){
         var ops=data&&data.data&&data.data.wallet_operations;
         if(!ops||!ops.length) return;
 
+        // Группируем операции по reservation_id (один сеанс — одна строка)
+        var grouped={};
         ops.forEach(function(op){
             if(op.id>_lastMaxId) _lastMaxId=op.id;
-
+            var resId=op.wallet_operation_digest&&op.wallet_operation_digest.reservation_id;
             var cls=classifyOp(op);
+            // Сессионные операции с resId группируем
+            if(resId&&(cls.type==='session_prolong'||cls.type==='session_start')){
+                var key='grp_'+resId+'_'+cls.type;
+                if(!grouped[key]){
+                    grouped[key]={op:op,cls:cls,amounts:[]};
+                }
+                grouped[key].amounts.push({v:op.amount,mt:op.money_type});
+                return;
+            }
+            grouped['single_'+op.id]={op:op,cls:cls,amounts:[{v:op.amount,mt:op.money_type}]};
+        });
+
+        Object.keys(grouped).forEach(function(key){
+            var g=grouped[key];
+            var op=g.op; var cls=g.cls;
             var isSusp=checkSuspicious(op,op.user_id,cls);
 
             // Формируем строку клиента
@@ -223,7 +255,20 @@ function fetchNewOps(){
                 label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
                 color: isSusp ? '#b45309' : cls.color,
                 bg: isSusp ? '#fef3c7' : cls.bg,
-                amount: formatAmt(op.amount, op.money_type),
+                amount: (function(){
+                    var amts=g.amounts;
+                    if(!amts||amts.length===0) return formatAmt(op.amount,op.money_type);
+                    // Суммируем cash и non_cash отдельно
+                    var cash=0,bonus=0,hasCash=false,hasBonus=false;
+                    amts.forEach(function(a){
+                        if(a.mt==='non_cash'){bonus+=parseFloat(a.v)||0;hasBonus=true;}
+                        else{cash+=parseFloat(a.v)||0;hasCash=true;}
+                    });
+                    var parts=[];
+                    if(hasCash) parts.push((cash>=0?'+':'')+Math.round(cash)+' ₽');
+                    if(hasBonus) parts.push((bonus>=0?'+':'')+Math.round(bonus)+' G');
+                    return parts.join(', ');
+                })(),
                 comment: cls.desc||'',
                 extra: (function(){
                     var e='';
@@ -331,27 +376,20 @@ function initLastId(){
 
 // Ждём токен потом инициализируемся
 
-// ── Слушаем пересадку через __gcb__ (касса перехватывает все запросы) ──
-document.addEventListener('__gcb__', function(ev){
-    var d=ev.detail;
-    if(!d||!d.res||!d.res.data) return;
-    var data=d.res.data;
-    // Пересадка: userReservationTransferDevice
-    if(data.userReservationTransferDevice){
-        var result=data.userReservationTransferDevice;
-        var resId=result.reservationId||'';
-        // Пытаемся получить info из запроса
-        var req=''; try{req=JSON.parse(d.req);}catch(e){}
-        var deviceFrom=req.variables&&req.variables.deviceFrom||'';
-        var deviceTo=req.variables&&req.variables.deviceTo||'';
-        var extra=deviceFrom&&deviceTo?'ПК '+deviceFrom+' → ПК '+deviceTo:(resId?'Сеанс #'+resId:'');
-        var opId='transfer_res_'+(resId||Date.now());
-        addEntry({opId:opId,id:opId,ts:Date.now(),
-            type:'session_transfer',
-            icon:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>',
-            label:'Пересадка',color:'#cc6600',bg:'#fff0e0',
-            amount:'',comment:'',extra:extra,client:'',clientUrl:'',suspicious:false});
-    }
+
+// ── Пересадка через перехват fetch ────────────────────────
+document.addEventListener('__goj_transfer__', function(ev){
+    var d=ev.detail||{};
+    var deviceFrom=d.deviceFrom||'';
+    var deviceTo=d.deviceTo||'';
+    var resId=d.reservationId||'';
+    var extra=deviceFrom&&deviceTo?'ПК '+deviceFrom+' → ПК '+deviceTo:(resId?'Сеанс #'+resId:'');
+    var opId='transfer_'+resId+'_'+Date.now();
+    var xferSVG='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>';
+    addEntry({opId:opId,id:opId,ts:Date.now(),
+        type:'session_transfer',icon:xferSVG,
+        label:'Пересадка',color:'#cc6600',bg:'#fff0e0',
+        amount:'',comment:'',extra:extra,client:'',clientUrl:'',suspicious:false});
 });
 
 function waitForToken(){
@@ -428,7 +466,7 @@ function renderModal(){
     var hL=document.createElement('div');
     hL.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
     var hIco=document.createElement('div');
-    hIco.style.cssText='width:32px;height:32px;border-radius:8px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    hIco.style.cssText='width:32px;height:32px;border-radius:8px;background:var(--mantine-color-gg_primary-filled,#cc0001);display:flex;align-items:center;justify-content:center;flex-shrink:0;';
     hIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     var hTit=document.createElement('span');
     hTit.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
@@ -732,25 +770,29 @@ function watchCashboxCloseBtn(){
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var shifts = document.querySelector('.Shifts_shiftsPaper__9Jml_');
-    if(!shifts) return;
-    var shiftsSection = shifts.closest('.m_6dcfc7c7');
-    if(!shiftsSection) return;
-    var nav = shiftsSection.parentNode;
-
-    var oldW = document.getElementById('godji-opj-btn-wrap');
+    var oldW=document.getElementById('godji-opj-btn-wrap');
     if(oldW) oldW.remove();
 
-    var section = document.createElement('div');
-    section.id = 'godji-opj-btn-wrap';
-    section.className = 'm_6dcfc7c7 mantine-AppShell-section onest';
-    section.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
+    // Берём className с оригинальной NavLink для точного стиля
+    var bookLink=document.querySelector('a[href="/bookings"]');
+    var btnCls=bookLink?bookLink.className:'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
-    btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    btn.className=btnCls+' onest';
     btn.href='javascript:void(0)';
-    btn.style.cssText='width:100%;box-sizing:border-box;text-decoration:none;';
+
+    // Позиция как у "Поиск клиента" (client_search: bottom:456px)
+    // Наши кнопки ниже: история операций bottom:402px, история сеансов bottom:356px
+    function updatePos(){
+        var shifts=document.querySelector('.Shifts_shiftsPaper__9Jml_');
+        if(!shifts) return;
+        var sb=window.innerHeight-shifts.getBoundingClientRect().top;
+        btn.style.bottom=(sb+92)+'px';
+    }
+    btn.style.cssText='position:fixed;bottom:402px;left:0;z-index:500;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    updatePos();
+    window.addEventListener('resize',updatePos);
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
@@ -759,36 +801,34 @@ function createSidebarBtn(){
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
     ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    ico.innerHTML='<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/><line x1=\"16\" y1=\"13\" x2=\"8\" y2=\"13\"/><line x1=\"16\" y1=\"17\" x2=\"8\" y2=\"17\"/></svg>';
     sec.appendChild(ico);
 
-    var bodyDiv=document.createElement('div');
-    bodyDiv.className='m_f07af9d2 mantine-NavLink-body';
+    var body=document.createElement('div');
+    body.className='m_f07af9d2 mantine-NavLink-body';
     var lbl=document.createElement('span');
     lbl.className='m_1f6ac4c4 mantine-NavLink-label';
     lbl.textContent='История операций';
-    var badge=document.createElement('span');
+        var badge=document.createElement('span');
     badge.id='goj-sidebar-badge';
     badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;flex-shrink:0;';
-    bodyDiv.appendChild(lbl);
-
-    btn.appendChild(sec); btn.appendChild(bodyDiv); btn.appendChild(badge);
+    body.appendChild(lbl);
+    btn.appendChild(sec); btn.appendChild(body);
+    bodyDiv2.appendChild(lbl); bodyDiv2.appendChild(badge);
+    btn.appendChild(sec); btn.appendChild(bodyDiv2);
     btn.addEventListener('click',function(e){
         e.stopPropagation();
         if(_visible){hideModal();btn.removeAttribute('data-active');}
         else{showModal();btn.setAttribute('data-active','true');}
     });
-
-    section.appendChild(btn);
-    // История операций — ПЕРЕД историей сеансов (которая тоже перед часами)
-    nav.insertBefore(section, shiftsSection);
+    document.body.appendChild(btn);
     updateBadge();
 }
 
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    if(!document.querySelector('.Shifts_shiftsPaper__9Jml_')){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(!document.querySelector('.Sidebar_footer__1BA98')){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarBtn();
 }
 
