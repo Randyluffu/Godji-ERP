@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -770,10 +770,9 @@ function watchCashboxCloseBtn(){
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var oldW=document.getElementById('godji-opj-btn-wrap');
-    if(oldW) oldW.remove();
+    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!sb) return;
 
-    // Берём className с оригинальной NavLink для точного стиля
     var bookLink=document.querySelector('a[href="/bookings"]');
     var btnCls=bookLink?bookLink.className:'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
 
@@ -781,18 +780,7 @@ function createSidebarBtn(){
     btn.id='godji-opj-btn';
     btn.className=btnCls+' onest';
     btn.href='javascript:void(0)';
-
-    // Позиция как у "Поиск клиента" (client_search: bottom:456px)
-    // Наши кнопки ниже: история операций bottom:402px, история сеансов bottom:356px
-    function updatePos(){
-        var shifts=document.querySelector('.Shifts_shiftsPaper__9Jml_');
-        if(!shifts) return;
-        var sb=window.innerHeight-shifts.getBoundingClientRect().top;
-        btn.style.bottom=(sb+92)+'px';
-    }
-    btn.style.cssText='position:fixed;bottom:402px;left:0;z-index:500;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
-    updatePos();
-    window.addEventListener('resize',updatePos);
+    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
@@ -801,7 +789,7 @@ function createSidebarBtn(){
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
     ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/><line x1=\"16\" y1=\"13\" x2=\"8\" y2=\"13\"/><line x1=\"16\" y1=\"17\" x2=\"8\" y2=\"17\"/></svg>';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     sec.appendChild(ico);
 
     var body=document.createElement('div');
@@ -819,24 +807,37 @@ function createSidebarBtn(){
         if(_visible){hideModal();btn.removeAttribute('data-active');}
         else{showModal();btn.setAttribute('data-active','true');}
     });
-    document.body.appendChild(btn);
+
+    // История операций идёт после истории сеансов, или после последнего нативного
+    var histBtn=sb.querySelector('#godji-history-btn');
+    if(histBtn){
+        if(histBtn.nextSibling) sb.insertBefore(btn,histBtn.nextSibling);
+        else sb.appendChild(btn);
+    } else {
+        var nativeLinks=Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
+        var last=nativeLinks[nativeLinks.length-1];
+        if(last&&last.nextSibling) sb.insertBefore(btn,last.nextSibling);
+        else sb.appendChild(btn);
+    }
     updateBadge();
 }
 
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    if(!document.querySelector('.Sidebar_footer__1BA98')){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
 var _obs=new MutationObserver(function(){
-    if(!document.getElementById('godji-opj-btn')||!document.getElementById('godji-history-btn')) tryCreateSidebarBtn();
+    if(!document.getElementById('godji-opj-btn')) tryCreateSidebarBtn();
 });
 
 if(document.body){
     _obs.observe(document.body,{childList:true,subtree:false});
     setTimeout(tryCreateSidebarBtn,1200);
+    setTimeout(tryCreateSidebarBtn,2500);
+    setTimeout(tryCreateSidebarBtn,5000);
     setTimeout(watchCashboxCloseBtn,2000);
 } else {
     document.addEventListener('DOMContentLoaded',function(){
