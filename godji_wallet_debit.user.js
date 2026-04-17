@@ -175,11 +175,14 @@
     //    Потом списываем ровно amount бонусов
     // Получить активный сеанс клиента
     function getActiveSession(clientId) {
+        // Расширенный список статусов — SoftwareSessionNthConflict значит у клиента
+        // есть незавершённый сеанс в ЛЮБОМ статусе кроме finished/canceled
         return gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_in: ["active","session_acting","created"]}}, order_by: {time_from: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } } }',
+            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {time_from: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
             var r = d.data && d.data.users_by_pk && d.data.users_by_pk.users_reservations;
+            console.log('[debit] getActiveSession result:', JSON.stringify(r));
             return r && r.length ? r[0] : null;
         });
     }
@@ -217,6 +220,24 @@
             pcName = activeSession.reservations_club_device && activeSession.reservations_club_device.name || '?';
             var tariffId = (activeSession.tariff && activeSession.tariff.id) || cachedTariff.tariffId;
             statusCallback('Продлеваем сеанс (' + minutes + ' мин) на ПК ' + pcName + '…');
+            // Получаем актуальные тарифы для этого сеанса
+            var availTariffs = await gql(
+                'query GetTariffs($sessionId: Int!) { getAvailableTariffsForProlongation(params: {minutes: 1, sessionId: $sessionId}) { tariffs { id name durationMin cost } } }',
+                { sessionId: sessionId }, 'GetTariffs'
+            ).then(function(d) {
+                return d.data && d.data.getAvailableTariffsForProlongation && d.data.getAvailableTariffsForProlongation.tariffs;
+            }).catch(function(){ return null; });
+
+            if (availTariffs && availTariffs.length) {
+                // Берём самый дешёвый тариф и пересчитываем
+                var sorted = availTariffs.slice().sort(function(a,b){ return a.durationMin-b.durationMin; });
+                var bestTariff = sorted[0];
+                tariffId = bestTariff.id;
+                var cpm = bestTariff.cost / bestTariff.durationMin;
+                minutes = calcMinutes(totalAmount, cpm);
+                console.log('[debit] using tariff from API:', bestTariff.name, 'id:', tariffId, 'mins:', minutes);
+            }
+
             var prolongResult = await prolongSession(sessionId, tariffId, minutes);
             console.log('[debit] prolongSession result:', JSON.stringify(prolongResult));
             if (!prolongResult || prolongResult.errors) {
