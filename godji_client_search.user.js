@@ -261,8 +261,11 @@ function openClientModal(clientId, clientWallet){
             _SELECTORS.forEach(function(sel){
                 idoc.querySelectorAll(sel).forEach(hideEl);
             });
-            // Скрываем все godji-* элементы
-            idoc.querySelectorAll('[id^="godji"]').forEach(hideEl);
+            // Скрываем все godji-* элементы кроме кнопки списания
+            idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
+                if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
+                hideEl(el);
+            });
             // Убираем отступы у main
             var main=idoc.querySelector('.mantine-AppShell-main');
             if(main){
@@ -297,8 +300,11 @@ function openClientModal(clientId, clientWallet){
                         _SELECTORS.forEach(function(sel){
                             if(n.querySelectorAll)n.querySelectorAll(sel).forEach(hideEl);
                         });
-                        if(n.id&&n.id.indexOf('godji')===0)hideEl(n);
-                        if(n.querySelectorAll)n.querySelectorAll('[id^="godji"]').forEach(hideEl);
+                        if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay')hideEl(n);
+                        if(n.querySelectorAll)n.querySelectorAll('[id^="godji"]').forEach(function(el){
+                            if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
+                            hideEl(el);
+                        });
                     });
                 });
             }).observe(idoc.body,{childList:true,subtree:true});
