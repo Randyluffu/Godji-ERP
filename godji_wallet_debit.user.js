@@ -94,15 +94,28 @@
     }
 
     // ── Получить свободные ПК ────────────────────────────────
+    // VIP ПК (работает схема сеанс→бонусы): зоны Q(10-13), T(18-22), Y(23-29), O(30-35)
+    var VIP_PC_NAMES = ['10','11','12','13','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35'];
+
     function getFreePCs() {
         return gql(
-            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { id name status } } }',
+            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { id name status protected } } }',
             { clubId: CLUB_ID },
             'GetDashboardFree'
         ).then(function (data) {
             var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
             if (!devices) return [];
-            return devices.filter(function (d) { return d.status === 'available'; });
+            // Только доступные, незащищённые, VIP-зоны
+            var free = devices.filter(function (d) {
+                return d.status === 'available' && !d.protected && VIP_PC_NAMES.indexOf(d.name) !== -1;
+            });
+            console.log('[debit] free VIP PCs:', free.map(function(d){return d.name+':'+d.id;}));
+            if (!free.length) {
+                // Если VIP нет — берём любой свободный незащищённый
+                free = devices.filter(function(d){ return d.status === 'available' && !d.protected; });
+                console.log('[debit] fallback free PCs:', free.map(function(d){return d.name+':'+d.id;}));
+            }
+            return free;
         });
     }
 
@@ -180,8 +193,8 @@
             'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
+            console.log('[debit] getActiveSession FULL:', JSON.stringify(d));
             var r = d.data && d.data.reservations;
-            console.log('[debit] getActiveSession result:', JSON.stringify(r));
             return r && r.length ? r[0] : null;
         });
     }
