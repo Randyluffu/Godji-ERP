@@ -173,83 +173,100 @@
     //    тогда после завершения вернётся (amount + B) бонусов,
     //    из которых B — это "старые" бонусы клиента, а amount — новые (конвертированные рубли)
     //    Потом списываем ровно amount бонусов
-    async function performDebit(clientId, walletId, amount, bonus, comment, statusCallback) {
-        // Шаг 1: найти свободные ПК
-        statusCallback('Ищем свободный ПК…');
-        var freePCs = await getFreePCs();
-        if (!freePCs || freePCs.length === 0) {
-            throw new Error('Нет свободных ПК. Дождитесь освобождения места и попробуйте снова.');
-        }
+    // Получить активный сеанс клиента
+    function getActiveSession(clientId) {
+        return gql(
+            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_in: ["active","session_acting","created"]}}, order_by: {time_from: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } } }',
+            { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
+        ).then(function(d) {
+            var r = d.data && d.data.users_by_pk && d.data.users_by_pk.users_reservations;
+            return r && r.length ? r[0] : null;
+        });
+    }
 
-        // Шаг 2: получить тариф из кэша (записывается godji_free_time при работе с сессиями)
+    // Продлить сеанс
+    function prolongSession(sessionId, tariffId, minutes) {
+        return gql(
+            'mutation Prolong($sessionId: Int!, $tariffId: Int!, $minutes: Int) { userReservationProlongate(params: {sessionId: $sessionId, tariffId: $tariffId, minutes: $minutes}) { success __typename } }',
+            { sessionId: sessionId, tariffId: tariffId, minutes: minutes }, 'Prolong'
+        );
+    }
+
+    async function performDebit(clientId, walletId, amount, bonus, comment, statusCallback) {
+        // Шаг 1: получить тариф из кэша
         statusCallback('Получаем тариф…');
         var cachedTariff = getTariffFromCache();
-        if (!cachedTariff) {
-            throw new Error('Тариф не определён. Перейдите на дашборд и добавьте бесплатное время любому клиенту — кэш обновится автоматически.');
+        if (!cachedTariff || !cachedTariff.costPerMin || cachedTariff.costPerMin <= 0) {
+            throw new Error('Тариф не определён. Откройте скрипт "Бесплатное время" для любого клиента — кэш обновится.');
         }
 
-        var chosenPC = freePCs[0];
-        var chosenTariff = cachedTariff;
+        // Шаг 2: проверить есть ли активный сеанс у клиента
+        statusCallback('Проверяем сеанс клиента…');
+        var activeSession = await getActiveSession(clientId);
 
-        if (!chosenTariff.costPerMin || chosenTariff.costPerMin <= 0) {
-            throw new Error('Некорректные данные тарифа в кэше. Обновите кэш через дашборд.');
-        }
-
-        // Шаг 3: рассчитать сумму посадки с учётом бонусов
-        // При посадке сначала списываются бонусы, потом рубли
-        // Чтобы списать ровно `amount` рублей и получить обратно `amount` бонусов:
-        // нужно посадить на (amount + bonus) чтобы покрыть существующие бонусы + нужную сумму
         var totalAmount = amount + (bonus || 0);
-        var minutes = calcMinutes(totalAmount, chosenTariff.costPerMin);
+        var minutes = calcMinutes(totalAmount, cachedTariff.costPerMin);
         if (!minutes) throw new Error('Ошибка расчёта минут');
 
-        // Реальная стоимость (округление вверх может дать чуть больше)
-        var realCost = Math.round(chosenTariff.costPerMin * minutes * 100) / 100;
+        var sessionId = null;
+        var pcName = '?';
 
-        statusCallback('Запускаем сеанс на ПК ' + chosenPC.name + ' (' + minutes + ' мин)…');
-
-        // Шаг 4: запустить сеанс
-        var startResult = await startSession(clientId, chosenPC.id, chosenTariff.tariffId, minutes);
-        console.log('[debit] startSession result:', JSON.stringify(startResult));
-        if (!startResult || startResult.errors) {
-            var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
-            throw new Error('Не удалось запустить сеанс: ' + errMsg);
+        if (activeSession) {
+            // Клиент уже сидит — продлеваем его текущий сеанс
+            sessionId = activeSession.id;
+            pcName = activeSession.reservations_club_device && activeSession.reservations_club_device.name || '?';
+            var tariffId = (activeSession.tariff && activeSession.tariff.id) || cachedTariff.tariffId;
+            statusCallback('Продлеваем сеанс (' + minutes + ' мин) на ПК ' + pcName + '…');
+            var prolongResult = await prolongSession(sessionId, tariffId, minutes);
+            console.log('[debit] prolongSession result:', JSON.stringify(prolongResult));
+            if (!prolongResult || prolongResult.errors) {
+                var e1 = prolongResult && prolongResult.errors ? prolongResult.errors[0].message : 'unknown';
+                throw new Error('Не удалось продлить сеанс: ' + e1);
+            }
+            // Продление не финишируем — клиент продолжает сидеть
+            // Бонусы зачислятся, мы их сразу спишем
+            await new Promise(function(resolve){ setTimeout(resolve, 500); });
+        } else {
+            // Клиент не сидит — ищем свободный ПК
+            statusCallback('Ищем свободный ПК…');
+            var freePCs = await getFreePCs();
+            if (!freePCs || freePCs.length === 0) {
+                throw new Error('Нет свободных ПК и нет активного сеанса. Попробуйте позже.');
+            }
+            var chosenPC = freePCs[0];
+            pcName = chosenPC.name;
+            statusCallback('Запускаем сеанс на ПК ' + pcName + ' (' + minutes + ' мин)…');
+            var startResult = await startSession(clientId, chosenPC.id, cachedTariff.tariffId, minutes);
+            console.log('[debit] startSession result:', JSON.stringify(startResult));
+            if (!startResult || startResult.errors) {
+                var e2 = startResult && startResult.errors ? startResult.errors[0].message : 'unknown';
+                throw new Error('Не удалось запустить сеанс: ' + e2);
+            }
+            // Получаем ID созданного сеанса
+            await new Promise(function(resolve){ setTimeout(resolve, 700); });
+            var newSession = await getActiveSession(clientId);
+            sessionId = newSession ? newSession.id : null;
+            if (!sessionId) throw new Error('Сеанс создан, но не найден ID для завершения');
+            // Завершаем
+            statusCallback('Завершаем сеанс…');
+            await finishSession(sessionId);
+            await new Promise(function(resolve){ setTimeout(resolve, 800); });
         }
-        if (!startResult.data || !startResult.data.userReservationCreate) throw new Error('Сеанс не был создан (нет данных в ответе)');
 
-        // Шаг 4.5: получить ID только что созданного сеанса
-        statusCallback('Получаем ID сеанса…');
-        await new Promise(function(resolve) { setTimeout(resolve, 600); });
-        var sessionData = await gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_in: ["active","session_acting","created"]}}, order_by: {time_from: desc}, limit: 1) { id status } } }',
-            { userId: clientId, clubId: CLUB_ID },
-            'GetActiveSession'
-        );
-        var reservations = sessionData.data && sessionData.data.users_by_pk && sessionData.data.users_by_pk.users_reservations;
-        var sessionId = reservations && reservations.length > 0 ? reservations[0].id : null;
-        if (!sessionId) throw new Error('Сеанс создан, но не удалось найти его ID для завершения');
-
-        // Шаг 5: завершить сеанс немедленно
-        statusCallback('Завершаем сеанс…');
-        await finishSession(sessionId);
-
-        // Небольшая пауза — дать серверу время зачислить бонусы
-        await new Promise(function (resolve) { setTimeout(resolve, 800); });
-
-        // Шаг 6: списать нужное количество бонусов (ровно amount)
-        statusCallback('Списываем ' + amount + ' ₽…');
+        // Шаг финальный: списать нужное кол-во бонусов (=amount ₽)
+        statusCallback('Списываем ' + amount + ' ₽ с баланса…');
         var debitResult = await withdrawBonus(walletId, amount, comment);
+        console.log('[debit] withdrawBonus result:', JSON.stringify(debitResult));
         if (!debitResult || debitResult.errors) {
-            var errMsg2 = debitResult && debitResult.errors ? debitResult.errors[0].message : 'неизвестная ошибка';
-            throw new Error('Сеанс завершён, но списание бонусов не прошло: ' + errMsg2);
+            var e3 = debitResult && debitResult.errors ? debitResult.errors[0].message : 'unknown';
+            throw new Error('Списание бонусов не прошло: ' + e3);
         }
 
-        // Уведомляем кассу
         document.dispatchEvent(new CustomEvent('__godji_debit__', {
             detail: { amount: amount, comment: comment, ts: Date.now() }
         }));
 
-        return { amount: amount, pc: chosenPC.name };
+        return { amount: amount, pc: pcName };
     }
 
     // ── Модальное окно ────────────────────────────────────────
@@ -427,7 +444,7 @@
         var section = document.createElement('span');
         section.className = 'm_a74036a mantine-Button-section';
         section.setAttribute('data-position', 'left');
-        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M6 12h.01M18 12h.01"/><line x1="8" y1="20" x2="16" y2="20"/></svg>';
+        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-moneybag-minus"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1 -3.5 3.5h-1a3.5 3.5 0 0 1 -3.5 -3.5a1.5 1.5 0 0 1 1.5 -1.5"></path><path d="M12.5 21h-4.5a4 4 0 0 1 -4 -4v-1a8 8 0 0 1 15.943 -.958"></path><path d="M16 19h6"></path></svg>';
         var labelEl = document.createElement('span');
         labelEl.className = 'm_811560b9 mantine-Button-label';
         labelEl.textContent = 'Списать с рублёвого баланса';
