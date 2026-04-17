@@ -263,11 +263,16 @@
                 var e2 = startResult && startResult.errors ? startResult.errors[0].message : 'unknown';
                 throw new Error('Не удалось запустить сеанс: ' + e2);
             }
-            // Получаем ID созданного сеанса
-            await new Promise(function(resolve){ setTimeout(resolve, 700); });
-            var newSession = await getActiveSession(clientId);
-            sessionId = newSession ? newSession.id : null;
-            if (!sessionId) throw new Error('Сеанс создан, но не найден ID для завершения');
+            // Получаем ID только что созданного сеанса — ищем самый свежий без фильтра статуса
+            await new Promise(function(resolve){ setTimeout(resolve, 800); });
+            var freshData = await gql(
+                'query GetFreshSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 1) { id status } } }',
+                { userId: clientId, clubId: CLUB_ID }, 'GetFreshSession'
+            );
+            console.log('[debit] fresh session lookup:', JSON.stringify(freshData));
+            var freshRes = freshData.data && freshData.data.users_by_pk && freshData.data.users_by_pk.users_reservations;
+            sessionId = freshRes && freshRes.length ? freshRes[0].id : null;
+            if (!sessionId) throw new Error('Сеанс создан, но не найден ID (проверьте консоль)');
             // Завершаем
             statusCallback('Завершаем сеанс…');
             await finishSession(sessionId);
