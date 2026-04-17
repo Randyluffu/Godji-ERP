@@ -110,13 +110,27 @@
     function startSession(clientId, deviceId, tariffId, minutes) {
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
+        // isDirect:true позволяет сажать без проверки расписания
+        // Пробуем сначала с isDirect, при ошибке — без него
+        var vars = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+              sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
+              userId: clientId, isDirect: true };
         return gql(
             'mutation CreateBooking($clubId: Int!, $deviceId: Int!, $tariffId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!, $userId: String!, $isDirect: Boolean) { userReservationCreate(params: {clubId: $clubId, deviceId: $deviceId, tariffId: $tariffId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, userId: $userId, isDirect: $isDirect}) { __typename } }',
-            { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
-              sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
-              userId: clientId, isDirect: true },
-            'CreateBooking'
-        );
+            vars, 'CreateBooking'
+        ).then(function(r) {
+            if(r && r.errors && r.errors.length) {
+                console.warn('[debit] CreateBooking with isDirect failed:', r.errors[0].message, '— retrying without isDirect');
+                var vars2 = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+                    sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
+                    userId: clientId };
+                return gql(
+                    'mutation CreateBooking2($clubId: Int!, $deviceId: Int!, $tariffId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!, $userId: String!) { userReservationCreate(params: {clubId: $clubId, deviceId: $deviceId, tariffId: $tariffId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, userId: $userId}) { __typename } }',
+                    vars2, 'CreateBooking2'
+                );
+            }
+            return r;
+        });
     }
 
     // ── Завершить сеанс ───────────────────────────────────────
@@ -196,12 +210,12 @@
 
         // Шаг 4: запустить сеанс
         var startResult = await startSession(clientId, chosenPC.id, chosenTariff.tariffId, minutes);
-        if (!startResult || !startResult.data || startResult.errors) {
+        console.log('[debit] startSession result:', JSON.stringify(startResult));
+        if (!startResult || startResult.errors) {
             var errMsg = startResult && startResult.errors ? startResult.errors[0].message : 'неизвестная ошибка';
             throw new Error('Не удалось запустить сеанс: ' + errMsg);
         }
-        // Если мутация вернула данные без errors — сеанс создан
-        if (!startResult.data || !startResult.data.userReservationCreate) throw new Error('Сеанс не был создан');
+        if (!startResult.data || !startResult.data.userReservationCreate) throw new Error('Сеанс не был создан (нет данных в ответе)');
 
         // Шаг 4.5: получить ID только что созданного сеанса
         statusCallback('Получаем ID сеанса…');
@@ -239,10 +253,10 @@
     }
 
     // ── Модальное окно ────────────────────────────────────────
-    function showModal(clientData) {
+    function showModal(clientData, overrideClientId) {
         if (document.getElementById('godji-debit-overlay')) return;
 
-        var clientId = getClientId();
+        var clientId = overrideClientId || getClientId();
         if (!clientId) return;
 
         var overlay = document.createElement('div');
@@ -413,7 +427,7 @@
         var section = document.createElement('span');
         section.className = 'm_a74036a mantine-Button-section';
         section.setAttribute('data-position', 'left');
-        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1 -3.5 3.5h-1a3.5 3.5 0 0 1 -3.5 -3.5a1.5 1.5 0 0 1 1.5 -1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1 -4 -4v-1a8 8 0 0 1 14 -5.5"/><path d="M16 19h-6"/></svg>';
+        section.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M6 12h.01M18 12h.01"/><line x1="8" y1="20" x2="16" y2="20"/></svg>';
         var labelEl = document.createElement('span');
         labelEl.className = 'm_811560b9 mantine-Button-label';
         labelEl.textContent = 'Списать с рублёвого баланса';
@@ -456,6 +470,26 @@
             anchorBtn.parentNode.insertBefore(btn, anchorBtn.nextSibling);
         }
     }
+
+    // Глобальный API для вызова из других скриптов (client_search)
+    window.__godjiOpenDebit = function(clientId, walletData) {
+        if(!walletData) {
+            // Загружаем данные если не переданы
+            getClientData(clientId).then(function(data) {
+                if(!data) { alert('Не удалось получить данные кошелька.'); return; }
+                if(data.balance <= 0) { alert('У клиента нет рублей на балансе.'); return; }
+                showModal(data, clientId);
+            });
+            return;
+        }
+        var data = {
+            walletId: walletData.id,
+            balance: walletData.balance_amount,
+            bonus: walletData.balance_bonus || 0
+        };
+        if(data.balance <= 0) { alert('У клиента нет рублей на балансе.'); return; }
+        showModal(data, clientId);
+    };
 
     var _obs = new MutationObserver(function (mutations) {
         for (var i = 0; i < mutations.length; i++) {
