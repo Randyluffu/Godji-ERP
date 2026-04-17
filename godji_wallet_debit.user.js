@@ -175,13 +175,12 @@
     //    Потом списываем ровно amount бонусов
     // Получить активный сеанс клиента
     function getActiveSession(clientId) {
-        // Расширенный список статусов — SoftwareSessionNthConflict значит у клиента
-        // есть незавершённый сеанс в ЛЮБОМ статусе кроме finished/canceled
+        // Запрос через таблицу reservations напрямую
         return gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {time_from: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } } }',
+            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
-            var r = d.data && d.data.users_by_pk && d.data.users_by_pk.users_reservations;
+            var r = d.data && d.data.reservations;
             console.log('[debit] getActiveSession result:', JSON.stringify(r));
             return r && r.length ? r[0] : null;
         });
@@ -266,11 +265,11 @@
             // Получаем ID только что созданного сеанса — ищем самый свежий без фильтра статуса
             await new Promise(function(resolve){ setTimeout(resolve, 800); });
             var freshData = await gql(
-                'query GetFreshSession($userId: String!, $clubId: Int!) { users_by_pk(id: $userId) { users_reservations(where: {club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 1) { id status } } }',
+                'query GetFreshSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 1) { id status } }',
                 { userId: clientId, clubId: CLUB_ID }, 'GetFreshSession'
             );
             console.log('[debit] fresh session lookup:', JSON.stringify(freshData));
-            var freshRes = freshData.data && freshData.data.users_by_pk && freshData.data.users_by_pk.users_reservations;
+            var freshRes = freshData.data && freshData.data.reservations;
             sessionId = freshRes && freshRes.length ? freshRes[0].id : null;
             if (!sessionId) throw new Error('Сеанс создан, но не найден ID (проверьте консоль)');
             // Завершаем
