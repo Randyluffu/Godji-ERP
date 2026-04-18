@@ -206,7 +206,7 @@
                 return null;
             }
             // Ищем активную — статус НЕ заканчивается на ed/d (finished, canceled, ended)
-            var INACTIVE = ['finished','canceled','ended','completed','closed'];
+            var INACTIVE = ['finished','canceled','ended','completed','closed','end_rejected','rejected'];
             var active = r.filter(function(res){
                 return INACTIVE.indexOf(res.status) === -1;
             });
@@ -283,14 +283,17 @@
             if (!freePCs || freePCs.length === 0) {
                 throw new Error('Нет свободных ПК и нет активного сеанса. Попробуйте позже.');
             }
-            var chosenPC = freePCs[0];
-            pcName = chosenPC.name;
-            statusCallback('Запускаем сеанс на ПК ' + pcName + ' (' + minutes + ' мин)…');
-            var startResult = await startSession(clientId, chosenPC.id, cachedTariff.tariffId, minutes);
-            console.log('[debit] startSession result:', JSON.stringify(startResult));
-            if (!startResult || startResult.errors) {
-                var e2 = startResult && startResult.errors ? startResult.errors[0].message : 'unknown';
-                throw new Error('Не удалось запустить сеанс: ' + e2);
+            // Пробуем все свободные VIP ПК по очереди
+            var startResult = null;
+            for(var pi = 0; pi < freePCs.length; pi++) {
+                var tryPC = freePCs[pi];
+                statusCallback('Пробуем ПК ' + tryPC.name + ' (' + (pi+1) + '/' + freePCs.length + ')…');
+                var sr = await startSession(clientId, tryPC.id, cachedTariff.tariffId, minutes);
+                console.log('[debit] PC', tryPC.name, ':', sr && sr.errors ? sr.errors[0].message : 'OK');
+                if (!sr || !sr.errors) { startResult = sr; pcName = tryPC.name; break; }
+            }
+            if (!startResult) {
+                throw new Error('Нет доступных ПК для списания. Попробуйте позже.');
             }
             // Получаем ID только что созданного сеанса — ищем самый свежий без фильтра статуса
             await new Promise(function(resolve){ setTimeout(resolve, 800); });
