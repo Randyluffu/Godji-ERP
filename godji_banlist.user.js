@@ -5,8 +5,8 @@
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
-// @grant        none
-// @run-at       document-idle
+// @grant        unsafeWindow
+// @run-at       document-start
 // ==/UserScript==
 (function(){
 'use strict';
@@ -51,19 +51,53 @@ function unbanUser(userId, reason){
     saveBanlist(data);
 }
 
-// ── Auth token ────────────────────────────────────────────
+// ── Auth token + fetch hook через unsafeWindow ───────────
 var _authToken = null, _hasuraRole = 'club_admin';
+
 (function(){
-    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||vars||{});var userId=params.userId||"";if(userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Session attempt for banned user",userId);var prom=f.apply(this,arguments);prom.then(function(r){var rc=r.clone();rc.json().then(function(d){if(d&&d.data&&!d.errors){document.dispatchEvent(new CustomEvent("godji_ban_session_created",{detail:{userId:userId,data:d}}));}});});return prom;}}catch(e){}}return f.apply(this,arguments);};}());';
-    // Экспортируем функцию проверки бана в window для inline-скрипта
-    window.__godjiCheckBanned = function(userId){ return isBanned(userId); };
+    var _win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+    var _orig = _win.fetch;
+    if(_win.__banHookedDirect) return;
+    _win.__banHookedDirect = true;
 
-    function inject(){ var r=document.head||document.documentElement; if(!r){setTimeout(inject,10);return;} var s=document.createElement('script'); s.textContent=code; r.appendChild(s); s.remove(); }
-    inject();
+    _win.fetch = function(url, opts) {
+        // Токен
+        if(opts && opts.headers && opts.headers.authorization) {
+            _authToken = opts.headers.authorization;
+            _hasuraRole = opts.headers['x-hasura-role'] || 'club_admin';
+        }
+        // Перехват создания сеанса
+        if(opts && opts.body) {
+            try {
+                var b = JSON.parse(opts.body);
+                var op = b.operationName || '';
+                var vars = b.variables || {};
+                var params = vars.params || {};
+                var userId = params.userId || vars.userId || '';
+                var isCreate = userId && (
+                    op === 'CreateBooking' || op === 'CreateBooking2' ||
+                    op.indexOf('ReservationCreate') !== -1 ||
+                    (url && url.indexOf && url.indexOf('/reservation/create') !== -1)
+                );
+                if(isCreate && isBanned(userId)) {
+                    console.warn('[banlist] Intercepted session for banned user:', userId);
+                    var prom = _orig.apply(this, arguments);
+                    prom.then(function(r) {
+                        r.clone().json().then(function(d) {
+                            if(d && d.data && !d.errors) {
+                                document.dispatchEvent(new CustomEvent('godji_ban_session_created',{detail:{userId:userId}}));
+                            }
+                        }).catch(function(){});
+                    }).catch(function(){});
+                    return prom;
+                }
+            } catch(e){}
+        }
+        return _orig.apply(this, arguments);
+    };
 })();
-
-function getAuth(){ return window._banAuthToken||_authToken||null; }
-function getRole(){ return window._banHasuraRole||_hasuraRole; }
+function getAuth(){ return _authToken||null; }
+function getRole(){ return _hasuraRole; }
 
 function gql(query, variables, opName){
     var t=getAuth(); if(!t) return Promise.reject('no auth');
