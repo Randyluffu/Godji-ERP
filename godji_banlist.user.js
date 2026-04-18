@@ -54,7 +54,7 @@ function unbanUser(userId, reason){
 // ── Auth token ────────────────────────────────────────────
 var _authToken = null, _hasuraRole = 'club_admin';
 (function(){
-    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||{});var userId=params.userId||vars.userId||"";if(userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Detected session attempt for banned user",userId);document.dispatchEvent(new CustomEvent("godji_ban_blocked",{detail:{userId:userId}}));}}catch(e){}}return f.apply(this,arguments);};}());';
+    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||vars||{});var userId=params.userId||"";if(userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Session attempt for banned user",userId);var prom=f.apply(this,arguments);prom.then(function(r){var rc=r.clone();rc.json().then(function(d){if(d&&d.data&&!d.errors){document.dispatchEvent(new CustomEvent("godji_ban_session_created",{detail:{userId:userId,data:d}}));}});});return prom;}}catch(e){}}return f.apply(this,arguments);};}());';
     // Экспортируем функцию проверки бана в window для inline-скрипта
     window.__godjiCheckBanned = function(userId){ return isBanned(userId); };
 
@@ -683,30 +683,39 @@ function renderUnbanPanel(container){
     renderRows();
 }
 
-// ── При попытке посадки — показываем предупреждение и быстро завершаем сеанс ─────
-document.addEventListener('godji_ban_blocked',function(e){
-    var userId=e.detail&&e.detail.userId;
-    var entry=loadBanlist().banned[userId]||{};
-    
-    // Показываем предупреждение
-    var existing=document.getElementById('godji-ban-warning');
-    if(existing) existing.remove();
-    var toast=document.createElement('div');
-    toast.id='godji-ban-warning';
-    toast.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;'+
-        'background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:14px 20px;'+
-        'font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.2);min-width:340px;text-align:center;';
-    toast.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;">'+
-        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cc0001" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'+
-        '<span style="font-size:15px;font-weight:700;color:#cc0001;">Клиент заблокирован</span></div>'+
-        '<div style="font-size:13px;color:#991b1b;margin-bottom:4px;">'+(entry.reason||'')+'</div>'+
-        '<div style="font-size:11px;color:#bbb;">Сеанс будет автоматически завершён</div>';
-    document.body.appendChild(toast);
-    setTimeout(function(){if(toast.parentNode)toast.remove();},6000);
-    
-    // Запускаем немедленную проверку активных сеансов (не ждём интервала 5 сек)
-    setTimeout(watchForBannedSessions, 1500);
-    setTimeout(watchForBannedSessions, 4000);
+// ── При создании сеанса для забаненного клиента — немедленно завершаем ──────
+document.addEventListener('godji_ban_session_created', function(e){
+    var userId = e.detail && e.detail.userId;
+    var entry = loadBanlist().banned[userId] || {};
+    console.warn('[banlist] Session created for banned user, will finish immediately:', userId);
+
+    // Показываем ошибку поверх страницы — как будто посадка не удалась
+    var overlay = document.getElementById('godji-ban-error-overlay');
+    if(overlay) overlay.remove();
+    overlay = document.createElement('div');
+    overlay.id = 'godji-ban-error-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;'+
+        'display:flex;align-items:center;justify-content:center;';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;padding:28px 32px;max-width:420px;width:90%;'+
+        'text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
+    box.innerHTML = '<div style="width:56px;height:56px;background:#fff0f0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">'+
+        '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#cc0001" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></div>'+
+        '<div style="font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:8px;">Клиент заблокирован</div>'+
+        '<div style="font-size:14px;color:#cc0001;margin-bottom:6px;">'+(entry.reason||'')+'</div>'+
+        '<div style="font-size:12px;color:#888;margin-bottom:20px;">Сеанс завершается автоматически</div>'+
+        '<button id="godji-ban-close-btn" style="background:#cc0001;color:#fff;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Закрыть</button>';
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    document.getElementById('godji-ban-close-btn').addEventListener('click', function(){overlay.remove();});
+
+    // Немедленно завершаем сеанс через watchForBannedSessions
+    setTimeout(watchForBannedSessions, 800);
+    setTimeout(watchForBannedSessions, 2500);
+    setTimeout(watchForBannedSessions, 5000);
+
+    // Закрываем overlay через 8 сек если не закрыли
+    setTimeout(function(){if(overlay.parentNode)overlay.remove();}, 8000);
 });
 
 // ── Инициализация ─────────────────────────────────────────
