@@ -334,8 +334,8 @@ function injectClientPageBanBtn(){
     var inner=document.createElement('span'); inner.className='m_80f1301b mantine-Button-inner';
     var sec=document.createElement('span'); sec.className='m_a74036a mantine-Button-section'; sec.setAttribute('data-position','left');
     sec.innerHTML=banned
-        ?'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 1-12 0"/><line x1="2" y1="4" x2="22" y2="20"/></svg>'
-        :'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>';
+        ?'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6"/></svg>'
+        :'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>';
     var lbl=document.createElement('span'); lbl.className='m_811560b9 mantine-Button-label';
     lbl.textContent=banned?'Разблокировать':'Заблокировать';
     inner.appendChild(sec); inner.appendChild(lbl); btn.appendChild(inner);
@@ -430,7 +430,7 @@ function watchForBannedSessions(){
                 // Показываем уведомление
                 var toast=document.createElement('div');
                 toast.style.cssText='position:fixed;top:20px;right:20px;z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:12px 16px;font-family:inherit;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:320px;';
-                toast.innerHTML='<div style="font-size:13px;font-weight:700;color:#cc0001;margin-bottom:2px;">🚫 Сеанс завершён</div>'+
+                toast.innerHTML='<div style="font-size:13px;font-weight:700;color:#cc0001;margin-bottom:2px;">Сеанс завершён</div>'+
                     '<div style="font-size:12px;color:#991b1b;">Клиент заблокирован: '+(entry?entry.reason:'')+'</div>';
                 document.body.appendChild(toast);
                 setTimeout(function(){toast.remove();},5000);
@@ -465,7 +465,7 @@ function injectBanTabs(){
     banTab.setAttribute('data-variant','default'); banTab.setAttribute('data-orientation','horizontal');
     banTab.setAttribute('type','button'); banTab.setAttribute('role','tab');
     banTab.style.cssText='font-size:var(--mantine-font-size-md);font-weight:500;';
-    banTab.innerHTML='<span class="mantine-Tabs-tabLabel">🚫 Заблокированные</span>';
+    banTab.innerHTML='<span class="mantine-Tabs-tabLabel">Заблокированные</span>';
 
     // Вкладка "Разблокированные"
     var unbanTab=document.createElement('button');
@@ -474,7 +474,7 @@ function injectBanTabs(){
     unbanTab.setAttribute('data-variant','default'); unbanTab.setAttribute('data-orientation','horizontal');
     unbanTab.setAttribute('type','button'); unbanTab.setAttribute('role','tab');
     unbanTab.style.cssText='font-size:var(--mantine-font-size-md);font-weight:500;';
-    unbanTab.innerHTML='<span class="mantine-Tabs-tabLabel">✅ Разблокированные</span>';
+    unbanTab.innerHTML='<span class="mantine-Tabs-tabLabel">Разблокированные</span>';
 
     tabsList.appendChild(banTab);
     tabsList.appendChild(unbanTab);
@@ -492,26 +492,52 @@ function injectBanTabs(){
     tabsRoot.appendChild(unbanPanel);
 
     // Переключение вкладок
-    function activateTab(tabEl, panelEl){
-        // Снимаем активность со всех вкладок и скрываем все панели
+    // Скрываем наши панели когда нажимается нативная вкладка ERP
+    function hideOurPanels(){
+        banPanel.style.display='none';
+        unbanPanel.style.display='none';
+        banTab.removeAttribute('data-active');
+        banTab.setAttribute('aria-selected','false');
+        unbanTab.removeAttribute('data-active');
+        unbanTab.setAttribute('aria-selected','false');
+        // Показываем нативные панели ERP обратно
+        tabsRoot.querySelectorAll('.mantine-Tabs-panel').forEach(function(p){
+            p.style.removeProperty('display');
+        });
+    }
+
+    function activateOurTab(tabEl, panelEl){
+        // Деактивируем нативные вкладки ERP визуально
         tabsList.querySelectorAll('.mantine-Tabs-tab').forEach(function(t){
+            if(t===tabEl) return;
             t.setAttribute('aria-selected','false');
             t.removeAttribute('data-active');
         });
-        tabsRoot.querySelectorAll('.mantine-Tabs-panel,[id^="godji-ban-panel"],[id^="godji-unban-panel"]').forEach(function(p){
+        // Скрываем нативные панели ERP
+        tabsRoot.querySelectorAll('.mantine-Tabs-panel').forEach(function(p){
             p.style.display='none';
         });
+        // Скрываем вторую нашу панель
+        [banPanel,unbanPanel].forEach(function(p){ if(p!==panelEl) p.style.display='none'; });
         tabEl.setAttribute('aria-selected','true');
         tabEl.setAttribute('data-active','true');
         panelEl.style.display='block';
     }
 
+    // Нативные вкладки ERP — восстанавливаем их поведение
+    tabsList.querySelectorAll('.mantine-Tabs-tab').forEach(function(t){
+        if(t.id==='godji-ban-tab'||t.id==='godji-unban-tab') return;
+        t.addEventListener('click',function(){
+            hideOurPanels();
+        });
+    });
+
     banTab.addEventListener('click',function(){
-        activateTab(banTab, banPanel);
+        activateOurTab(banTab, banPanel);
         renderBanPanel(banPanel);
     });
     unbanTab.addEventListener('click',function(){
-        activateTab(unbanTab, unbanPanel);
+        activateOurTab(unbanTab, unbanPanel);
         renderUnbanPanel(unbanPanel);
     });
 }
@@ -664,7 +690,7 @@ document.addEventListener('godji_ban_blocked',function(e){
     var entry=loadBanlist().banned[e.detail&&e.detail.userId]||{};
     var toast=document.createElement('div');
     toast.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:14px 20px;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.2);min-width:300px;text-align:center;';
-    toast.innerHTML='<div style="font-size:15px;font-weight:700;color:#cc0001;margin-bottom:4px;">🚫 Клиент заблокирован</div>'+
+    toast.innerHTML='<div style="font-size:15px;font-weight:700;color:#cc0001;margin-bottom:4px;">Клиент заблокирован</div>'+
         '<div style="font-size:13px;color:#991b1b;">'+(entry.reason||'')+'</div>';
     document.body.appendChild(toast);
     setTimeout(function(){toast.remove();},4000);
