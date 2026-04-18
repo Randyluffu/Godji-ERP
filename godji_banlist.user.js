@@ -54,7 +54,10 @@ function unbanUser(userId, reason){
 // ── Auth token ────────────────────────────────────────────
 var _authToken = null, _hasuraRole = 'club_admin';
 (function(){
-    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}return f.apply(this,arguments);};}());';
+    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||{});var userId=params.userId||vars.userId||"";if((op==="CreateSession"||op==="CreateBooking"||op.indexOf("Reservation")!==-1||op.indexOf("Create")!==-1)&&userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Blocked session for banned user",userId);return Promise.resolve(new Response(JSON.stringify({errors:[{message:"CLIENT_BANNED"}],data:null}),{status:200,headers:{"content-type":"application/json"}}));}}catch(e){}}return f.apply(this,arguments);};}());';
+    // Экспортируем функцию проверки бана в window для inline-скрипта
+    window.__godjiCheckBanned = function(userId){ return isBanned(userId); };
+
     function inject(){ var r=document.head||document.documentElement; if(!r){setTimeout(inject,10);return;} var s=document.createElement('script'); s.textContent=code; r.appendChild(s); s.remove(); }
     inject();
 })();
@@ -349,13 +352,22 @@ function injectClientPageBanBtn(){
         }
     });
 
-    // Вставляем в строку с ником — найдём inline-flex с @nick
-    var nickRow=null;
-    document.querySelectorAll('div[style*="inline-flex"]').forEach(function(div){
-        if(div.querySelector('p') && div.querySelector('p').textContent.match(/^@/)) nickRow=div;
-    });
-    if(nickRow) nickRow.parentNode.insertBefore(btn, nickRow.nextSibling);
-    else targetFlex.appendChild(btn);
+    // Вставляем в flex-строку с аватаром — третьим элементом после аватара и текстового блока
+    // Ищем flex-контейнер с Avatar внутри (первый уровень карточки)
+    var avatarEl=document.querySelector('.mantine-Avatar-root[data-size="xl"]');
+    var avatarRow=avatarEl?avatarEl.closest('[class*="Flex-root"]'):null;
+    if(avatarRow){
+        // Делаем строку space-between чтобы кнопка прижалась вправо
+        avatarRow.style.justifyContent='space-between';
+        avatarRow.style.width='100%';
+        // Кнопку оборачиваем в выравнивающий div
+        var btnWrap=document.createElement('div');
+        btnWrap.style.cssText='display:flex;align-items:flex-start;flex-shrink:0;padding-top:2px;';
+        btnWrap.appendChild(btn);
+        avatarRow.appendChild(btnWrap);
+    } else {
+        targetFlex.appendChild(btn);
+    }
 
     // Показываем бадж если забанен
     if(isBanned(clientId)){
@@ -402,7 +414,7 @@ function watchForBannedSessions(){
     if(!bannedIds.length) return;
 
     gql(
-        'query CheckBanned($clubId:Int!){reservations(where:{club_id:{_eq:$clubId},status:{_nin:["finished","canceled"]}},limit:50){id user_id status}}',
+        'query CheckBanned($clubId:Int!){reservations(where:{club_id:{_eq:$clubId},status:{_nin:["finished","canceled"]}},limit:100){id user_id status}}',
         {clubId:CLUB_ID}, 'CheckBanned'
     ).then(function(d){
         var res=d.data&&d.data.reservations;
@@ -412,15 +424,27 @@ function watchForBannedSessions(){
             if(_watchedSessions[r.id]) return;
             _watchedSessions[r.id]=true;
             var entry=data.banned[r.user_id];
-            console.warn('[banlist] Finishing session for banned user',r.user_id,'reason:',entry&&entry.reason);
-            finishSession(r.id).then(function(){
-                console.log('[banlist] Session',r.id,'finished for banned user');
+            console.warn('[banlist] Auto-finishing session',r.id,'for banned user',r.user_id);
+            finishSession(r.id).then(function(result){
+                console.log('[banlist] Finished session',r.id,'result:',JSON.stringify(result));
+                // Показываем уведомление
+                var toast=document.createElement('div');
+                toast.style.cssText='position:fixed;top:20px;right:20px;z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:12px 16px;font-family:inherit;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:320px;';
+                toast.innerHTML='<div style="font-size:13px;font-weight:700;color:#cc0001;margin-bottom:2px;">🚫 Сеанс завершён</div>'+
+                    '<div style="font-size:12px;color:#991b1b;">Клиент заблокирован: '+(entry?entry.reason:'')+'</div>';
+                document.body.appendChild(toast);
+                setTimeout(function(){toast.remove();},5000);
+            }).catch(function(e){
+                console.error('[banlist] Failed to finish session',r.id,e);
+                // Retry после 3 сек
+                setTimeout(function(){ delete _watchedSessions[r.id]; },3000);
             });
         });
     }).catch(function(){});
 }
 
-setInterval(watchForBannedSessions, 8000);
+// Запускаем сразу и каждые 5 секунд
+setInterval(watchForBannedSessions, 5000);
 
 // ── Вкладки на странице /clients ──────────────────────────
 function injectBanTabs(){
@@ -633,32 +657,18 @@ function renderUnbanPanel(container){
     renderRows();
 }
 
-// ── Попап "клиент заблокирован" при попытке посадки ───────
-// Перехватываем клик на кнопки "Посадить" / "Забронировать"
-document.addEventListener('click',function(e){
-    var btn=e.target.closest('button');
-    if(!btn) return;
-    var txt=btn.textContent.trim();
-    if(txt!=='Посадить'&&txt!=='Забронировать'&&txt!=='Начать сеанс') return;
-
-    // Попробуем найти userId из текущей страницы
-    var m=window.location.pathname.match(/\/clients\/([a-f0-9-]{36})/);
-    if(!m) return;
-    var userId=m[1];
-    if(!isBanned(userId)) return;
-
-    e.stopPropagation();
-    e.preventDefault();
-
-    var entry=loadBanlist().banned[userId];
+// ── Попап при попытке посадки (показывается когда fetch заблокирован) ─────
+// Скрипт перехватывает userReservationCreate через fetch hook
+// и возвращает ошибку CLIENT_BANNED. ERP покажет ошибку, мы показываем свой попап.
+document.addEventListener('godji_ban_blocked',function(e){
+    var entry=loadBanlist().banned[e.detail&&e.detail.userId]||{};
     var toast=document.createElement('div');
     toast.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:14px 20px;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.2);min-width:300px;text-align:center;';
     toast.innerHTML='<div style="font-size:15px;font-weight:700;color:#cc0001;margin-bottom:4px;">🚫 Клиент заблокирован</div>'+
-        '<div style="font-size:13px;color:#991b1b;">'+(entry?entry.reason:'')+'</div>'+
-        '<div style="font-size:11px;color:#bbb;margin-top:4px;">'+(entry?fmtDate(entry.ts):'')+'</div>';
+        '<div style="font-size:13px;color:#991b1b;">'+(entry.reason||'')+'</div>';
     document.body.appendChild(toast);
     setTimeout(function(){toast.remove();},4000);
-},true);
+});
 
 // ── Инициализация ─────────────────────────────────────────
 var _initDone=false;
