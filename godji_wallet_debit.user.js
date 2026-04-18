@@ -109,8 +109,10 @@
             // Только VIP зона, свободные, незащищённые
             var free = devices.filter(function (d) {
                 var zoneName = d.zone && d.zone.name || '';
+                var zn = zoneName.toLowerCase();
+                // Только чистый VIP, не VIP Plus (у VIP+ другая схема тарифов)
                 return d.status === 'available' && !d.protected &&
-                       (zoneName.toLowerCase().indexOf('vip') !== -1);
+                       (zn === 'vip' || zn === 'vip ');
             });
             console.log('[debit] free VIP PCs:', free.map(function(d){return d.name+':'+d.id+':'+(d.zone&&d.zone.name);}));
             if (!free.length) {
@@ -193,7 +195,7 @@
     function getActiveSession(clientId) {
         // Запрос через таблицу reservations напрямую
         return gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 5) { id status user_id tariff { id name } reservations_club_device { name } } }',
+            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 5) { id status user_id tariff_id reservations_club_device { name } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
             console.log('[debit] getActiveSession FULL:', JSON.stringify(d));
@@ -238,7 +240,7 @@
             // Клиент уже сидит — продлеваем его текущий сеанс
             sessionId = activeSession.id;
             pcName = activeSession.reservations_club_device && activeSession.reservations_club_device.name || '?';
-            var tariffId = (activeSession.tariff && activeSession.tariff.id) || cachedTariff.tariffId;
+            var tariffId = activeSession.tariff_id || cachedTariff.tariffId;
             statusCallback('Продлеваем сеанс (' + minutes + ' мин) на ПК ' + pcName + '…');
             // Получаем актуальные тарифы для этого сеанса
             var availTariffs = await gql(
