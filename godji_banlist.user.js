@@ -54,7 +54,7 @@ function unbanUser(userId, reason){
 // ── Auth token ────────────────────────────────────────────
 var _authToken = null, _hasuraRole = 'club_admin';
 (function(){
-    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||{});var userId=params.userId||vars.userId||"";if((op==="CreateSession"||op==="CreateBooking"||op.indexOf("Reservation")!==-1||op.indexOf("Create")!==-1)&&userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Blocked session for banned user",userId);return Promise.resolve(new Response(JSON.stringify({errors:[{message:"CLIENT_BANNED"}],data:null}),{status:200,headers:{"content-type":"application/json"}}));}}catch(e){}}return f.apply(this,arguments);};}());';
+    var code = '(function(){if(window.__banHooked)return;window.__banHooked=true;var f=window.fetch;window.fetch=function(u,o){if(o&&o.headers&&o.headers.authorization){window._banAuthToken=o.headers.authorization;window._banHasuraRole=o.headers["x-hasura-role"]||"club_admin";}if(o&&o.body){try{var b=JSON.parse(o.body);var op=b.operationName||"";var vars=b.variables||{};var params=(vars.params||{});var userId=params.userId||vars.userId||"";if(userId&&window.__godjiCheckBanned&&window.__godjiCheckBanned(userId)){console.warn("[banlist] Detected session attempt for banned user",userId);document.dispatchEvent(new CustomEvent("godji_ban_blocked",{detail:{userId:userId}}));}}catch(e){}}return f.apply(this,arguments);};}());';
     // Экспортируем функцию проверки бана в window для inline-скрипта
     window.__godjiCheckBanned = function(userId){ return isBanned(userId); };
 
@@ -683,17 +683,30 @@ function renderUnbanPanel(container){
     renderRows();
 }
 
-// ── Попап при попытке посадки (показывается когда fetch заблокирован) ─────
-// Скрипт перехватывает userReservationCreate через fetch hook
-// и возвращает ошибку CLIENT_BANNED. ERP покажет ошибку, мы показываем свой попап.
+// ── При попытке посадки — показываем предупреждение и быстро завершаем сеанс ─────
 document.addEventListener('godji_ban_blocked',function(e){
-    var entry=loadBanlist().banned[e.detail&&e.detail.userId]||{};
+    var userId=e.detail&&e.detail.userId;
+    var entry=loadBanlist().banned[userId]||{};
+    
+    // Показываем предупреждение
+    var existing=document.getElementById('godji-ban-warning');
+    if(existing) existing.remove();
     var toast=document.createElement('div');
-    toast.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:14px 20px;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.2);min-width:300px;text-align:center;';
-    toast.innerHTML='<div style="font-size:15px;font-weight:700;color:#cc0001;margin-bottom:4px;">Клиент заблокирован</div>'+
-        '<div style="font-size:13px;color:#991b1b;">'+(entry.reason||'')+'</div>';
+    toast.id='godji-ban-warning';
+    toast.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;'+
+        'background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:14px 20px;'+
+        'font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.2);min-width:340px;text-align:center;';
+    toast.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;">'+
+        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cc0001" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'+
+        '<span style="font-size:15px;font-weight:700;color:#cc0001;">Клиент заблокирован</span></div>'+
+        '<div style="font-size:13px;color:#991b1b;margin-bottom:4px;">'+(entry.reason||'')+'</div>'+
+        '<div style="font-size:11px;color:#bbb;">Сеанс будет автоматически завершён</div>';
     document.body.appendChild(toast);
-    setTimeout(function(){toast.remove();},4000);
+    setTimeout(function(){if(toast.parentNode)toast.remove();},6000);
+    
+    // Запускаем немедленную проверку активных сеансов (не ждём интервала 5 сек)
+    setTimeout(watchForBannedSessions, 1500);
+    setTimeout(watchForBannedSessions, 4000);
 });
 
 // ── Инициализация ─────────────────────────────────────────
