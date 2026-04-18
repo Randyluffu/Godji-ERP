@@ -211,22 +211,6 @@ function openClientModal(clientId, clientWallet){
     openFull.style.cssText='font-size:12px;color:var(--mantine-color-dimmed);text-decoration:none;padding:3px 8px;border-radius:4px;border:1px solid var(--mantine-color-default-border);';
     openFull.textContent='↗ Открыть';
 
-    // Кнопка списания — если есть рублёвый баланс
-    if(clientWallet&&clientWallet.balance_amount>0){
-        var debitBtn=document.createElement('button');
-        debitBtn.style.cssText='font-size:12px;color:var(--mantine-color-red-light-color,#c92a2a);background:var(--mantine-color-red-light,#fff5f5);border:1px solid var(--mantine-color-red-light-color,#ffc9c9);border-radius:4px;padding:3px 8px;cursor:pointer;font-family:inherit;';
-        debitBtn.textContent='− Списать ₽';
-        debitBtn.addEventListener('click',function(e){
-            e.stopPropagation();
-            if(typeof window.__godjiOpenDebit==='function'){
-                window.__godjiOpenDebit(clientId, clientWallet);
-            } else {
-                alert('Скрипт списания не установлен или не загружен');
-            }
-        });
-        btns.appendChild(debitBtn);
-    }
-
     var cls=document.createElement('button');
     cls.style.cssText='background:none;border:none;color:var(--mantine-color-dimmed);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;';
     cls.textContent='×';cls.addEventListener('click',function(){ov.remove();_modal=null;});
