@@ -193,19 +193,26 @@
     //    Потом списываем ровно amount бонусов
     // Получить активный сеанс клиента
     function getActiveSession(clientId) {
-        // Запрос через таблицу reservations напрямую
+        // Получаем последние резервации без фильтра по статусу (enum значения неизвестны точно)
+        // Берём последние 5 и смотрим только на те, где статус активный
         return gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 5) { id status user_id tariff_id reservations_club_device { name } } }',
+            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 5) { id status user_id tariff_id reservations_club_device { name } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
             console.log('[debit] getActiveSession FULL:', JSON.stringify(d));
             var r = d.data && d.data.reservations;
-            if(r && r.length) {
-                console.log('[debit] found active session:', r[0].id, 'status:', r[0].status, 'user_id:', r[0].user_id);
-            } else {
-                console.log('[debit] no active sessions found for user', clientId);
+            if(!r || !r.length) {
+                console.log('[debit] no reservations found for user', clientId);
+                return null;
             }
-            return r && r.length ? r[0] : null;
+            // Ищем активную — статус НЕ заканчивается на ed/d (finished, canceled, ended)
+            var INACTIVE = ['finished','canceled','ended','completed','closed'];
+            var active = r.filter(function(res){
+                return INACTIVE.indexOf(res.status) === -1;
+            });
+            console.log('[debit] reservations:', r.map(function(x){return x.id+':'+x.status;}));
+            console.log('[debit] active reservations:', active.map(function(x){return x.id+':'+x.status;}));
+            return active.length ? active[0] : null;
         });
     }
 
