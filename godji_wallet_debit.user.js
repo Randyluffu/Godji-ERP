@@ -94,24 +94,27 @@
     }
 
     // ── Получить свободные ПК ────────────────────────────────
-    // VIP ПК (работает схема сеанс→бонусы): зоны Q(10-13), T(18-22), Y(23-29), O(30-35)
-    var VIP_PC_NAMES = ['10','11','12','13','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35'];
+    // VIP зоны по названию zone (из API)
+    var VIP_ZONE_NAMES = ['VIP','Vip','vip'];
 
     function getFreePCs() {
         return gql(
-            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { id name status protected } } }',
+            'query GetDashboardFree($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { id name status protected zone { id name } } } }',
             { clubId: CLUB_ID },
             'GetDashboardFree'
         ).then(function (data) {
             var devices = data.data && data.data.getDashboardDevices && data.data.getDashboardDevices.devices;
             if (!devices) return [];
-            // Только доступные, незащищённые, VIP-зоны
+            console.log('[debit] all devices:', devices.map(function(d){return d.name+':'+d.id+':'+(d.zone&&d.zone.name||'?');}));
+            // Только VIP зона, свободные, незащищённые
             var free = devices.filter(function (d) {
-                return d.status === 'available' && !d.protected && VIP_PC_NAMES.indexOf(d.name) !== -1;
+                var zoneName = d.zone && d.zone.name || '';
+                return d.status === 'available' && !d.protected &&
+                       (zoneName.toLowerCase().indexOf('vip') !== -1);
             });
-            console.log('[debit] free VIP PCs:', free.map(function(d){return d.name+':'+d.id;}));
+            console.log('[debit] free VIP PCs:', free.map(function(d){return d.name+':'+d.id+':'+(d.zone&&d.zone.name);}));
             if (!free.length) {
-                // Если VIP нет — берём любой свободный незащищённый
+                // Fallback — любой свободный незащищённый
                 free = devices.filter(function(d){ return d.status === 'available' && !d.protected; });
                 console.log('[debit] fallback free PCs:', free.map(function(d){return d.name+':'+d.id;}));
             }
@@ -190,11 +193,16 @@
     function getActiveSession(clientId) {
         // Запрос через таблицу reservations напрямую
         return gql(
-            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 1) { id status tariff { id name } reservations_club_device { name } } }',
+            'query GetActiveSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_nin: ["finished","canceled"]}}, order_by: {id: desc}, limit: 5) { id status user_id tariff { id name } reservations_club_device { name } } }',
             { userId: clientId, clubId: CLUB_ID }, 'GetActiveSession'
         ).then(function(d) {
             console.log('[debit] getActiveSession FULL:', JSON.stringify(d));
             var r = d.data && d.data.reservations;
+            if(r && r.length) {
+                console.log('[debit] found active session:', r[0].id, 'status:', r[0].status, 'user_id:', r[0].user_id);
+            } else {
+                console.log('[debit] no active sessions found for user', clientId);
+            }
             return r && r.length ? r[0] : null;
         });
     }
