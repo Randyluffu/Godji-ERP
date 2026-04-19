@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      2.5
+// @version      2.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -86,8 +86,65 @@ function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
 var _authToken = null;
 var _hasuraRole = 'club_admin';
-// Время последней проверки wallet_operations — чтобы не тащить историю
-var _lastChecked = Date.now();
+
+// ── Синхронизация между вкладками ────────────────────────
+// Когда в другой вкладке изменяется localStorage — сразу обновляем UI
+window.addEventListener('storage', function(e){
+    if(e.key === STORAGE_KEY || e.key === SHIFTS_KEY){
+        updateBtnBadge();
+        updateModalIfOpen();
+    }
+});
+
+// ── Мьютекс для processWalletOps ─────────────────────────
+var _processing = false;
+
+// ── Детектор аномалий ─────────────────────────────────────
+// Логика: дубль = та же сумма + тот же тип в течение 15 сек.
+// 15 сек — потому что за это время два разных клиента вряд ли
+// пополнят одинаково, а баг ERP обычно создаёт дубль мгновенно.
+var _recentDeposits = []; // [{ts, amount, moneyType, opId}]
+var DUP_WINDOW_MS = 15000;
+
+function checkAnomaly(amount, moneyType, opId){
+    var now = Date.now();
+    _recentDeposits = _recentDeposits.filter(function(d){ return now - d.ts < DUP_WINDOW_MS; });
+
+    // Ищем совпадение по сумме И типу в окне 15 сек
+    var dup = null;
+    for(var i = 0; i < _recentDeposits.length; i++){
+        var d = _recentDeposits[i];
+        if(d.amount === amount && d.moneyType === moneyType){
+            dup = d; break;
+        }
+    }
+
+    _recentDeposits.push({ ts: now, amount: amount, moneyType: moneyType, opId: opId });
+
+    if(dup){
+        var secAgo = Math.round((now - dup.ts) / 1000);
+        showAnomalyAlert(
+            'Возможный дубль: ' + amount + '₽ (' + (moneyType==='cash'?'нал':'карта') + ')'
+            + ' — такое же пополнение было ' + secAgo + ' сек назад (оп #' + dup.opId + ')'
+        );
+    }
+}
+
+function showAnomalyAlert(msg){
+    if(document.getElementById('gcb-anomaly-toast')) return;
+    var t = document.createElement('div');
+    t.id = 'gcb-anomaly-toast';
+    t.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;'
+        + 'background:#7c1a1a;border:1px solid #dc2626;border-radius:10px;'
+        + 'padding:12px 18px;color:#fff;font-size:13px;font-weight:600;'
+        + 'box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:inherit;'
+        + 'display:flex;align-items:center;gap:10px;max-width:480px;cursor:default;';
+    t.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+        + '<span>' + msg + '</span>'
+        + '<button onclick="this.parentNode.remove()" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:18px;padding:0 0 0 10px;line-height:1;">×</button>';
+    document.body.appendChild(t);
+    setTimeout(function(){ if(t.parentNode) t.remove(); }, 10000);
+}
 
 document.addEventListener('__gcb__', function(e){
     try{
@@ -231,43 +288,54 @@ function isSystemRefund(op){
 }
 
 function processWalletOps(ops){
-    var shift = loadCurrent();
-    if(!shift) return;
-    shift.seenOpIds = shift.seenOpIds || [];
-    shift._maxSeenId = shift._maxSeenId || 0;
-    var seenSet = {};
-    shift.seenOpIds.forEach(function(id){ seenSet[id] = true; });
-    var changed = false;
+    if(_processing) return;
+    _processing = true;
+    try{
+        var shift = loadCurrent();
+        if(!shift){ _processing = false; return; }
+        shift.seenOpIds = shift.seenOpIds || [];
+        shift._maxSeenId = shift._maxSeenId || 0;
+        var seenSet = {};
+        shift.seenOpIds.forEach(function(id){ seenSet[id] = true; });
+        var changed = false;
 
-    ops.forEach(function(op){
-        // Обновляем максимальный ID всегда
-        if(op.id > shift._maxSeenId) shift._maxSeenId = op.id;
+        ops.forEach(function(op){
+            if(op.id > shift._maxSeenId) shift._maxSeenId = op.id;
 
-        if(op.amount <= 0) return;
-        if(seenSet[op.id]) return;
+            if(op.amount <= 0) return;
+            if(seenSet[op.id]) return;
 
-        // Исключаем автоматические возвраты ERP
-        if(isSystemRefund(op)){
+            if(isSystemRefund(op)){
+                seenSet[op.id] = true;
+                shift.seenOpIds.push(op.id);
+                changed = true;
+                return;
+            }
+
             seenSet[op.id] = true;
             shift.seenOpIds.push(op.id);
-            changed = true; // обновим _maxSeenId
-            return;
-        }
 
-        seenSet[op.id] = true;
-        shift.seenOpIds.push(op.id);
-        if(op.money_type === 'cash'){
-            shift.cash = (shift.cash||0) + op.amount;
-        } else {
-            shift.card = (shift.card||0) + op.amount;
-        }
-        changed = true;
-    });
+            // Округляем до копеек чтобы избежать float drift
+            var amt = Math.round(op.amount * 100) / 100;
 
-    if(changed){
-        saveCurrent(shift);
-        updateBtnBadge();
-        updateModalIfOpen();
+            // Проверяем аномалию
+            checkAnomaly(amt, op.money_type, op.id);
+
+            if(op.money_type === 'cash'){
+                shift.cash = Math.round(((shift.cash||0) + amt) * 100) / 100;
+            } else {
+                shift.card = Math.round(((shift.card||0) + amt) * 100) / 100;
+            }
+            changed = true;
+        });
+
+        if(changed){
+            saveCurrent(shift);
+            updateBtnBadge();
+            updateModalIfOpen();
+        }
+    }finally{
+        _processing = false;
     }
 }
 
