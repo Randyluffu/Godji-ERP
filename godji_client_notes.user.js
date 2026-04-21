@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      2.9
+// @version      3.0
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
@@ -46,7 +46,11 @@
         var clientId = getClientId();
         if (!clientId) return;
 
-        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z');
+        // Ищем заголовок страницы клиента — класс может отличаться в iframe
+        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z') ||
+                 document.querySelector('h2[class*="PageHeader"]') ||
+                 document.querySelector('h2[class*="desktopTitle"]') ||
+                 document.querySelector('h2[class*="Title"]');
         if (!h2) return;
 
         // Родитель h2 — flex-колонка (Breadcrumbs + h2)
@@ -187,8 +191,8 @@
         editor.innerHTML = saved.html || '';
         editor.setAttribute('data-placeholder', 'Нажмите чтобы добавить заметку...');
         editor.style.cssText = [
-            'min-width:220px',
-            'max-width:360px',
+            'min-width:320px',
+            'max-width:600px',
             'min-height:26px',
             'padding:4px 8px',
             'font-size:' + state.fontSize + 'px',
@@ -337,20 +341,34 @@
             if (mutations[i].addedNodes.length > 0) {
                 clearTimeout(window._godjiNoteTimer);
                 window._godjiNoteTimer = setTimeout(function() {
-                    // Если заметка пропала — вставить снова
                     if (!document.getElementById('godji-client-note')) {
                         injectNote();
                     }
-                }, 300);
+                }, 200);
                 break;
             }
         }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    // Несколько попыток на случай медленной загрузки
+    // Попытки на случай медленной загрузки и iframe
+    setTimeout(injectNote, 500);
     setTimeout(injectNote, 1000);
-    setTimeout(injectNote, 2500);
-    setTimeout(injectNote, 5000);
+    setTimeout(injectNote, 2000);
+    setTimeout(injectNote, 3500);
+    setTimeout(injectNote, 6000);
+
+    // Слушаем SPA-навигацию внутри iframe
+    var _lastPath = location.pathname;
+    setInterval(function() {
+        var cur = location.pathname;
+        if (cur !== _lastPath) {
+            _lastPath = cur;
+            var old = document.getElementById('godji-client-note');
+            if (old) old.remove();
+            setTimeout(injectNote, 500);
+            setTimeout(injectNote, 1500);
+        }
+    }, 500);
 
 })();
