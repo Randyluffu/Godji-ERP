@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
@@ -46,11 +46,7 @@
         var clientId = getClientId();
         if (!clientId) return;
 
-        // Ищем заголовок страницы клиента — класс может отличаться в iframe
-        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z') ||
-                 document.querySelector('h2[class*="PageHeader"]') ||
-                 document.querySelector('h2[class*="desktopTitle"]') ||
-                 document.querySelector('h2[class*="Title"]');
+        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z');
         if (!h2) return;
 
         // Родитель h2 — flex-колонка (Breadcrumbs + h2)
@@ -191,8 +187,8 @@
         editor.innerHTML = saved.html || '';
         editor.setAttribute('data-placeholder', 'Нажмите чтобы добавить заметку...');
         editor.style.cssText = [
-            'min-width:320px',
-            'max-width:600px',
+            'min-width:280px',
+            'max-width:700px','width:700px',
             'min-height:26px',
             'padding:4px 8px',
             'font-size:' + state.fontSize + 'px',
@@ -227,6 +223,11 @@
             editor.style.fontWeight = state.bold ? '700' : '600';
             editor.style.fontStyle = state.italic ? 'italic' : 'normal';
             editor.style.color = state.color;
+            // Убираем inline font-size у вложенных spans чтобы они наследовали родительский
+            editor.querySelectorAll('span[style*="font-size"]').forEach(function(sp){
+                sp.style.fontSize = '';
+                if (!sp.style.cssText.trim()) sp.removeAttribute('style');
+            });
             btnBold.style.cssText = btnStyle(state.bold);
             btnItalic.style.cssText = btnStyle(state.italic);
             colorBtns.forEach(function(cb) {
@@ -322,18 +323,22 @@
         noteBlock.appendChild(toolbar);
         noteBlock.appendChild(editor);
 
-        // Делаем родителя h2 position:relative и вешаем заметку absolute справа
+        // Оборачиваем h2 и noteBlock в flex-строку
         var h2Parent = h2.parentElement;
-        if (h2Parent) {
-            var parentPos = window.getComputedStyle(h2Parent).position;
-            if (parentPos === 'static') h2Parent.style.position = 'relative';
+        if (!h2Parent) return;
+
+        // Если уже обёрнуто — не оборачиваем снова
+        if (!h2Parent.querySelector('#godji-note-row')) {
+            var row = document.createElement('div');
+            row.id = 'godji-note-row';
+            row.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:nowrap;min-width:0;max-width:100%;';
+            // Переносим h2 в row
+            h2Parent.insertBefore(row, h2);
+            row.appendChild(h2);
+            row.appendChild(noteBlock);
+        } else {
+            h2Parent.querySelector('#godji-note-row').appendChild(noteBlock);
         }
-        noteBlock.style.position = 'absolute';
-        noteBlock.style.top = '0';
-        noteBlock.style.left = (h2.offsetWidth + 16) + 'px';
-        noteBlock.style.display = 'flex';
-        noteBlock.style.alignItems = 'center';
-        h2Parent.appendChild(noteBlock);
     }
 
     var observer = new MutationObserver(function(mutations) {
@@ -341,34 +346,20 @@
             if (mutations[i].addedNodes.length > 0) {
                 clearTimeout(window._godjiNoteTimer);
                 window._godjiNoteTimer = setTimeout(function() {
+                    // Если заметка пропала — вставить снова
                     if (!document.getElementById('godji-client-note')) {
                         injectNote();
                     }
-                }, 200);
+                }, 300);
                 break;
             }
         }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    // Попытки на случай медленной загрузки и iframe
-    setTimeout(injectNote, 500);
+    // Несколько попыток на случай медленной загрузки
     setTimeout(injectNote, 1000);
-    setTimeout(injectNote, 2000);
-    setTimeout(injectNote, 3500);
-    setTimeout(injectNote, 6000);
-
-    // Слушаем SPA-навигацию внутри iframe
-    var _lastPath = location.pathname;
-    setInterval(function() {
-        var cur = location.pathname;
-        if (cur !== _lastPath) {
-            _lastPath = cur;
-            var old = document.getElementById('godji-client-note');
-            if (old) old.remove();
-            setTimeout(injectNote, 500);
-            setTimeout(injectNote, 1500);
-        }
-    }, 500);
+    setTimeout(injectNote, 2500);
+    setTimeout(injectNote, 5000);
 
 })();
