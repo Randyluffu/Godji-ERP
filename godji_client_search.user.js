@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.18
+// @version      5.19
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -188,10 +188,10 @@ function renderResults(clients,container){
         // Проверяем есть ли заметка у клиента
         var hasNote = false;
         try {
-            var noteRaw = localStorage.getItem('godji_note_' + c.id);
+            var noteRaw = localStorage.getItem('godji_note_v2_' + c.id);
             if (noteRaw) {
                 var noteData = JSON.parse(noteRaw);
-                hasNote = !!(noteData && noteData.content && noteData.content.trim() && noteData.content !== '<br>');
+                hasNote = !!(noteData && noteData.html && noteData.html.trim() && noteData.html !== '<br>');
             }
         } catch(e) {}
         var noteIndicator = hasNote
