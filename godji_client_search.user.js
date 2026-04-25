@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.16
+// @version      5.17
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
 // @downloadURL  https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
 // @grant        none
+// @exclude      https://godji.cloud/tv/*
+// @exclude      https://*.godji.cloud/tv/*
 // @run-at       document-start
 // ==/UserScript==
 (function(){
@@ -247,7 +249,7 @@ function openClientModal(clientId, clientWallet){
             });
             // Скрываем все godji-* элементы кроме кнопки списания
             idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
-                if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
+                if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
                 hideEl(el);
             });
             // Убираем отступы у main
@@ -284,9 +286,9 @@ function openClientModal(clientId, clientWallet){
                         _SELECTORS.forEach(function(sel){
                             if(n.querySelectorAll)n.querySelectorAll(sel).forEach(hideEl);
                         });
-                        if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay'&&n.id!=='godji-client-note')hideEl(n);
+                        if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay')hideEl(n);
                         if(n.querySelectorAll)n.querySelectorAll('[id^="godji"]').forEach(function(el){
-                            if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
+                            if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
                             hideEl(el);
                         });
                     });
