@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
@@ -323,22 +323,37 @@
         noteBlock.appendChild(toolbar);
         noteBlock.appendChild(editor);
 
-        // Оборачиваем h2 и noteBlock в flex-строку
-        var h2Parent = h2.parentElement;
-        if (!h2Parent) return;
+        // Вставляем noteBlock как fixed поверх страницы — не трогаем DOM ERP
+        // Позиция: у правого края h2, выровнена по вертикали с h2
+        noteBlock.style.position = 'fixed';
+        noteBlock.style.zIndex = '9000';
+        noteBlock.style.display = 'flex';
+        noteBlock.style.alignItems = 'center';
+        noteBlock.style.gap = '6px';
+        // toolbar перекрывает содержимое ERP — скрываем пока не наведение
+        document.body.appendChild(noteBlock);
 
-        // Если уже обёрнуто — не оборачиваем снова
-        if (!h2Parent.querySelector('#godji-note-row')) {
-            var row = document.createElement('div');
-            row.id = 'godji-note-row';
-            row.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:nowrap;min-width:0;max-width:100%;';
-            // Переносим h2 в row
-            h2Parent.insertBefore(row, h2);
-            row.appendChild(h2);
-            row.appendChild(noteBlock);
-        } else {
-            h2Parent.querySelector('#godji-note-row').appendChild(noteBlock);
+        function repositionNote() {
+            var r = h2.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return;
+            noteBlock.style.top = Math.round(r.top + (r.height - 28) / 2) + 'px';
+            noteBlock.style.left = Math.round(r.left) + 'px';
         }
+        repositionNote();
+
+        // Перепозиционируем при изменении layout
+        window.addEventListener('resize', repositionNote);
+        window.addEventListener('scroll', repositionNote, true);
+        var _repoTimer = setInterval(repositionNote, 800);
+
+        // Останавливаем интервал при удалении
+        var _mutRemove = new MutationObserver(function() {
+            if (!document.getElementById('godji-client-note')) {
+                clearInterval(_repoTimer);
+                _mutRemove.disconnect();
+            }
+        });
+        _mutRemove.observe(document.body, {childList: true, subtree: true});
     }
 
     var observer = new MutationObserver(function(mutations) {
