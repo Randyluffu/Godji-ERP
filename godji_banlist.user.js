@@ -97,7 +97,18 @@ function gql(q,v,op){
     }).then(function(r){return r.json();});
 }
 function finishSession(sessionId){
-    return gql('mutation FB($id:Int!){userReservationFinish(params:{sessionId:$id}){success}}',{id:sessionId},'FB');
+    // Пробуем два варианта мутации завершения
+    return gql('mutation FB($id:Int!){userReservationFinish(params:{sessionId:$id}){success}}',
+        {id:sessionId},'FB'
+    ).then(function(r){
+        if(r && r.errors) {
+            console.warn('[banlist] FB1 failed:', r.errors[0].message, '- trying FB2');
+            // Альтернативный вариант
+            return gql('mutation FB2($id:Int!){userReservationStop(params:{sessionId:$id}){success __typename}}',
+                {id:sessionId},'FB2');
+        }
+        return r;
+    });
 }
 function fileToBase64(file){
     return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result);};r.onerror=rej;r.readAsDataURL(file);});
@@ -262,14 +273,20 @@ function watchForBannedSessions(){
             if(_watchedSessions[r.id]) return;
             _watchedSessions[r.id]=true;
             var entry=loadBanlist().banned[r.user_id];
-            console.warn('[banlist] finishing session',r.id,'for banned user',r.user_id);
-            finishSession(r.id).then(function(){
+            console.warn('[banlist] finishing session',r.id,'status:',r.status,'for banned user',r.user_id);
+            finishSession(r.id).then(function(result){
+                console.log('[banlist] finishSession result:', JSON.stringify(result));
+                if(result && result.errors) {
+                    console.error('[banlist] finish failed:', result.errors[0].message);
+                    delete _watchedSessions[r.id];
+                    return;
+                }
                 var toast=mk('div','position:fixed;top:20px;right:20px;z-index:999999;background:#fff0f0;border:2px solid #cc0001;border-radius:10px;padding:12px 16px;font-family:inherit;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:320px;');
                 toast.innerHTML='<div style="font-size:13px;font-weight:700;color:#cc0001;margin-bottom:2px;">Сеанс завершён</div>'+
                     '<div style="font-size:12px;color:#991b1b;">'+(entry?entry.reason:'')+'</div>';
                 document.body.appendChild(toast);
                 setTimeout(function(){if(toast.parentNode)toast.remove();},5000);
-            }).catch(function(){ delete _watchedSessions[r.id]; });
+            }).catch(function(e){ console.error('[banlist] finish error:', e); delete _watchedSessions[r.id]; });
         });
     }).catch(function(){});
 }
