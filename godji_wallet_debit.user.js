@@ -283,6 +283,21 @@
             if (!freePCs || freePCs.length === 0) {
                 throw new Error('Нет свободных ПК и нет активного сеанса. Попробуйте позже.');
             }
+            // Сначала завершаем все зависшие сеансы (end_rejected)
+            statusCallback('Проверяем зависшие сеансы…');
+            var stuckData = await gql(
+                'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_eq: "end_rejected"}}, order_by: {id: desc}, limit: 10) { id } }',
+                { userId: clientId, clubId: CLUB_ID }, 'GetStuck'
+            ).catch(function(){ return null; });
+            var stuck = stuckData && stuckData.data && stuckData.data.reservations;
+            if(stuck && stuck.length) {
+                console.log('[debit] finishing', stuck.length, 'stuck sessions');
+                for(var si = 0; si < stuck.length; si++) {
+                    await finishSession(stuck[si].id).catch(function(){});
+                }
+                await new Promise(function(r){ setTimeout(r, 1000); });
+            }
+
             // Пробуем все свободные VIP ПК по очереди
             var startResult = null;
             for(var pi = 0; pi < freePCs.length; pi++) {
