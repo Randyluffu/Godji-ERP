@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Напоминания
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Менеджер напоминаний в стиле ERP
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -175,8 +175,8 @@ function section(){ var el=document.createElement('div'); el.style.cssText='disp
 function typeBtn(text,active){
     var el=document.createElement('button'); el.type='button';
     el.style.cssText='flex:1;padding:7px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;'+
-        'border:1px solid rgba(255,255,255,0.12);font-family:inherit;transition:all 0.15s;'+
-        'background:'+(active?'#cc0001':'rgba(255,255,255,0.07)')+';color:'+(active?'#fff':'rgba(255,255,255,0.5)')+';';
+        'border:1px solid '+(active?'#cc0001':'#e0e0e0')+';font-family:inherit;transition:all 0.15s;'+
+        'background:'+(active?'#cc0001':'#f5f5f5')+';color:'+(active?'#fff':'#555')+';';
     el.textContent=text; return el;
 }
 function dayBtn(text,i,arr){
@@ -235,7 +235,7 @@ function renderModal(){
     // Список активных
     var rems=load();
     if(rems.length){
-        var lt=document.createElement('div'); lt.style.cssText='font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.8px;';
+        var lt=document.createElement('div'); lt.style.cssText='font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.8px;';
         lt.textContent='Активные ('+rems.length+')'; body.appendChild(lt);
         rems.forEach(function(rem){
             var row=document.createElement('div');
@@ -273,7 +273,7 @@ function renderModal(){
     // Блок разового
     var onceBlock=section();
     var dtSec=section(); dtSec.appendChild(lbl('Дата и время'));
-    var dtInp=inp('','datetime-local'); dtInp.style.colorScheme='dark';
+    var dtInp=inp('','datetime-local'); dtInp.style.colorScheme='light';
     var now=new Date();
     dtInp.min=toLocalISO(now).slice(0,16);
     dtInp.max=toLocalISO(new Date(now.getTime()+30*86400000)).slice(0,16);
@@ -361,8 +361,8 @@ function renderModal(){
     var isOnce=true;
     function setType(once){
         isOnce=once;
-        btnOnce.style.background=once?'#cc0001':'rgba(255,255,255,0.07)'; btnOnce.style.color=once?'#fff':'rgba(255,255,255,0.5)';
-        btnSched.style.background=!once?'#cc0001':'rgba(255,255,255,0.07)'; btnSched.style.color=!once?'#fff':'rgba(255,255,255,0.5)';
+        btnOnce.style.background=once?'#cc0001':'#f5f5f5'; btnOnce.style.color=once?'#fff':'#555'; btnOnce.style.borderColor=once?'#cc0001':'#e0e0e0';
+        btnSched.style.background=!once?'#cc0001':'#f5f5f5'; btnSched.style.color=!once?'#fff':'#555'; btnSched.style.borderColor=!once?'#cc0001':'#e0e0e0';
         onceBlock.style.display=once?'flex':'none';
         schedBlock.style.display=!once?'flex':'none';
     }
