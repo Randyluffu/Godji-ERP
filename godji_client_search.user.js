@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.17
+// @version      5.18
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -185,7 +185,19 @@ function renderResults(clients,container){
         var bon=w&&w.balance_bonus>0?' · '+Math.round(w.balance_bonus)+' G':'';
         var item=document.createElement('div');
         item.style.cssText='padding:8px 12px;cursor:pointer;transition:background 0.1s;'+(i>0?'border-top:1px solid var(--mantine-color-default-border)':'');
-        item.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-size:var(--mantine-font-size-sm,14px);font-weight:600;color:var(--mantine-color-text);">'+esc(nick||name)+'</span><span style="font-size:11px;color:var(--mantine-color-dimmed);white-space:nowrap;flex-shrink:0;">'+esc(bal+bon)+'</span></div>'+
+        // Проверяем есть ли заметка у клиента
+        var hasNote = false;
+        try {
+            var noteRaw = localStorage.getItem('godji_note_' + c.id);
+            if (noteRaw) {
+                var noteData = JSON.parse(noteRaw);
+                hasNote = !!(noteData && noteData.content && noteData.content.trim() && noteData.content !== '<br>');
+            }
+        } catch(e) {}
+        var noteIndicator = hasNote
+            ? '<span title="Есть заметка" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#cc0001;flex-shrink:0;margin-left:4px;margin-top:3px;"></span>'
+            : '';
+        item.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;align-items:center;gap:4px;"><span style="font-size:var(--mantine-font-size-sm,14px);font-weight:600;color:var(--mantine-color-text);">'+esc(nick||name)+'</span>'+noteIndicator+'</div><span style="font-size:11px;color:var(--mantine-color-dimmed);white-space:nowrap;flex-shrink:0;">'+esc(bal+bon)+'</span></div>'+
             '<div style="font-size:11px;color:var(--mantine-color-dimmed);margin-top:2px;display:flex;gap:8px;">'+(nick?'<span>'+esc(name)+'</span>':'')+(c.phone?'<span>'+esc(c.phone)+'</span>':'')+'</div>';
         item.addEventListener('mouseenter',function(){item.style.background='var(--mantine-color-default-hover)';});
         item.addEventListener('mouseleave',function(){item.style.background='';});
@@ -249,7 +261,7 @@ function openClientModal(clientId, clientWallet){
             });
             // Скрываем все godji-* элементы кроме кнопки списания
             idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
-                if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
+                if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                 hideEl(el);
             });
             // Убираем отступы у main
@@ -286,9 +298,9 @@ function openClientModal(clientId, clientWallet){
                         _SELECTORS.forEach(function(sel){
                             if(n.querySelectorAll)n.querySelectorAll(sel).forEach(hideEl);
                         });
-                        if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay')hideEl(n);
+                        if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay'&&n.id!=='godji-client-note')hideEl(n);
                         if(n.querySelectorAll)n.querySelectorAll('[id^="godji"]').forEach(function(el){
-                            if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay') return;
+                            if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                             hideEl(el);
                         });
                     });
