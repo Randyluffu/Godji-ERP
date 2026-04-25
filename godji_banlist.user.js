@@ -70,7 +70,7 @@ function unbanUser(userId, reason){
         '      console.warn("[banlist] banned:",uid);',
         '      var pr=_f.apply(this,arguments);',
         '      pr.then(function(r){r.clone().json().then(function(d){',
-        '        if(d&&d.data&&!d.errors)document.dispatchEvent(new CustomEvent("__ban_created",{detail:{u:uid}}));',
+        '        if(d&&d.data&&!d.errors)document.dispatchEvent(new CustomEvent("__ban_created",{detail:{u:uid}}));window.__ban_pending=uid;',
         '      }).catch(function(){});}).catch(function(){});',
         '      return pr;',
         '    }',
@@ -207,6 +207,14 @@ function showUnbanModal(userId, nick, name, onDone){
 }
 
 // ── Overlay "сеанс создан для забаненного" ───────────────
+// Fallback: inline-скрипт записывает window.__ban_pending если event не доставлен
+setInterval(function(){
+    if(window.__ban_pending){
+        var uid=window.__ban_pending; window.__ban_pending=null;
+        document.dispatchEvent(new CustomEvent('__ban_created',{detail:{u:uid}}));
+    }
+},500);
+
 document.addEventListener('__ban_created', function(e){
     var userId = e.detail && e.detail.u;
     var entry = loadBanlist().banned[userId] || {};
@@ -331,11 +339,11 @@ function injectClientPageBanBtn(){
             });
             banner.appendChild(pr);
         }
-        var firstDivider=avatarRow.closest('[class*="Card-root"],[class*="Paper-root"]');
-        if(firstDivider){
-            var div=firstDivider.querySelector('.mantine-Divider-root');
-            if(div) firstDivider.insertBefore(banner,div);
-            else firstDivider.appendChild(banner);
+        var parentFlex=avatarRow.parentNode;
+        if(parentFlex){
+            var nextEl=avatarRow.nextSibling;
+            if(nextEl) parentFlex.insertBefore(banner,nextEl);
+            else parentFlex.appendChild(banner);
         }
     }
 }
