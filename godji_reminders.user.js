@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Годжи — Напоминания
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  Менеджер напоминаний в стиле ERP
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @grant        none
+// @exclude      https://godji.cloud/tv/*
+// @exclude      https://*.godji.cloud/tv/*
 // @run-at       document-idle
 // ==/UserScript==
 (function(){
