@@ -97,18 +97,8 @@ function gql(q,v,op){
     }).then(function(r){return r.json();});
 }
 function finishSession(sessionId){
-    // Пробуем два варианта мутации завершения
-    return gql('mutation FB($id:Int!){userReservationFinish(params:{sessionId:$id}){success}}',
-        {id:sessionId},'FB'
-    ).then(function(r){
-        if(r && r.errors) {
-            console.warn('[banlist] FB1 failed:', r.errors[0].message, '- trying FB2');
-            // Альтернативный вариант
-            return gql('mutation FB2($id:Int!){userReservationStop(params:{sessionId:$id}){success __typename}}',
-                {id:sessionId},'FB2');
-        }
-        return r;
-    });
+    return gql('mutation FB($id:Int!){userReservationCancel(params:{sessionId:$id}){success}}',
+        {id:sessionId},'FB');
 }
 function fileToBase64(file){
     return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result);};r.onerror=rej;r.readAsDataURL(file);});
@@ -266,7 +256,7 @@ function watchForBannedSessions(){
         {clubId:CLUB_ID},'CB'
     ).then(function(d){
         var res=d.data&&d.data.reservations; if(!res) return;
-        var INACTIVE=['finished','canceled','ended','completed','closed','end_rejected','rejected'];
+        var INACTIVE=['finished','canceled','ended','completed','closed','end_rejected','rejected','end_finished'];
         res.forEach(function(r){
             if(bannedIds.indexOf(r.user_id)===-1) return;
             if(INACTIVE.indexOf(r.status)!==-1) return;
