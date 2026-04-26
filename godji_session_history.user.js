@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.8
+// @version      4.9
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -394,12 +394,9 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
-    if(!navbar) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
 
-    // Копируем className с нативной NavLink для полного совпадения стиля
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var btnCls = nativeLink ? nativeLink.className
@@ -407,12 +404,8 @@ function createSidebarButton(){
 
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
-    btn.className = btnCls;
+    btn.className = btnCls; // только классы, никакого style — иначе перебивает CSS
     btn.href = 'javascript:void(0)';
-    // padding совпадает с нативными кнопками ERP: 8px 12px 8px 18px
-    btn.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;height:46px;' +
-        'padding:8px 12px 8px 18px;cursor:pointer;user-select:none;' +
-        'font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
@@ -420,11 +413,8 @@ function createSidebarButton(){
     var ico = document.createElement('div');
     ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));' +
-        '--ti-bg:var(--mantine-color-gg_primary-filled);' +
-        '--ti-color:var(--mantine-color-white);' +
-        '--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
 
     var body = document.createElement('div');
@@ -440,8 +430,10 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем ПЕРЕД блоком с часами в navbar
-    navbar.insertBefore(btn, clockSec);
+    // В linksInner: после godji-opj-btn если есть, иначе в конец
+    var opjBtn = inner.querySelector('#godji-opj-btn');
+    if(opjBtn) inner.insertBefore(btn, opjBtn);
+    else inner.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
@@ -449,8 +441,7 @@ setInterval(scan,2000);
 
 function tryCreateHistBtn(){
     if(document.getElementById('godji-history-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec){ setTimeout(tryCreateHistBtn,500); return; }
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
 
