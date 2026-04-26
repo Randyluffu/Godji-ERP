@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      4.7
+// @version      4.8
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -369,65 +369,95 @@ function hideModal(){
     var b=document.getElementById('godji-history-btn');if(b)b.removeAttribute('data-active');
 }
 
-// ── Кнопка в сайдбаре ────────────────────────────────────
-function hasSidebar(){
-    return !!document.querySelector('.Sidebar_linksInner__oTy_4');
+// ── Кнопка в сайдбаре ─────────────────────────────────────
+// Вставляем кнопку ПРЯМО в navbar перед блоком с часами.
+// Не используем linksInner — React его перерендеривает.
+
+function getClockSection(){
+    // Блок с часами — это mantine-AppShell-section содержащий время/дату/смену
+    // Он идёт ПОСЛЕ Sidebar_links и ДО Sidebar_footer
+    var navbar = document.querySelector('nav.mantine-AppShell-navbar');
+    if(!navbar) return null;
+    var sections = navbar.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i=0; i<sections.length; i++){
+        var s = sections[i];
+        // Блок с часами содержит кнопку смены или время
+        if(!s.classList.contains('Sidebar_footer__1BA98') &&
+           !s.classList.contains('Sidebar_links__o1FyV') &&
+           !s.classList.contains('Sidebar_header__dm6Ua') &&
+           (s.querySelector('time, .Shifts_shiftsPaper__9Jml_, button') || s.textContent.match(/\d{2}:\d{2}/))){
+            return s;
+        }
+    }
+    return null;
 }
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb) return;
+    var clockSec = getClockSection();
+    if(!clockSec) return;
+    var navbar = clockSec.parentNode;
+    if(!navbar) return;
 
-    var bookLink=document.querySelector('a[href="/bookings"]');
-    var btnCls=bookLink?bookLink.className:'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    // Копируем className с нативной NavLink для полного совпадения стиля
+    var nativeLink = document.querySelector('a[href="/bookings"]') ||
+                     document.querySelector('a.mantine-NavLink-root');
+    var btnCls = nativeLink ? nativeLink.className
+        : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
 
-    var btn=document.createElement('a');
-    btn.id='godji-history-btn';
-    btn.className=btnCls+' onest';
-    btn.href='javascript:void(0)';
-    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    var btn = document.createElement('a');
+    btn.id = 'godji-history-btn';
+    btn.className = btnCls;
+    btn.href = 'javascript:void(0)';
+    // padding совпадает с нативными кнопками ERP: 8px 12px 8px 18px
+    btn.style.cssText = 'display:flex;align-items:center;gap:12px;width:100%;height:46px;' +
+        'padding:8px 12px 8px 18px;cursor:pointer;user-select:none;' +
+        'font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
-    var sec=document.createElement('span');
-    sec.className='m_690090b5 mantine-NavLink-section';
+    var sec = document.createElement('span');
+    sec.className = 'm_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
-    var ico=document.createElement('div');
-    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    var ico = document.createElement('div');
+    ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));' +
+        '--ti-bg:var(--mantine-color-gg_primary-filled);' +
+        '--ti-color:var(--mantine-color-white);' +
+        '--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
 
-    var body=document.createElement('div');
-    body.className='m_f07af9d2 mantine-NavLink-body';
-    var lbl=document.createElement('span');
-    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.textContent='История сеансов';
+    var body = document.createElement('div');
+    body.className = 'm_f07af9d2 mantine-NavLink-body';
+    var lbl = document.createElement('span');
+    lbl.className = 'm_1f6ac4c4 mantine-NavLink-label';
+    lbl.textContent = 'История сеансов';
     body.appendChild(lbl);
     btn.appendChild(sec); btn.appendChild(body);
-    btn.addEventListener('click',function(e){
+    btn.addEventListener('click', function(e){
         e.stopPropagation();
-        if(modalVisible){hideModal();btn.removeAttribute('data-active');}
-        else{showModal();btn.setAttribute('data-active','true');}
+        if(modalVisible){ hideModal(); btn.removeAttribute('data-active'); }
+        else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем после последнего нативного NavLink (не нашего)
-    var nativeLinks=Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
-    var last=nativeLinks[nativeLinks.length-1];
-    if(last&&last.nextSibling) sb.insertBefore(btn,last.nextSibling);
-    else sb.appendChild(btn);
+    // Вставляем ПЕРЕД блоком с часами в navbar
+    navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
+
 function tryCreateHistBtn(){
     if(document.getElementById('godji-history-btn')) return;
-    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateHistBtn,500); return; }
+    var clockSec = getClockSection();
+    if(!clockSec){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
+
 setTimeout(tryCreateHistBtn,1000);
 setTimeout(tryCreateHistBtn,2500);
 setTimeout(tryCreateHistBtn,5000);
+
 new MutationObserver(function(){
     if(!document.getElementById('godji-history-btn')) tryCreateHistBtn();
 }).observe(document.body||document.documentElement,{childList:true,subtree:false});
