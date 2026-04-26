@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -768,19 +768,35 @@ function watchCashboxCloseBtn(){
 }
 
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
+function getClockSection(){
+    var navbar = document.querySelector('nav.mantine-AppShell-navbar');
+    if(!navbar) return null;
+    var sections = navbar.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i=0; i<sections.length; i++){
+        var s = sections[i];
+        if(!s.classList.contains('Sidebar_footer__1BA98') &&
+           !s.classList.contains('Sidebar_links__o1FyV') &&
+           !s.classList.contains('Sidebar_header__dm6Ua') &&
+           (s.querySelector('time, .Shifts_shiftsPaper__9Jml_, button') || s.textContent.match(/\d{2}:\d{2}/))){
+            return s;
+        }
+    }
+    return null;
+}
+
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var sb=document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!sb) return;
 
-    var bookLink=document.querySelector('a[href="/bookings"]');
-    var btnCls=bookLink?bookLink.className:'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    var nativeLink = document.querySelector('a[href="/bookings"]') ||
+                     document.querySelector('a.mantine-NavLink-root');
+    var btnCls = nativeLink ? nativeLink.className
+        : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
-    btn.className=btnCls+' onest';
+    btn.className=btnCls;
     btn.href='javascript:void(0)';
-    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
@@ -808,24 +824,25 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // История операций идёт после истории сеансов, или после последнего нативного
-    var histBtn=sb.querySelector('#godji-history-btn');
-    if(histBtn){
-        if(histBtn.nextSibling) sb.insertBefore(btn,histBtn.nextSibling);
-        else sb.appendChild(btn);
+    // Порядок: История операций ВЫШЕ истории сеансов.
+    // Вставляем перед godji-history-btn если он есть,
+    // иначе перед блоком с часами в navbar.
+    var histBtn = document.getElementById('godji-history-btn');
+    if(histBtn && histBtn.parentNode){
+        histBtn.parentNode.insertBefore(btn, histBtn);
     } else {
-        var nativeLinks=Array.from(sb.querySelectorAll('a.mantine-NavLink-root:not([id^="godji"])'));
-        var last=nativeLinks[nativeLinks.length-1];
-        if(last&&last.nextSibling) sb.insertBefore(btn,last.nextSibling);
-        else sb.appendChild(btn);
+        var clockSec = getClockSection();
+        if(clockSec && clockSec.parentNode){
+            clockSec.parentNode.insertBefore(btn, clockSec);
+        }
     }
     updateBadge();
 }
 
-
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateSidebarBtn,500); return; }
+    var clockSec = getClockSection();
+    if(!clockSec){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
