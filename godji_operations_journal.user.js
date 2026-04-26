@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -786,6 +786,8 @@ function getClockSection(){
 
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -794,9 +796,8 @@ function createSidebarBtn(){
 
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
-    btn.className=btnCls;
+    btn.className=btnCls; // только классы, никакого style
     btn.href='javascript:void(0)';
-    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
 
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
@@ -805,7 +806,7 @@ function createSidebarBtn(){
     ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
     ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     sec.appendChild(ico);
 
     var body=document.createElement('div');
@@ -824,25 +825,16 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Порядок: История операций ВЫШЕ истории сеансов.
-    // Вставляем перед godji-history-btn если он есть,
-    // иначе перед блоком с часами в navbar.
-    var histBtn = document.getElementById('godji-history-btn');
-    if(histBtn && histBtn.parentNode){
-        histBtn.parentNode.insertBefore(btn, histBtn);
-    } else {
-        var clockSec = getClockSection();
-        if(clockSec && clockSec.parentNode){
-            clockSec.parentNode.insertBefore(btn, clockSec);
-        }
-    }
+    // История операций перед историей сеансов; обе в конце linksInner
+    var histBtn = inner.querySelector('#godji-history-btn');
+    if(histBtn) inner.insertBefore(btn, histBtn);
+    else inner.appendChild(btn);
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
