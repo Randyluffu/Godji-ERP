@@ -154,7 +154,7 @@
     // ── Завершить сеанс ───────────────────────────────────────
     function finishSession(sessionId) {
         return gql(
-            'mutation FinishSession($sessionId: Int!) { userReservationFinish(params: {sessionId: $sessionId}) { success } }',
+            'mutation FinishSession($sessionId: Int!) { userReservationCancel(params: {sessionId: $sessionId}) { success } }',
             { sessionId: sessionId },
             'FinishSession'
         );
@@ -206,9 +206,10 @@
                 return null;
             }
             // Ищем активную — статус НЕ заканчивается на ed/d (finished, canceled, ended)
-            var INACTIVE = ['finished','canceled','ended','completed','closed','end_rejected','rejected'];
+            // Только реально активные статусы поддерживают prolongate
+            var ACTIVE_STATUSES = ['session_acting','active','created','booking_confirmed'];
             var active = r.filter(function(res){
-                return INACTIVE.indexOf(res.status) === -1;
+                return ACTIVE_STATUSES.indexOf(res.status) !== -1;
             });
             console.log('[debit] reservations:', r.map(function(x){return x.id+':'+x.status;}));
             console.log('[debit] active reservations:', active.map(function(x){return x.id+':'+x.status;}));
@@ -286,7 +287,7 @@
             // Сначала завершаем все зависшие сеансы (end_rejected)
             statusCallback('Проверяем зависшие сеансы…');
             var stuckData = await gql(
-                'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_eq: "end_rejected"}}, order_by: {id: desc}, limit: 10) { id } }',
+                'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_in: ["end_rejected","booking_confirmed"]}}, order_by: {id: desc}, limit: 10) { id } }',
                 { userId: clientId, clubId: CLUB_ID }, 'GetStuck'
             ).catch(function(){ return null; });
             var stuck = stuckData && stuckData.data && stuckData.data.reservations;
