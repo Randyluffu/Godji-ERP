@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.19
+// @version      5.20
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -100,19 +100,41 @@ new MutationObserver(function(muts){
 
 // === SEARCH BUTTON ===
 function createSearchBtn(){
-    if(document.getElementById('godji-search-btn'))return;
+    if(document.getElementById('godji-search-btn')) return;
+    // Только на страницах с сайдбаром
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')) return;
+
     var btn=document.createElement('a');
     btn.id='godji-search-btn';
-    btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    // Берём className от нативной NavLink — всё стилизуется через CSS ERP
+    var nativeLink = document.querySelector('a[href="/bookings"]') ||
+                     document.querySelector('a.mantine-NavLink-root');
+    btn.className = nativeLink ? nativeLink.className
+        : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
-    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:500;display:flex;align-items:center;gap:12px;width:280px;height:46px;padding:8px 12px 8px 18px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    // Фиксированная позиция как раньше — архитектура скрипта
+    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:500;width:280px;';
+
+    // Иконка через ThemeIcon — точно как у нативных кнопок
+    var sec=document.createElement('span');
+    sec.className='m_690090b5 mantine-NavLink-section';
+    sec.setAttribute('data-position','left');
     var ico=document.createElement('div');
-    ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#cc0001;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
+    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+    sec.appendChild(ico);
+
     var lbl=document.createElement('span');
-    lbl.style.cssText='font-size:14px;font-weight:600;color:#fff;white-space:nowrap;letter-spacing:0.1px;';
+    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
     lbl.textContent='Поиск клиента';
-    btn.appendChild(ico);btn.appendChild(lbl);
+
+    var body=document.createElement('div');
+    body.className='m_f07af9d2 mantine-NavLink-body';
+    body.appendChild(lbl);
+
+    btn.appendChild(sec); btn.appendChild(body);
     document.body.appendChild(btn);
     btn.addEventListener('click',togglePanel);
 }
