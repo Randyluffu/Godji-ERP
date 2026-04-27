@@ -284,19 +284,37 @@
             if (!freePCs || freePCs.length === 0) {
                 throw new Error('Нет свободных ПК и нет активного сеанса. Попробуйте позже.');
             }
-            // Сначала завершаем все зависшие сеансы (end_rejected)
-            statusCallback('Проверяем зависшие сеансы…');
+            // Отменяем ВСЕ незавершённые резервации клиента (любой статус кроме явно финальных)
+            statusCallback('Очищаем незавершённые сеансы…');
             var stuckData = await gql(
-                'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}, status: {_in: ["end_rejected","booking_confirmed"]}}, order_by: {id: desc}, limit: 10) { id } }',
+                'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 20) { id status } }',
                 { userId: clientId, clubId: CLUB_ID }, 'GetStuck'
             ).catch(function(){ return null; });
+            var FINAL_STATUSES = ['end_finished','end_rejected'];
             var stuck = stuckData && stuckData.data && stuckData.data.reservations;
             if(stuck && stuck.length) {
-                console.log('[debit] finishing', stuck.length, 'stuck sessions');
-                for(var si = 0; si < stuck.length; si++) {
-                    await finishSession(stuck[si].id).catch(function(){});
+                var toCancel = stuck.filter(function(r){ return FINAL_STATUSES.indexOf(r.status) === -1; });
+                var toForce  = stuck.filter(function(r){ return FINAL_STATUSES.indexOf(r.status) !== -1; });
+                // Сначала пробуем отменить активные
+                if(toCancel.length) {
+                    console.log('[debit] cancelling', toCancel.length, 'active sessions:', toCancel.map(function(r){return r.id+':'+r.status;}));
+                    for(var si = 0; si < toCancel.length; si++) {
+                        await finishSession(toCancel[si].id).catch(function(){});
+                    }
+                    statusCallback('Ожидаем завершения сеансов…');
+                    await new Promise(function(r){ setTimeout(r, 3000); });
                 }
-                await new Promise(function(r){ setTimeout(r, 1000); });
+                // Принудительно завершаем end_rejected через updateMany
+                if(toForce.length) {
+                    console.log('[debit] force-updating', toForce.length, 'stuck sessions');
+                    for(var fi = 0; fi < toForce.length; fi++) {
+                        await gql(
+                            'mutation ForceEnd($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
+                            {id:toForce[fi].id}, 'ForceEnd'
+                        ).catch(function(){});
+                    }
+                    await new Promise(function(r){ setTimeout(r, 1000); });
+                }
             }
 
             // Пробуем все свободные VIP ПК по очереди
