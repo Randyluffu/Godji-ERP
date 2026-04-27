@@ -128,8 +128,6 @@
     function startSession(clientId, deviceId, tariffId, minutes) {
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
-        // isDirect:true позволяет сажать без проверки расписания
-        // Пробуем сначала с isDirect, при ошибке — без него
         var vars = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
               sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
               userId: clientId, isDirect: true };
@@ -151,6 +149,35 @@
         });
     }
 
+    // Пробуем создать сеанс с разными тарифами
+    async function startSessionMultiTariff(clientId, deviceId, minutes) {
+        var cachedTariff = getTariffFromCache();
+        // Получаем доступные тарифы для этого ПК
+        var tariffsData = await gql(
+            'query GetDeviceTariffs($deviceId: Int!, $clubId: Int!) { getAvailableTariffs(params: {deviceId: $deviceId, clubId: $clubId}) { tariffs { id name durationMin cost } } }',
+            {deviceId: deviceId, clubId: CLUB_ID}, 'GetDeviceTariffs'
+        ).catch(function(){return null;});
+        
+        var tariffs = tariffsData && tariffsData.data && tariffsData.data.getAvailableTariffs && tariffsData.data.getAvailableTariffs.tariffs;
+        if (!tariffs || !tariffs.length) {
+            // Используем кэш
+            tariffs = cachedTariff ? [{id: cachedTariff.tariffId, durationMin: 60, cost: cachedTariff.costPerMin * 60}] : [];
+        }
+        console.log('[debit] available tariffs for PC', deviceId, ':', tariffs.map(function(t){return t.id+':'+t.name;}));
+        
+        for (var ti = 0; ti < tariffs.length; ti++) {
+            var tariff = tariffs[ti];
+            var cpm = tariff.cost / tariff.durationMin;
+            var totalAmount = (cachedTariff ? cachedTariff.costPerMin : cpm) * minutes; // keep original amount
+            var mins = Math.ceil(totalAmount / cpm) || minutes;
+            console.log('[debit] trying tariff', tariff.id, tariff.name, 'mins:', mins);
+            var r = await startSession(clientId, deviceId, tariff.id, mins);
+            if (!r || !r.errors) return {result: r, tariffId: tariff.id, minutes: mins};
+            console.log('[debit] tariff', tariff.id, 'failed:', r.errors[0].message);
+        }
+        return null;
+    }
+
     // ── Завершить сеанс ───────────────────────────────────────
     function finishSession(sessionId) {
         return gql(
@@ -167,6 +194,34 @@
             { amount: amount, walletId: walletId, comment: comment },
             'ChargeBonus'
         );
+    }
+
+    // Прямое списание рублей с кошелька (без создания сеанса)
+    function withdrawCash(walletId, amount, comment) {
+        // Пробуем несколько возможных имён мутации
+        return gql(
+            'mutation WithdrawCash($amount: Float!, $walletId: Int!, $comment: String) { walletWithdrawAmount(params: {amount: $amount, walletId: $walletId, description: $comment, moneyType: "cash"}) { operationId } }',
+            { amount: amount, walletId: walletId, comment: comment }, 'WithdrawCash'
+        ).then(function(r){
+            if(r && r.errors) {
+                console.log('[debit] walletWithdrawAmount failed:', r.errors[0].message, '- trying walletWithdraw');
+                return gql(
+                    'mutation WithdrawCash2($amount: Float!, $walletId: Int!, $comment: String) { walletWithdraw(params: {amount: $amount, walletId: $walletId, description: $comment}) { operationId } }',
+                    { amount: amount, walletId: walletId, comment: comment }, 'WithdrawCash2'
+                );
+            }
+            return r;
+        }).then(function(r){
+            if(r && r.errors) {
+                console.log('[debit] walletWithdraw failed:', r.errors[0].message, '- trying walletDepositWithCash negative');
+                // Последняя попытка: пополнение на отрицательную сумму
+                return gql(
+                    'mutation WithdrawCash3($amount: Float!, $walletId: Int!, $comment: String) { walletDepositWithCash(params: {amount: $amount, walletId: $walletId, description: $comment}) { operationId } }',
+                    { amount: -Math.abs(amount), walletId: walletId, comment: comment }, 'WithdrawCash3'
+                );
+            }
+            return r;
+        });
     }
 
     // ── Расчёт минут и тарифа по нужной сумме ────────────────
@@ -226,17 +281,15 @@
     }
 
     async function performDebit(clientId, walletId, amount, bonus, comment, statusCallback) {
-        // Шаг 1: получить тариф из кэша
+        // Сессионный метод: создать сеанс → завершить → клиенту начислятся бонусы → списать бонусы
         statusCallback('Получаем тариф…');
         var cachedTariff = getTariffFromCache();
         if (!cachedTariff || !cachedTariff.costPerMin || cachedTariff.costPerMin <= 0) {
-            throw new Error('Тариф не определён. Откройте скрипт "Бесплатное время" для любого клиента — кэш обновится.');
+            throw new Error('Прямое списание недоступно. Тариф не определён — откройте "Бесплатное время" для кэша.');
         }
 
-        // Шаг 2: проверить есть ли активный сеанс у клиента
         statusCallback('Проверяем сеанс клиента…');
         var activeSession = await getActiveSession(clientId);
-
         var totalAmount = amount + (bonus || 0);
         var minutes = calcMinutes(totalAmount, cachedTariff.costPerMin);
         if (!minutes) throw new Error('Ошибка расчёта минут');
@@ -245,123 +298,91 @@
         var pcName = '?';
 
         if (activeSession) {
-            // Клиент уже сидит — продлеваем его текущий сеанс
             sessionId = activeSession.id;
             pcName = activeSession.reservations_club_device && activeSession.reservations_club_device.name || '?';
             var tariffId = activeSession.tariff_id || cachedTariff.tariffId;
             statusCallback('Продлеваем сеанс (' + minutes + ' мин) на ПК ' + pcName + '…');
-            // Получаем актуальные тарифы для этого сеанса
             var availTariffs = await gql(
                 'query GetTariffs($sessionId: Int!) { getAvailableTariffsForProlongation(params: {minutes: 1, sessionId: $sessionId}) { tariffs { id name durationMin cost } } }',
                 { sessionId: sessionId }, 'GetTariffs'
             ).then(function(d) {
                 return d.data && d.data.getAvailableTariffsForProlongation && d.data.getAvailableTariffsForProlongation.tariffs;
             }).catch(function(){ return null; });
-
             if (availTariffs && availTariffs.length) {
-                // Берём самый дешёвый тариф и пересчитываем
                 var sorted = availTariffs.slice().sort(function(a,b){ return a.durationMin-b.durationMin; });
-                var bestTariff = sorted[0];
-                tariffId = bestTariff.id;
-                var cpm = bestTariff.cost / bestTariff.durationMin;
+                tariffId = sorted[0].id;
+                var cpm = sorted[0].cost / sorted[0].durationMin;
                 minutes = calcMinutes(totalAmount, cpm);
-                console.log('[debit] using tariff from API:', bestTariff.name, 'id:', tariffId, 'mins:', minutes);
             }
-
             var prolongResult = await prolongSession(sessionId, tariffId, minutes);
             console.log('[debit] prolongSession result:', JSON.stringify(prolongResult));
             if (!prolongResult || prolongResult.errors) {
-                var e1 = prolongResult && prolongResult.errors ? prolongResult.errors[0].message : 'unknown';
-                throw new Error('Не удалось продлить сеанс: ' + e1);
+                throw new Error('Не удалось продлить сеанс: ' + (prolongResult&&prolongResult.errors?prolongResult.errors[0].message:'unknown'));
             }
-            // Продление не финишируем — клиент продолжает сидеть
-            // Бонусы зачислятся, мы их сразу спишем
-            await new Promise(function(resolve){ setTimeout(resolve, 500); });
+            await new Promise(function(r){ setTimeout(r, 500); });
         } else {
-            // Клиент не сидит — ищем свободный ПК
-            statusCallback('Ищем свободный ПК…');
-            var freePCs = await getFreePCs();
-            if (!freePCs || freePCs.length === 0) {
-                throw new Error('Нет свободных ПК и нет активного сеанса. Попробуйте позже.');
-            }
-            // Отменяем ВСЕ незавершённые резервации клиента (любой статус кроме явно финальных)
+            // Нет активного — ищем свободный VIP ПК
             statusCallback('Очищаем незавершённые сеансы…');
             var stuckData = await gql(
                 'query GetStuck($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 20) { id status } }',
                 { userId: clientId, clubId: CLUB_ID }, 'GetStuck'
             ).catch(function(){ return null; });
-            var FINAL_STATUSES = ['end_finished','end_rejected'];
+            var FINAL = ['end_finished','end_rejected'];
             var stuck = stuckData && stuckData.data && stuckData.data.reservations;
-            if(stuck && stuck.length) {
-                var toCancel = stuck.filter(function(r){ return FINAL_STATUSES.indexOf(r.status) === -1; });
-                var toForce  = stuck.filter(function(r){ return FINAL_STATUSES.indexOf(r.status) !== -1; });
-                // Сначала пробуем отменить активные
-                if(toCancel.length) {
-                    console.log('[debit] cancelling', toCancel.length, 'active sessions:', toCancel.map(function(r){return r.id+':'+r.status;}));
-                    for(var si = 0; si < toCancel.length; si++) {
-                        await finishSession(toCancel[si].id).catch(function(){});
-                    }
+            if (stuck && stuck.length) {
+                var toCancel = stuck.filter(function(r){ return FINAL.indexOf(r.status)===-1; });
+                var toForce  = stuck.filter(function(r){ return FINAL.indexOf(r.status)!==-1; });
+                if (toCancel.length) {
+                    for (var si=0; si<toCancel.length; si++) await finishSession(toCancel[si].id).catch(function(){});
                     statusCallback('Ожидаем завершения сеансов…');
                     await new Promise(function(r){ setTimeout(r, 3000); });
                 }
-                // Принудительно завершаем end_rejected через updateMany
-                if(toForce.length) {
+                if (toForce.length) {
                     console.log('[debit] force-updating', toForce.length, 'stuck sessions');
-                    for(var fi = 0; fi < toForce.length; fi++) {
-                        await gql(
-                            'mutation ForceEnd($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
-                            {id:toForce[fi].id}, 'ForceEnd'
-                        ).catch(function(){});
+                    for (var fi=0; fi<toForce.length; fi++) {
+                        await gql('mutation FE($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
+                            {id:toForce[fi].id}, 'FE').catch(function(){});
                     }
                     await new Promise(function(r){ setTimeout(r, 1000); });
                 }
             }
-
-            // Пробуем все свободные VIP ПК по очереди
+            statusCallback('Ищем свободный ПК…');
+            var freePCs = await getFreePCs();
+            if (!freePCs || !freePCs.length) throw new Error('Нет свободных ПК. Все заняты.');
             var startResult = null;
-            for(var pi = 0; pi < freePCs.length; pi++) {
+            for (var pi=0; pi<freePCs.length; pi++) {
                 var tryPC = freePCs[pi];
                 statusCallback('Пробуем ПК ' + tryPC.name + ' (' + (pi+1) + '/' + freePCs.length + ')…');
-                var sr = await startSession(clientId, tryPC.id, cachedTariff.tariffId, minutes);
-                console.log('[debit] PC', tryPC.name, ':', sr && sr.errors ? sr.errors[0].message : 'OK');
-                if (!sr || !sr.errors) { startResult = sr; pcName = tryPC.name; break; }
+                var multiResult = await startSessionMultiTariff(clientId, tryPC.id, minutes);
+                if (multiResult) { startResult = multiResult.result; pcName = tryPC.name; break; }
             }
-            if (!startResult) {
-                throw new Error('Нет доступных ПК для списания. Попробуйте позже.');
-            }
-            // Получаем ID только что созданного сеанса — ищем самый свежий без фильтра статуса
-            await new Promise(function(resolve){ setTimeout(resolve, 800); });
+            if (!startResult) throw new Error('Не удалось запустить сеанс ни на одном ПК ни с одним тарифом.');
+            await new Promise(function(r){ setTimeout(r, 700); });
             var freshData = await gql(
-                'query GetFreshSession($userId: String!, $clubId: Int!) { reservations(where: {user_id: {_eq: $userId}, club_id: {_eq: $clubId}}, order_by: {id: desc}, limit: 1) { id status } }',
-                { userId: clientId, clubId: CLUB_ID }, 'GetFreshSession'
-            );
-            console.log('[debit] fresh session lookup:', JSON.stringify(freshData));
+                'query GFS($uid:String!,$cid:Int!){reservations(where:{user_id:{_eq:$uid},club_id:{_eq:$cid}},order_by:{id:desc},limit:1){id status}}',
+                {uid:clientId,cid:CLUB_ID},'GFS');
+            console.log('[debit] fresh session:', JSON.stringify(freshData));
             var freshRes = freshData.data && freshData.data.reservations;
             sessionId = freshRes && freshRes.length ? freshRes[0].id : null;
-            if (!sessionId) throw new Error('Сеанс создан, но не найден ID (проверьте консоль)');
-            // Завершаем
+            if (!sessionId) throw new Error('Сеанс создан, но не найден ID.');
             statusCallback('Завершаем сеанс…');
             await finishSession(sessionId);
-            await new Promise(function(resolve){ setTimeout(resolve, 800); });
+            await new Promise(function(r){ setTimeout(r, 800); });
         }
 
-        // Шаг финальный: списать нужное кол-во бонусов (=amount ₽)
         statusCallback('Списываем ' + amount + ' ₽ с баланса…');
         var debitResult = await withdrawBonus(walletId, amount, comment);
         console.log('[debit] withdrawBonus result:', JSON.stringify(debitResult));
         if (!debitResult || debitResult.errors) {
-            var e3 = debitResult && debitResult.errors ? debitResult.errors[0].message : 'unknown';
-            throw new Error('Списание бонусов не прошло: ' + e3);
+            throw new Error('Списание бонусов не прошло: ' + (debitResult&&debitResult.errors?debitResult.errors[0].message:'unknown'));
         }
-
         document.dispatchEvent(new CustomEvent('__godji_debit__', {
             detail: { amount: amount, comment: comment, ts: Date.now() }
         }));
-
         return { amount: amount, pc: pcName };
     }
 
-    // ── Модальное окно ────────────────────────────────────────
+
     function showModal(clientData, overrideClientId) {
         if (document.getElementById('godji-debit-overlay')) return;
 
