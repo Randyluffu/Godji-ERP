@@ -485,6 +485,95 @@ function renderUnbanPanel(container){
     renderRows();
 }
 
+
+// ── Блокировка кнопки "Забронировать" в модалке посадки ───
+function checkBookingModal(modal){
+    if(!modal||modal.dataset.banChecked) return;
+
+    // Ищем UUID клиента в форме
+    var uuidMatch = modal.innerHTML.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/);
+    if(!uuidMatch) return;
+    var userId = uuidMatch[0];
+    if(!isBanned(userId)) return;
+
+    modal.dataset.banChecked = '1';
+    var entry = loadBanlist().banned[userId] || {};
+
+    // Показываем предупреждение внутри модалки
+    var existing = modal.querySelector('#godji-ban-modal-warning');
+    if(!existing){
+        var warning = document.createElement('div');
+        warning.id = 'godji-ban-modal-warning';
+        warning.style.cssText = 'background:#fff0f0;border:2px solid #cc0001;border-radius:8px;'+
+            'padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;';
+        warning.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cc0001" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'+
+            '<div><div style="font-size:13px;font-weight:700;color:#cc0001;">Клиент заблокирован</div>'+
+            '<div style="font-size:12px;color:#991b1b;margin-top:2px;">'+(entry.reason||'')+'</div></div>';
+        // Вставляем перед кнопкой "Забронировать"
+        var form = modal.querySelector('form');
+        if(form) form.insertBefore(warning, form.firstChild);
+        else modal.appendChild(warning);
+    }
+
+    // Блокируем кнопку "Забронировать"
+    modal.querySelectorAll('button').forEach(function(btn){
+        var lbl = btn.querySelector('.mantine-Button-label');
+        if(lbl && lbl.textContent.trim() === 'Забронировать'){
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.style.pointerEvents = 'none';
+            btn.title = 'Клиент заблокирован: ' + (entry.reason||'');
+        }
+    });
+}
+
+// Наблюдаем за появлением модалок
+var _modalObserver = new MutationObserver(function(mutations){
+    mutations.forEach(function(m){
+        m.addedNodes.forEach(function(node){
+            if(node.nodeType !== 1) return;
+            // Прямая модалка
+            if(node.classList && node.classList.contains('mantine-Modal-content')){
+                setTimeout(function(){ checkBookingModal(node); }, 300);
+            }
+            // Модалка внутри добавленного узла
+            node.querySelectorAll && node.querySelectorAll('.mantine-Modal-content').forEach(function(m){
+                setTimeout(function(){ checkBookingModal(m); }, 300);
+            });
+        });
+    });
+});
+_modalObserver.observe(document.body, {childList:true, subtree:true});
+
+// Также наблюдаем за изменениями внутри уже открытых модалок (выбор клиента)
+setInterval(function(){
+    document.querySelectorAll('.mantine-Modal-content').forEach(function(modal){
+        // Если UUID изменился — сбрасываем метку и перепроверяем
+        var uuidMatch = modal.innerHTML.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/);
+        var uid = uuidMatch ? uuidMatch[0] : '';
+        if(modal.dataset.banUid !== uid){
+            modal.dataset.banUid = uid;
+            delete modal.dataset.banChecked;
+            // Убираем старое предупреждение
+            var old = modal.querySelector('#godji-ban-modal-warning');
+            if(old) old.remove();
+            // Разблокируем кнопки
+            modal.querySelectorAll('button').forEach(function(btn){
+                var lbl = btn.querySelector('.mantine-Button-label');
+                if(lbl && lbl.textContent.trim() === 'Забронировать'){
+                    btn.disabled = false;
+                    btn.style.opacity = '';
+                    btn.style.cursor = '';
+                    btn.style.pointerEvents = '';
+                    btn.title = '';
+                }
+            });
+            if(uid) setTimeout(function(){ checkBookingModal(modal); }, 200);
+        }
+    });
+}, 800);
+
 // ── Инициализация ─────────────────────────────────────────
 var _initDone=false, _lastPath=window.location.pathname;
 
