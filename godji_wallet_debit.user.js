@@ -153,23 +153,29 @@
     async function startSessionMultiTariff(clientId, deviceId, minutes) {
         var cachedTariff = getTariffFromCache();
         // Получаем доступные тарифы для этого ПК
-        var tariffsData = await gql(
-            'query GetDeviceTariffs($deviceId: Int!, $clubId: Int!) { getAvailableTariffs(params: {deviceId: $deviceId, clubId: $clubId}) { tariffs { id name durationMin cost } } }',
-            {deviceId: deviceId, clubId: CLUB_ID}, 'GetDeviceTariffs'
-        ).catch(function(){return null;});
-        
-        var tariffs = tariffsData && tariffsData.data && tariffsData.data.getAvailableTariffs && tariffsData.data.getAvailableTariffs.tariffs;
-        if (!tariffs || !tariffs.length) {
-            // Используем кэш
-            tariffs = cachedTariff ? [{id: cachedTariff.tariffId, durationMin: 60, cost: cachedTariff.costPerMin * 60}] : [];
+        // Берём тарифы из кэша free_time и также пробуем тарифы которые клиент использовал ранее
+        var tariffs = [];
+        if (cachedTariff) {
+            tariffs.push({id: cachedTariff.tariffId, durationMin: 60, cost: cachedTariff.costPerMin * 60});
         }
-        console.log('[debit] available tariffs for PC', deviceId, ':', tariffs.map(function(t){return t.id+':'+t.name;}));
+        // Добавляем известные тарифы VIP зоны из резерваций клиента
+        var KNOWN_TARIFFS = [
+            {id: 102, durationMin: 60, cost: null},
+            {id: 103, durationMin: 60, cost: null},
+            {id: 104, durationMin: 60, cost: null},
+            {id: 105, durationMin: 60, cost: null},
+            {id: 111, durationMin: 60, cost: null},
+        ];
+        KNOWN_TARIFFS.forEach(function(t){
+            if(!tariffs.some(function(x){return x.id===t.id;})) tariffs.push(t);
+        });
+        console.log('[debit] will try tariffs for PC', deviceId, ':', tariffs.map(function(t){return t.id;}));
         
         for (var ti = 0; ti < tariffs.length; ti++) {
             var tariff = tariffs[ti];
-            var cpm = tariff.cost / tariff.durationMin;
-            var totalAmount = (cachedTariff ? cachedTariff.costPerMin : cpm) * minutes; // keep original amount
-            var mins = Math.ceil(totalAmount / cpm) || minutes;
+            // Если стоимость тарифа неизвестна — используем кэш
+            var cpm = tariff.cost ? tariff.cost / tariff.durationMin : (cachedTariff ? cachedTariff.costPerMin : null);
+            var mins = minutes; // используем уже рассчитанные минуты
             console.log('[debit] trying tariff', tariff.id, tariff.name, 'mins:', mins);
             var r = await startSession(clientId, deviceId, tariff.id, mins);
             if (!r || !r.errors) return {result: r, tariffId: tariff.id, minutes: mins};
@@ -338,12 +344,30 @@
                     await new Promise(function(r){ setTimeout(r, 3000); });
                 }
                 if (toForce.length) {
-                    console.log('[debit] force-updating', toForce.length, 'stuck sessions');
+                    console.log('[debit] trying to close', toForce.length, 'end_rejected sessions');
                     for (var fi=0; fi<toForce.length; fi++) {
-                        await gql('mutation FE($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
-                            {id:toForce[fi].id}, 'FE').catch(function(){});
+                        var fid = toForce[fi].id;
+                        // Попытка 1: прямое обновление статуса
+                        var fr = await gql('mutation FE($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
+                            {id:fid}, 'FE').catch(function(e){return {error:String(e)};});
+                        console.log('[debit] force update', fid, ':', JSON.stringify(fr&&fr.data||fr&&fr.errors&&fr.errors[0]&&fr.errors[0].message||fr));
+                        
+                        // Попытка 2: пролонгировать на 1 мин → потом отменить (перевод в активный)
+                        if (fr && fr.errors) {
+                            var cachedT = getTariffFromCache();
+                            if (cachedT) {
+                                var reactivate = await gql(
+                                    'mutation RA($id:Int!,$tid:Int!){userReservationProlongate(params:{sessionId:$id,tariffId:$tid,minutes:1}){success}}',
+                                    {id:fid, tid:cachedT.tariffId}, 'RA'
+                                ).catch(function(){return null;});
+                                console.log('[debit] reactivate', fid, ':', JSON.stringify(reactivate&&reactivate.data||reactivate&&reactivate.errors&&reactivate.errors[0]&&reactivate.errors[0].message));
+                                if (reactivate && !reactivate.errors) {
+                                    await finishSession(fid).catch(function(){});
+                                }
+                            }
+                        }
                     }
-                    await new Promise(function(r){ setTimeout(r, 1000); });
+                    await new Promise(function(r){ setTimeout(r, 2000); });
                 }
             }
             statusCallback('Ищем свободный ПК…');
