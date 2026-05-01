@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -392,26 +392,24 @@ function getClockSection(){
     return null;
 }
 
-function getLastNativeLink(inner){
-    var all = Array.from(inner.querySelectorAll(':scope > a.mantine-NavLink-root'));
-    var natives = all.filter(function(a){ return !a.id || (!a.id.startsWith('godji') && !a.id.startsWith('gj-')); });
-    return natives.length ? natives[natives.length-1] : null;
+function getClockSection(){
+    // Section 4 в navbar — блок с часами и кнопкой смены
+    var navbar = document.querySelector('nav.mantine-AppShell-navbar');
+    if(!navbar) return null;
+    var sections = navbar.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i=0; i<sections.length; i++){
+        if(sections[i].querySelector('.Shifts_shiftsPaper__9Jml_')){
+            return sections[i];
+        }
+    }
+    return null;
 }
 
 function createSidebarButton(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    var existing = document.getElementById('godji-history-btn');
-    if(existing){
-        // Проверяем позицию — должна быть после всех нативных
-        var last = getLastNativeLink(inner);
-        if(last && existing.previousSibling !== last && existing !== last.nextSibling){
-            // Переставляем
-            if(last.nextSibling) inner.insertBefore(existing, last.nextSibling);
-            else inner.appendChild(existing);
-        }
-        return;
-    }
+    if(document.getElementById('godji-history-btn')) return;
+    var clockSec = getClockSection();
+    if(!clockSec) return;
+    var navbar = clockSec.parentNode;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -446,35 +444,30 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем после последней нативной кнопки
-    var last = getLastNativeLink(inner);
-    if(last && last.nextSibling) inner.insertBefore(btn, last.nextSibling);
-    else inner.appendChild(btn);
+    // Вставляем ПРЯМО ПЕРЕД блоком с часами в navbar
+    navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
 
 function tryCreateHistBtn(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner){ setTimeout(tryCreateHistBtn,500); return; }
+    if(document.getElementById('godji-history-btn')) return;
+    if(!getClockSection()){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
 
-setTimeout(tryCreateHistBtn,1000);
+setTimeout(tryCreateHistBtn,1200);
 setTimeout(tryCreateHistBtn,2500);
 setTimeout(tryCreateHistBtn,5000);
 
-// Следим за linksInner — при перерендере React переставляем кнопку
-var _innerObs = new MutationObserver(function(){ createSidebarButton(); });
-function watchLinksInner(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(inner) _innerObs.observe(inner, {childList:true});
-}
-watchLinksInner();
-new MutationObserver(function(){
-    watchLinksInner();
-    if(!document.getElementById('godji-history-btn')) tryCreateHistBtn();
+// Только body observer — без observer на linksInner (вызывал бесконечный цикл)
+new MutationObserver(function(muts){
+    muts.forEach(function(m){
+        if(m.addedNodes.length && !document.getElementById('godji-history-btn')){
+            tryCreateHistBtn();
+        }
+    });
 }).observe(document.body||document.documentElement,{childList:true,subtree:false});
 
 })();
