@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Перезапускает сеанс: завершает, зачисляет оставшееся время бонусами, запускает заново
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -70,7 +70,7 @@ function createSession(userId, deviceId, tariffId, minutes) {
 // Получаем актуальные данные сессии с сервера (на случай если кэш устарел)
 function fetchSessionData(pcName) {
     return gql('GetSessionForRestart',
-        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name sessions { id status time_to tariff { id name } user { id nickname wallet { id } } } } } }',
+        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name sessions { id status endAt tariff { id name } user { id nickname wallet { id } } } } } }',
         { clubId: CLUB_ID }
     ).then(function (data) {
         var devs = data && data.getDashboardDevices && data.getDashboardDevices.devices;
@@ -81,7 +81,7 @@ function fetchSessionData(pcName) {
         if (!active) active = dev.sessions[0];
         return {
             sessionId:  active.id,
-            timeTo:     active.time_to,
+            endAt:      active.endAt,
             tariffId:   active.tariff && active.tariff.id,
             userId:     active.user && active.user.id,
             walletId:   active.user && active.user.wallet && active.user.wallet.id,
@@ -127,8 +127,8 @@ async function restartSession(pcName, onProgress) {
     // Сначала из кэша
     var cached = window._godjiSessionsData && window._godjiSessionsData[pcName];
     if (cached && cached.sessionId) {
-        // Нужно ещё time_to и userId — их может не быть в кэше
-        if (cached.timeTo && cached.userId) {
+        // Нужно ещё endAt/timeTo и userId — их может не быть в кэше
+        if ((cached.endAt || cached.timeTo) && cached.userId) {
             sess = cached;
         }
     }
@@ -150,7 +150,7 @@ async function restartSession(pcName, onProgress) {
 
     // 2. Вычисляем оставшееся время в минутах
     var now = new Date();
-    var timeTo = new Date(sess.timeTo);
+    var timeTo = new Date(sess.endAt);
     var remainMs = timeTo - now;
     if (remainMs <= 0) {
         throw new Error('ПК ' + pcName + ': время сеанса уже истекло');
