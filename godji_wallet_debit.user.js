@@ -287,7 +287,7 @@
     }
 
     async function performDebit(clientId, walletId, amount, bonus, comment, statusCallback) {
-        // Сессионный метод: создать сеанс → завершить → клиенту начислятся бонусы → списать бонусы
+        // Сессионный метод: создать сеанс  завершить  клиенту начислятся бонусы  списать бонусы
         statusCallback('Получаем тариф…');
         var cachedTariff = getTariffFromCache();
         if (!cachedTariff || !cachedTariff.costPerMin || cachedTariff.costPerMin <= 0) {
@@ -344,35 +344,17 @@
                     await new Promise(function(r){ setTimeout(r, 3000); });
                 }
                 if (toForce.length) {
-                    console.log('[debit] trying to close', toForce.length, 'end_rejected sessions');
-                    for (var fi=0; fi<toForce.length; fi++) {
-                        var fid = toForce[fi].id;
-                        // Попытка 1: прямое обновление статуса
-                        var fr = await gql('mutation FE($id:Int!){update_reservations_by_pk(pk_columns:{id:$id},_set:{status:"end_finished"}){id}}',
-                            {id:fid}, 'FE').catch(function(e){return {error:String(e)};});
-                        console.log('[debit] force update', fid, ':', JSON.stringify(fr&&fr.data||fr&&fr.errors&&fr.errors[0]&&fr.errors[0].message||fr));
-                        
-                        // Попытка 2: пролонгировать на 1 мин → потом отменить (перевод в активный)
-                        if (fr && fr.errors) {
-                            var cachedT = getTariffFromCache();
-                            if (cachedT) {
-                                var reactivate = await gql(
-                                    'mutation RA($id:Int!,$tid:Int!){userReservationProlongate(params:{sessionId:$id,tariffId:$tid,minutes:1}){success}}',
-                                    {id:fid, tid:cachedT.tariffId}, 'RA'
-                                ).catch(function(){return null;});
-                                console.log('[debit] reactivate', fid, ':', JSON.stringify(reactivate&&reactivate.data||reactivate&&reactivate.errors&&reactivate.errors[0]&&reactivate.errors[0].message));
-                                if (reactivate && !reactivate.errors) {
-                                    await finishSession(fid).catch(function(){});
-                                }
-                            }
-                        }
-                    }
-                    await new Promise(function(r){ setTimeout(r, 2000); });
+                    // end_rejected нельзя закрыть через API — пропускаем
+                    console.log('[debit] skipping', toForce.length, 'end_rejected sessions (cannot close via API)');
                 }
             }
             statusCallback('Ищем свободный ПК…');
             var freePCs = await getFreePCs();
-            if (!freePCs || !freePCs.length) throw new Error('Нет свободных ПК. Все заняты.');
+            if (!freePCs || !freePCs.length) {
+                var hasStuck = stuck && stuck.filter(function(r){ return r.status === 'end_rejected'; }).length > 0;
+                if (hasStuck) throw new Error('У клиента есть зависшие сессии (end_rejected). Очистите их вручную через ERP или попробуйте с другим клиентом.');
+                throw new Error('Нет свободных VIP-ПК. Дождитесь освобождения места.');
+            }
             var startResult = null;
             for (var pi=0; pi<freePCs.length; pi++) {
                 var tryPC = freePCs[pi];
@@ -380,7 +362,7 @@
                 var multiResult = await startSessionMultiTariff(clientId, tryPC.id, minutes);
                 if (multiResult) { startResult = multiResult.result; pcName = tryPC.name; break; }
             }
-            if (!startResult) throw new Error('Не удалось запустить сеанс ни на одном ПК ни с одним тарифом.');
+            if (!startResult) throw new Error('Не удалось создать сеанс. Если у клиента есть зависшие сессии — очистите их вручную в ERP.');
             await new Promise(function(r){ setTimeout(r, 700); });
             var freshData = await gql(
                 'query GFS($uid:String!,$cid:Int!){reservations(where:{user_id:{_eq:$uid},club_id:{_eq:$cid}},order_by:{id:desc},limit:1){id status}}',
@@ -521,7 +503,7 @@
                 statusEl.textContent = msg;
                 submitLabelEl.textContent = msg;
             }).then(function (result) {
-                submitLabelEl.textContent = 'Готово ✓';
+                submitLabelEl.textContent = 'Готово ';
                 submitBtn.style.setProperty('--button-bg', '#166534');
                 statusEl.style.color = '#166534';
                 statusEl.textContent = 'Списано ' + result.amount + ' ₽ через ПК ' + result.pc;
@@ -534,7 +516,7 @@
                 closeBtn.disabled = false;
                 submitLabelEl.textContent = 'Списать';
                 statusEl.style.color = 'var(--mantine-color-red-filled)';
-                statusEl.textContent = '❌ ' + (err.message || 'Неизвестная ошибка');
+                statusEl.textContent = ' ' + (err.message || 'Неизвестная ошибка');
             });
         });
 
