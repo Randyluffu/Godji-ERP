@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Перезапускает сеанс: завершает, зачисляет оставшееся время бонусами, запускает заново
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -62,7 +62,7 @@ function createSession(userId, deviceId, tariffId, minutes) {
     var end = new Date(now.getTime() + minutes * 60000);
     function iso(d) { return d.toISOString().replace('Z', '+00:00'); }
     return gql('CreateSession',
-        'mutation CreateSession($userId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $userId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, isDirect: true}) { id } }',
+        'mutation CreateSession($userId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $userId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, isDirect: true}) { reservationId } }',
         { userId: userId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID, sessionStart: iso(now), sessionEnd: iso(end) }
     );
 }
