@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -784,31 +784,21 @@ function getClockSection(){
     return null;
 }
 
-function getLastNativeLink(inner){
-    var all = Array.from(inner.querySelectorAll(':scope > a.mantine-NavLink-root'));
-    var natives = all.filter(function(a){ return !a.id || (!a.id.startsWith('godji') && !a.id.startsWith('gj-')); });
-    return natives.length ? natives[natives.length-1] : null;
+function getClockSection(){
+    var navbar = document.querySelector('nav.mantine-AppShell-navbar');
+    if(!navbar) return null;
+    var sections = navbar.querySelectorAll(':scope > .mantine-AppShell-section');
+    for(var i=0; i<sections.length; i++){
+        if(sections[i].querySelector('.Shifts_shiftsPaper__9Jml_')) return sections[i];
+    }
+    return null;
 }
 
 function createSidebarBtn(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-
-    // Если кнопка уже есть — проверяем порядок
-    var existing = document.getElementById('godji-opj-btn');
-    if(existing){
-        var histBtn2 = document.getElementById('godji-history-btn');
-        if(histBtn2 && existing.nextSibling !== histBtn2){
-            inner.insertBefore(existing, histBtn2);
-        } else if(!histBtn2){
-            var last2 = getLastNativeLink(inner);
-            if(last2 && existing !== last2.nextSibling && last2.nextSibling !== existing){
-                if(last2.nextSibling) inner.insertBefore(existing, last2.nextSibling);
-                else inner.appendChild(existing);
-            }
-        }
-        return;
-    }
+    if(document.getElementById('godji-opj-btn')) return;
+    var clockSec = getClockSection();
+    if(!clockSec) return;
+    var navbar = clockSec.parentNode;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -846,35 +836,28 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Перед историей сеансов если есть, иначе после последней нативной
-    var histBtn = inner.querySelector('#godji-history-btn');
-    if(histBtn){
-        inner.insertBefore(btn, histBtn);
+    // Порядок: опж перед историей сеансов (оба перед часами)
+    var histBtn = document.getElementById('godji-history-btn');
+    if(histBtn && histBtn.parentNode === navbar){
+        navbar.insertBefore(btn, histBtn);
     } else {
-        var last = getLastNativeLink(inner);
-        if(last && last.nextSibling) inner.insertBefore(btn, last.nextSibling);
-        else inner.appendChild(btn);
+        navbar.insertBefore(btn, clockSec);
     }
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(document.getElementById('godji-opj-btn')) return;
+    if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
-// Следим за linksInner чтобы React не сбрасывал порядок
-var _innerObs = new MutationObserver(function(){ createSidebarBtn(); });
-function watchLinksInner(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(inner && !inner._opjWatched){ inner._opjWatched=true; _innerObs.observe(inner,{childList:true}); }
-}
-watchLinksInner();
-
-var _obs=new MutationObserver(function(){
-    watchLinksInner();
-    if(!document.getElementById('godji-opj-btn')) tryCreateSidebarBtn();
+var _obs=new MutationObserver(function(muts){
+    muts.forEach(function(m){
+        if(m.addedNodes.length && !document.getElementById('godji-opj-btn')){
+            tryCreateSidebarBtn();
+        }
+    });
 });
 
 if(document.body){
