@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  Перезапускает сеанс: завершает, зачисляет оставшееся время бонусами, запускает заново
+// @version      1.4
+// @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_restart_session.user.js
@@ -17,26 +17,78 @@ var CLUB_ID = 14;
 var API_URL = 'https://hasura.godji.cloud/v1/graphql';
 var COMMENT = 'Перезапуск сеанса';
 
+// Почасовые тарифы по зонам (type=minute)
+// При перезапуске всегда используем почасовой тариф нужной зоны
+// Ключ — id тарифа исходного сеанса (или зона), значение — id почасового тарифа
+// minute-тарифы: 103/104 VIP, 110/111 VIP+, 117/118 DUO, 124/125 SOLO, 131/132 TV
+// Логика: если тариф уже minute — используем его же
+// Если packet — находим minute-тариф той же зоны по времени суток
+
+var ZONE_MINUTE_TARIFFS = {
+    // VIP (103=до13, 104=после13, пакеты 106-109)
+    103: {before13: 103, after13: 104},
+    104: {before13: 103, after13: 104},
+    106: {before13: 103, after13: 104},
+    107: {before13: 103, after13: 104},
+    108: {before13: 103, after13: 104},
+    109: {before13: 103, after13: 104},
+    // VIP+ (110=до13, 111=после13, пакеты 112-116)
+    110: {before13: 110, after13: 111},
+    111: {before13: 110, after13: 111},
+    112: {before13: 110, after13: 111},
+    113: {before13: 110, after13: 111},
+    114: {before13: 110, after13: 111},
+    115: {before13: 110, after13: 111},
+    116: {before13: 110, after13: 111},
+    // DUO (117=до13, 118=после13, пакеты 119-123)
+    117: {before13: 117, after13: 118},
+    118: {before13: 117, after13: 118},
+    119: {before13: 117, after13: 118},
+    120: {before13: 117, after13: 118},
+    121: {before13: 117, after13: 118},
+    122: {before13: 117, after13: 118},
+    123: {before13: 117, after13: 118},
+    // SOLO (124=до13, 125=после13, пакеты 126-130)
+    124: {before13: 124, after13: 125},
+    125: {before13: 124, after13: 125},
+    126: {before13: 124, after13: 125},
+    127: {before13: 124, after13: 125},
+    128: {before13: 124, after13: 125},
+    129: {before13: 124, after13: 125},
+    130: {before13: 124, after13: 125},
+    // TV Rental (131=до13, 132=после13, пакеты 152-153)
+    131: {before13: 131, after13: 132},
+    132: {before13: 131, after13: 132},
+    152: {before13: 131, after13: 132},
+    153: {before13: 131, after13: 132},
+};
+
+// Тарифы с type=minute
+var MINUTE_TARIFF_IDS = [103,104,110,111,117,118,124,125,131,132];
+
+function getMinuteTariffId(originalTariffId) {
+    var map = ZONE_MINUTE_TARIFFS[originalTariffId];
+    if (!map) return originalTariffId; // неизвестный тариф — оставляем как есть
+    var hour = new Date().getHours();
+    return hour < 13 ? map.before13 : map.after13;
+}
+
+function isMinuteTariff(tariffId) {
+    return MINUTE_TARIFF_IDS.indexOf(parseInt(tariffId)) !== -1;
+}
+
 // ── Авторизация ───────────────────────────────────────────
-function getAuth() {
-    return window._godjiAuthToken || null;
-}
-function getRole() {
-    return window._godjiHasuraRole || 'club_admin';
-}
+function getAuth() { return window._godjiAuthToken || null; }
+function getRole() { return window._godjiHasuraRole || 'club_admin'; }
 
 function gql(operationName, query, variables) {
     var auth = getAuth();
     if (!auth) return Promise.reject(new Error('Нет токена авторизации'));
     return fetch(API_URL, {
         method: 'POST',
-        headers: {
-            'authorization': auth,
-            'content-type': 'application/json',
-            'x-hasura-role': getRole()
-        },
+        headers: { 'authorization': auth, 'content-type': 'application/json', 'x-hasura-role': getRole() },
         body: JSON.stringify({ operationName: operationName, variables: variables, query: query })
-    }).then(function (r) { return r.json(); }).then(function (d) {
+    }).then(function(r){ return r.json(); }).then(function(d){
         if (d.errors && d.errors.length) throw new Error(d.errors[0].message);
         return d.data;
     });
@@ -67,52 +119,49 @@ function createSession(userId, deviceId, tariffId, minutes) {
     );
 }
 
-// Получаем актуальные данные сессии с сервера (на случай если кэш устарел)
 function fetchSessionData(pcName) {
     return gql('GetSessionForRestart',
-        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name sessions { id status endAt tariff { id name } user { id nickname wallet { id } } } } } }',
+        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name id sessions { id status endAt tariff { id name type } user { id nickname wallet { id } } } } } }',
         { clubId: CLUB_ID }
-    ).then(function (data) {
+    ).then(function(data) {
         var devs = data && data.getDashboardDevices && data.getDashboardDevices.devices;
         if (!devs) return null;
-        var dev = devs.find(function (d) { return d.name === pcName; });
-        if (!dev || !dev.sessions || !dev.sessions.length) return null;
-        var active = dev.sessions.find(function (s) { return s.status === 'active' || s.status === 'playing'; });
-        if (!active) active = dev.sessions[0];
+        var dev = devs.find(function(d) { return d.name === pcName; });
+        if (!dev) return null;
+        // Сохраняем deviceId сразу
+        window._godjiDeviceIds = window._godjiDeviceIds || {};
+        window._godjiDeviceIds[pcName] = dev.id;
+        var sessions = dev.sessions || [];
+        var active = sessions.find(function(s){ return s.status === 'active' || s.status === 'playing'; });
+        if (!active && sessions.length) active = sessions[0];
+        if (!active) return null;
         return {
-            sessionId:  active.id,
-            endAt:      active.endAt,
-            tariffId:   active.tariff && active.tariff.id,
-            userId:     active.user && active.user.id,
-            walletId:   active.user && active.user.wallet && active.user.wallet.id,
-            nickname:   active.user && active.user.nickname,
+            sessionId: active.id,
+            endAt:     active.endAt,
+            tariffId:  active.tariff && active.tariff.id,
+            tariffType:active.tariff && active.tariff.type,
+            userId:    active.user && active.user.id,
+            walletId:  active.user && active.user.wallet && active.user.wallet.id,
+            nickname:  active.user && active.user.nickname,
+            deviceId:  dev.id,
         };
     });
 }
 
-function getDeviceId(pcName) {
-    // Ищем deviceId в таблице через multi_select helper или DOM
-    if (typeof window._godjiGetDeviceId === 'function') {
+function getDeviceId(pcName, sess) {
+    // Приоритет: данные из fetchSessionData → кэш → DOM → API
+    if (sess && sess.deviceId) return Promise.resolve(sess.deviceId);
+    if (window._godjiDeviceIds && window._godjiDeviceIds[pcName])
+        return Promise.resolve(window._godjiDeviceIds[pcName]);
+    if (typeof window._godjiGetDeviceId === 'function')
         return Promise.resolve(window._godjiGetDeviceId(pcName));
-    }
-    // Fallback: ищем по таблице
-    var rows = document.querySelectorAll('tr');
-    for (var i = 0; i < rows.length; i++) {
-        var cell = rows[i].querySelector('td[data-index="0"]');
-        if (cell && cell.textContent.trim() === pcName) {
-            // deviceId может быть в data-атрибуте строки или рядом
-            var dataId = rows[i].getAttribute('data-device-id') || rows[i].getAttribute('data-id');
-            if (dataId) return Promise.resolve(parseInt(dataId));
-        }
-    }
-    // Если не нашли в DOM — запрашиваем с сервера
     return gql('GetDeviceId',
         'query GetDeviceId($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name id } } }',
         { clubId: CLUB_ID }
-    ).then(function (data) {
+    ).then(function(data) {
         var devs = data && data.getDashboardDevices && data.getDashboardDevices.devices;
         if (!devs) return null;
-        var dev = devs.find(function (d) { return d.name === pcName; });
+        var dev = devs.find(function(d) { return d.name === pcName; });
         return dev ? dev.id : null;
     });
 }
@@ -121,94 +170,53 @@ function getDeviceId(pcName) {
 async function restartSession(pcName, onProgress) {
     onProgress('Получение данных сессии ' + pcName + '...');
 
-    // 1. Получаем данные сессии
-    var sess = null;
+    // 1. Данные сессии — всегда с сервера для актуальности
+    var sess = await fetchSessionData(pcName);
 
-    // Сначала из кэша
-    var cached = window._godjiSessionsData && window._godjiSessionsData[pcName];
-    if (cached && cached.sessionId) {
-        // Нужно ещё endAt/timeTo и userId — их может не быть в кэше
-        if ((cached.endAt || cached.timeTo) && cached.userId) {
-            sess = cached;
-        }
-    }
+    if (!sess || !sess.sessionId) throw new Error('ПК ' + pcName + ': нет активного сеанса');
+    if (!sess.userId || !sess.walletId) throw new Error('ПК ' + pcName + ': нет данных клиента');
+    if (!sess.tariffId) throw new Error('ПК ' + pcName + ': нет данных тарифа');
 
-    // Если в кэше нет полных данных — запрашиваем с сервера
-    if (!sess) {
-        sess = await fetchSessionData(pcName);
-    }
-
-    if (!sess || !sess.sessionId) {
-        throw new Error('ПК ' + pcName + ': нет активного сеанса');
-    }
-    if (!sess.userId || !sess.walletId) {
-        throw new Error('ПК ' + pcName + ': нет данных клиента');
-    }
-    if (!sess.tariffId) {
-        throw new Error('ПК ' + pcName + ': нет данных тарифа');
-    }
-
-    // 2. Вычисляем оставшееся время в минутах
+    // 2. Оставшееся время
     var now = new Date();
-    var timeTo = new Date(sess.endAt);
-    var remainMs = timeTo - now;
-    if (remainMs <= 0) {
-        throw new Error('ПК ' + pcName + ': время сеанса уже истекло');
-    }
+    var remainMs = new Date(sess.endAt) - now;
+    if (remainMs <= 0) throw new Error('ПК ' + pcName + ': время сеанса уже истекло');
     var remainMin = Math.ceil(remainMs / 60000);
 
-    onProgress('ПК ' + pcName + ': осталось ' + remainMin + ' мин. Завершаем сеанс...');
+    // 3. Определяем нужно ли начислять бонусы
+    // minute-тариф → ERP вернёт деньги сам → не начисляем
+    // packet-тариф → ERP не вернёт → начисляем бонусами
+    var origIsMinute = isMinuteTariff(sess.tariffId) || sess.tariffType === 'minute';
+    var needBonus = !origIsMinute;
 
-    // 3. Завершаем сеанс
+    // 4. Тариф для нового сеанса — всегда minute соответствующей зоны
+    var newTariffId = getMinuteTariffId(parseInt(sess.tariffId));
+
+    onProgress('ПК ' + pcName + ': ' + remainMin + ' мин, тариф #' + newTariffId + '. Завершаем...');
+
+    // 5. Завершаем сеанс
     await cancelSession(parseInt(sess.sessionId));
 
-    onProgress('ПК ' + pcName + ': проверяем возврат бонусов...');
-
-    // 4. Ждём возможный возврат бонусов от сервера (300ms)
-    await new Promise(function(r){ setTimeout(r, 600); });
-
-    // Проверяем — не вернул ли сервер уже бонусы при завершении
-    var refundedBonus = 0;
-    try {
-        var refundData = await gql('GetRecentRefund',
-            'query GetRecentRefund($clubId:Int!){wallet_operations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:10){id amount money_type operation_type created_at wallet_operation_digest{name description}}}',
-            { clubId: CLUB_ID }
-        );
-        var recentOps = refundData && refundData.wallet_operations || [];
-        var cutoffTs = Date.now() - 10000; // последние 10 сек
-        recentOps.forEach(function(op){
-            var opTs = new Date(op.created_at).getTime();
-            if(opTs < cutoffTs) return;
-            var name = (op.wallet_operation_digest && op.wallet_operation_digest.name)||'';
-            // Возврат бонусов при завершении
-            if(op.operation_type === 'deposit' && op.money_type === 'non_cash' &&
-               (name.indexOf('возврат') !== -1 || name.indexOf('Возврат') !== -1)){
-                refundedBonus += Math.abs(op.amount||0);
-            }
-        });
-    } catch(e) {}
-
-    var bonusToAdd = remainMin - Math.round(refundedBonus);
-    if(bonusToAdd <= 0){
-        onProgress('ПК ' + pcName + ': бонусы уже возвращены сервером (' + Math.round(refundedBonus) + ' G)');
+    // 6. Начисляем бонусы только для пакетных тарифов
+    if (needBonus) {
+        onProgress('ПК ' + pcName + ': начисляем ' + remainMin + ' бонусов (пакетный тариф)...');
+        await depositBonus(parseInt(sess.walletId), remainMin, COMMENT);
     } else {
-        onProgress('ПК ' + pcName + ': начисляем ' + bonusToAdd + ' бонусов (возврат: ' + Math.round(refundedBonus) + ')...');
-        // 4. Начисляем только разницу
-        await depositBonus(parseInt(sess.walletId), bonusToAdd, COMMENT);
+        onProgress('ПК ' + pcName + ': почасовой — ERP вернёт деньги автоматически');
+        // Небольшая пауза чтобы ERP успел провести возврат
+        await new Promise(function(r){ setTimeout(r, 800); });
     }
 
     onProgress('ПК ' + pcName + ': запускаем новый сеанс...');
 
-    // 5. Получаем deviceId
-    var deviceId = await getDeviceId(pcName);
-    if (!deviceId) {
-        throw new Error('ПК ' + pcName + ': не удалось получить deviceId');
-    }
+    // 7. deviceId
+    var deviceId = await getDeviceId(pcName, sess);
+    if (!deviceId) throw new Error('ПК ' + pcName + ': не удалось получить deviceId');
 
-    // 6. Создаём новый сеанс на то же время
-    await createSession(sess.userId, parseInt(deviceId), parseInt(sess.tariffId), remainMin);
+    // 8. Новый сеанс на почасовом тарифе
+    await createSession(sess.userId, parseInt(deviceId), newTariffId, remainMin);
 
-    return remainMin;
+    return { mins: remainMin, bonus: needBonus, newTariffId: newTariffId };
 }
 
 // ── Toast ─────────────────────────────────────────────────
@@ -231,123 +239,97 @@ function showToast(msg, ok, duration) {
     ].join(';');
     document.body.appendChild(t);
     clearTimeout(t._hide);
-    t._hide = setTimeout(function () {
-        if (t.parentNode) { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 300); }
+    t._hide = setTimeout(function() {
+        if (t.parentNode) { t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 300); }
     }, duration || 3000);
 }
 
-// ── Вставка кнопки в одиночное контекстное меню ──────────
+// ── Вставка кнопки в контекстное меню ────────────────────
 function tryInjectSingleMenu() {
     var menu = document.querySelector('.mantine-Menu-dropdown');
     if (!menu || menu.getAttribute('data-godji-restart')) return;
     menu.setAttribute('data-godji-restart', '1');
 
-    // Ищем текущий PC из заголовка меню или из данных
-    // Используем последний ПКМ-объект который сохраняет godji_multi_select или menu_colors
     var pcName = window._godjiLastContextPc || null;
-
-    // Ищем в items меню «Перезагрузить» как эталон стиля
     var items = menu.querySelectorAll('[role="menuitem"]');
-    var rebootBtn = null;
+
+    // Проверяем наличие сеанса — ищем "Продлить сеанс" или "Перезагрузить"
+    var anchorBtn = null;
+    var hasSession = false;
     for (var i = 0; i < items.length; i++) {
         var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
-        if (lbl && lbl.textContent.trim() === 'Перезагрузить') {
-            rebootBtn = items[i];
-            break;
+        if (!lbl) continue;
+        var txt = lbl.textContent.trim();
+        if (txt === 'Продлить сеанс' || txt === 'Продлить') {
+            anchorBtn = items[i];
+            hasSession = true;
         }
-    }
-    // Показываем кнопку всегда (даже если ПК выключен) — ищем любой пункт как якорь
-    if (!rebootBtn) {
-        // Ищем "Продлить сеанс" как якорь
-        for (var i = 0; i < items.length; i++) {
-            var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
-            if (lbl && (lbl.textContent.trim() === 'Продлить сеанс' || lbl.textContent.trim() === 'Продлить')) {
-                rebootBtn = items[i];
-                break;
-            }
+        if (txt === 'Перезагрузить' && !anchorBtn) {
+            anchorBtn = items[i];
         }
-        if (!rebootBtn) return;
     }
 
-    // Создаём кнопку в точно таком же стиле
+    // Кнопка только если есть сеанс (есть "Продлить")
+    if (!hasSession || !anchorBtn) return;
+
     var btn = document.createElement('button');
     btn.setAttribute('type', 'button');
     btn.setAttribute('tabindex', '-1');
     btn.setAttribute('role', 'menuitem');
     btn.setAttribute('data-menu-item', 'true');
     btn.setAttribute('data-mantine-stop-propagation', 'true');
-    btn.className = rebootBtn.className;
-    // Цвет как у "Перезагрузить" (#bf360c) — оранжево-красный
+    btn.className = anchorBtn.className;
     btn.style.cssText = 'color:#bf360c;background-color:rgba(191,54,12,0.12);--menu-item-color:#bf360c;--menu-item-hover:rgba(191,54,12,0.18);';
-
     btn.innerHTML =
         '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left">' +
         '<div style="align-items:center;justify-content:center;width:calc(1.25rem * var(--mantine-scale));display:flex;">' +
         '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#bf360c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>' +
-        '<path d="M3 3v5h5"/>' +
+        '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>' +
         '</svg></div></div>' +
         '<div class="m_5476e0d3 mantine-Menu-itemLabel">Перезапустить сеанс</div>';
 
-    btn.addEventListener('mousedown', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Закрываем меню
+    btn.addEventListener('mousedown', function(e) {
+        e.preventDefault(); e.stopPropagation();
         document.body.click();
-
-        var target = pcName;
-        if (!target) {
-            showToast('Не удалось определить ПК', false);
-            return;
-        }
-
-        showToast('Перезапуск ' + target + '...', null, 10000);
-
-        restartSession(target, function (msg) { showToast(msg, null, 8000); })
-            .then(function (mins) {
-                showToast('✓ ' + target + ': перезапущен, зачислено ' + mins + ' бонусов', true, 4000);
+        if (!pcName) { showToast('Не удалось определить ПК', false); return; }
+        showToast('Перезапуск ' + pcName + '...', null, 15000);
+        restartSession(pcName, function(msg){ showToast(msg, null, 8000); })
+            .then(function(res) {
+                var msg = '✓ ' + pcName + ': перезапущен на ' + res.mins + ' мин';
+                if (res.bonus) msg += ', +' + res.mins + ' бонусов';
+                showToast(msg, true, 5000);
             })
-            .catch(function (err) {
-                showToast('✗ ' + target + ': ' + err.message, false, 6000);
-            });
+            .catch(function(err){ showToast('✗ ' + pcName + ': ' + err.message, false, 6000); });
     });
 
-    // Вставляем сразу после "Перезагрузить"
-    var next = rebootBtn.nextSibling;
-    var container = rebootBtn.parentNode;
-    if (next) container.insertBefore(btn, next);
-    else container.appendChild(btn);
+    // Вставляем сразу после "Продлить сеанс"
+    var next = anchorBtn.nextSibling;
+    anchorBtn.parentNode.insertBefore(btn, next || null);
 }
 
-// ── Перехват contextmenu — запоминаем имя ПК ─────────────
-document.addEventListener('contextmenu', function (e) {
-    // Ищем имя ПК в строке таблицы или карточке карты
+// ── Перехват contextmenu ──────────────────────────────────
+document.addEventListener('contextmenu', function(e) {
     var target = e.target;
-    // Из карточки карты
     var card = target.closest('[data-pc]');
     if (card) { window._godjiLastContextPc = card.getAttribute('data-pc'); return; }
-    // Из строки таблицы
     var row = target.closest('tr');
     if (row) {
         var cell = row.querySelector('td[data-index="0"]') || row.querySelector('td:first-child');
-        if (cell) { window._godjiLastContextPc = cell.textContent.trim(); }
+        if (cell) window._godjiLastContextPc = cell.textContent.trim();
     }
 }, true);
 
-// ── MutationObserver — следим за появлением меню ─────────
-var _menuObs = new MutationObserver(function (mutations) {
+// ── MutationObserver — следим за меню ────────────────────
+var _menuObs = new MutationObserver(function(mutations) {
     for (var i = 0; i < mutations.length; i++) {
         var nodes = mutations[i].addedNodes;
         for (var j = 0; j < nodes.length; j++) {
             var n = nodes[j];
             if (n.nodeType !== 1) continue;
-            if (n.classList && n.classList.contains('mantine-Menu-dropdown')) {
+            if (n.classList && n.classList.contains('mantine-Menu-dropdown'))
                 setTimeout(tryInjectSingleMenu, 30);
-            } else if (n.querySelector) {
-                var found = n.querySelector('.mantine-Menu-dropdown');
-                if (found) setTimeout(tryInjectSingleMenu, 30);
-            }
+            else if (n.querySelector && n.querySelector('.mantine-Menu-dropdown'))
+                setTimeout(tryInjectSingleMenu, 30);
         }
     }
 });
@@ -355,50 +337,39 @@ var _menuObs = new MutationObserver(function (mutations) {
 if (document.body) {
     _menuObs.observe(document.body, { childList: true, subtree: true });
 } else {
-    document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function() {
         _menuObs.observe(document.body, { childList: true, subtree: true });
     });
 }
 
-// ── Поддержка мультивыбора ────────────────────────────────
-// Регистрируем действие в multi_select через глобальный хук
-window._godjiRestartSessionAction = async function (selectedPcs) {
-    // selectedPcs: { deviceId: pcName, ... }
+// ── Мультивыбор ───────────────────────────────────────────
+window._godjiRestartSessionAction = async function(selectedPcs) {
     var pcNames = Object.values(selectedPcs);
     if (!pcNames.length) return;
-
-    showToast('Перезапуск ' + pcNames.length + ' ПК...', null, 30000);
-
+    showToast('Перезапуск ' + pcNames.length + ' ПК...', null, 60000);
     var ok = 0, fail = 0, errors = [];
     for (var i = 0; i < pcNames.length; i++) {
         try {
-            var mins = await restartSession(pcNames[i], function (msg) { showToast(msg, null, 6000); });
+            var res = await restartSession(pcNames[i], function(msg){ showToast(msg, null, 6000); });
             ok++;
-            showToast('✓ ' + pcNames[i] + ': ' + mins + ' бонусов', true, 3000);
-        } catch (e) {
+            var msg = '✓ ' + pcNames[i] + ': ' + res.mins + ' мин';
+            if (res.bonus) msg += ', +' + res.mins + ' G';
+            showToast(msg, true, 3000);
+        } catch(e) {
             fail++;
             errors.push(pcNames[i] + ': ' + e.message);
         }
-        if (i < pcNames.length - 1) await new Promise(function (r) { setTimeout(r, 300); });
+        if (i < pcNames.length - 1) await new Promise(function(r){ setTimeout(r, 500); });
     }
-
-    if (fail === 0) {
-        showToast('✓ Перезапуск завершён для ' + ok + ' ПК', true, 5000);
-    } else {
-        showToast('Перезапуск: ' + ok + ' ок, ' + fail + ' ошибок. ' + errors[0], false, 7000);
-    }
+    if (fail === 0) showToast('✓ Перезапуск завершён: ' + ok + ' ПК', true, 5000);
+    else showToast('Перезапуск: ' + ok + ' ок, ' + fail + ' ошибок. ' + (errors[0]||''), false, 7000);
 };
 
-// ── Интеграция с мультиселектом ─────────────────────────
-// multi_select при построении меню вызывает window._godjiMultiMenuHooks
-// Регистрируем хук который добавит пункт меню
+// ── Хук мультиселекта ─────────────────────────────────────
 if (!window._godjiMultiMenuHooks) window._godjiMultiMenuHooks = [];
 window._godjiMultiMenuHooks.push(function(menu, makeMenuItem, makeDivider, getColor, getBg) {
     menu.appendChild(makeDivider());
-    var lblSess = document.createElement('div');
-    lblSess.className = 'm_9bfac126 mantine-Menu-label';
-    lblSess.textContent = 'Сеансы';
-    menu.appendChild(lblSess);
+    window._godjiMultiMenuHooks._restartAdded = true;
     menu.appendChild(makeMenuItem(
         'Перезапустить сеансы',
         '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
@@ -413,38 +384,27 @@ window._godjiMultiMenuHooks.push(function(menu, makeMenuItem, makeDivider, getCo
     ));
 });
 
-// Fallback: если хуки не поддерживаются — следим за DOM
+// Fallback для мультиселекта через DOM
 var _multiObs = new MutationObserver(function() {
     var menu = document.getElementById('godji-multi-menu');
     if (!menu || menu.querySelector('[data-godji-restart-multi]')) return;
-    // Ищем кнопку "Перезагрузить" как место вставки
     var items = menu.querySelectorAll('[role="menuitem"]');
-    var rebootBtn = null;
+    var anchorBtn = null;
     for (var i = 0; i < items.length; i++) {
         var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
-        if (lbl && lbl.textContent.trim() === 'Перезагрузить') { rebootBtn = items[i]; break; }
+        if (!lbl) continue;
+        var txt = lbl.textContent.trim();
+        if (txt === 'Продлить сеанс' || txt === 'Продлить') { anchorBtn = items[i]; break; }
     }
-    // Показываем кнопку всегда (даже если ПК выключен) — ищем любой пункт как якорь
-    if (!rebootBtn) {
-        // Ищем "Продлить сеанс" как якорь
-        for (var i = 0; i < items.length; i++) {
-            var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
-            if (lbl && (lbl.textContent.trim() === 'Продлить сеанс' || lbl.textContent.trim() === 'Продлить')) {
-                rebootBtn = items[i];
-                break;
-            }
-        }
-        if (!rebootBtn) return;
-    }
+    if (!anchorBtn) return;
 
-    var mi = rebootBtn.cloneNode(true);
+    var mi = anchorBtn.cloneNode(true);
     mi.setAttribute('data-godji-restart-multi', '1');
-    mi.style.cssText = 'color:#bf360c;background-color:rgba(191,54,12,0.12);--menu-item-color:#bf360c;--menu-item-hover:rgba(191,54,12,0.20);';
+    mi.style.cssText = 'color:#bf360c;background-color:rgba(191,54,12,0.12);--menu-item-color:#bf360c;';
     var miLbl = mi.querySelector('.mantine-Menu-itemLabel');
     if (miLbl) miLbl.textContent = 'Перезапустить сеансы';
     var miIco = mi.querySelector('svg');
     if (miIco) miIco.innerHTML = '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>';
-
     mi.addEventListener('mousedown', function(e) {
         e.preventDefault(); e.stopPropagation();
         document.body.click();
@@ -452,9 +412,7 @@ var _multiObs = new MutationObserver(function() {
         if (!Object.keys(sel).length) { showToast('Нет выбранных ПК', false); return; }
         window._godjiRestartSessionAction(sel);
     });
-
-    var next = rebootBtn.nextSibling;
-    rebootBtn.parentNode.insertBefore(mi, next || null);
+    anchorBtn.parentNode.insertBefore(mi, anchorBtn.nextSibling || null);
 });
 
 if (document.body) {
