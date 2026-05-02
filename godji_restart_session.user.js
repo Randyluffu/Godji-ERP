@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -279,23 +279,31 @@ function tryInjectSingleMenu() {
     var pcName = window._godjiLastContextPc || null;
     var items = menu.querySelectorAll('[role="menuitem"]');
 
-    // Проверяем наличие сеанса — ищем "Продлить сеанс" или "Перезагрузить"
+    // Проверяем наличие сеанса — ищем пункты связанные с сеансом
     var anchorBtn = null;
     var hasSession = false;
+    var SESSION_LABELS = ['Продлить сеанс','Продлить','Продление сеанса','Завершить сессию','Завершить сеанс'];
     for (var i = 0; i < items.length; i++) {
         var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
         if (!lbl) continue;
         var txt = lbl.textContent.trim();
-        if (txt === 'Продлить сеанс' || txt === 'Продлить') {
-            anchorBtn = items[i];
+        if (SESSION_LABELS.indexOf(txt) !== -1) {
+            if (!anchorBtn) anchorBtn = items[i]; // первый найденный — якорь
             hasSession = true;
         }
-        if (txt === 'Перезагрузить' && !anchorBtn) {
+    }
+    // Вставляем после последнего session-пункта перед системными
+    // Ищем "Завершить" как финальный якорь для вставки после него
+    for (var i = 0; i < items.length; i++) {
+        var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
+        if (!lbl) continue;
+        var txt = lbl.textContent.trim();
+        if (txt === 'Завершить сессию' || txt === 'Завершить сеанс') {
             anchorBtn = items[i];
         }
     }
 
-    // Кнопка только если есть сеанс (есть "Продлить")
+    // Кнопка только если есть сеанс
     if (!hasSession || !anchorBtn) return;
 
     var btn = document.createElement('button');
@@ -337,23 +345,29 @@ function tryInjectSingleMenu() {
 document.addEventListener('contextmenu', function(e) {
     var target = e.target;
     // Карточка карты — ищем data-pc в самом элементе и его родителях
-    var card = target.closest('[data-pc]') || target.closest('[data-device-name]') ||
-               target.closest('[data-name]');
+    // Карточка карты — DeviceItem структура
+    var card = target.closest('[data-pc]') || target.closest('[data-device-name]');
     if (card) {
-        window._godjiLastContextPc = card.getAttribute('data-pc') ||
-                                     card.getAttribute('data-device-name') ||
-                                     card.getAttribute('data-name');
+        window._godjiLastContextPc = card.getAttribute('data-pc') || card.getAttribute('data-device-name');
         if (window._godjiLastContextPc) return;
     }
-    // Текст из карточки — ищем номер ПК в тексте ближайшего элемента
-    var pcCard = target.closest('[class*="card"], [class*="Card"], [class*="pc"], [class*="Pc"]');
-    if (pcCard) {
-        // Ищем элемент с номером ПК
-        var numEl = pcCard.querySelector('[class*="name"], [class*="Name"], [class*="num"], [class*="title"]');
-        if (numEl) { window._godjiLastContextPc = numEl.textContent.trim(); return; }
-        // Берём текст самой карточки
-        var txt = pcCard.textContent.trim().split(/\s+/)[0];
-        if (txt) { window._godjiLastContextPc = txt; return; }
+    // Ищем DeviceItem_deviceName — span с номером ПК
+    var devName = target.closest('[class*="DeviceItem"]');
+    if (devName) {
+        var nameSpan = devName.querySelector('[class*="deviceName"]') ||
+                       devName.querySelector('[class*="deviceBox"]');
+        if (nameSpan) { window._godjiLastContextPc = nameSpan.textContent.trim(); return; }
+        window._godjiLastContextPc = devName.textContent.trim().split(/\s/)[0];
+        return;
+    }
+    // Если сам target — span с именем
+    if (target.className && target.className.indexOf('deviceName') !== -1) {
+        window._godjiLastContextPc = target.textContent.trim();
+        return;
+    }
+    if (target.className && target.className.indexOf('DeviceItem') !== -1) {
+        var ns = target.querySelector('[class*="deviceName"]');
+        if (ns) { window._godjiLastContextPc = ns.textContent.trim(); return; }
     }
     // Строка таблицы
     var row = target.closest('tr');
@@ -434,11 +448,11 @@ var _multiObs = new MutationObserver(function() {
     if (!menu || menu.querySelector('[data-godji-restart-multi]')) return;
     var items = menu.querySelectorAll('[role="menuitem"]');
     var anchorBtn = null;
+    var SESSION_LABELS2 = ['Продлить сеанс','Продлить','Продление сеанса','Завершить сессию','Завершить сеанс'];
     for (var i = 0; i < items.length; i++) {
         var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
         if (!lbl) continue;
-        var txt = lbl.textContent.trim();
-        if (txt === 'Продлить сеанс' || txt === 'Продлить') { anchorBtn = items[i]; break; }
+        if (SESSION_LABELS2.indexOf(lbl.textContent.trim()) !== -1) anchorBtn = items[i];
     }
     if (!anchorBtn) return;
 
