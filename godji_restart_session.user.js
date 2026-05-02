@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -121,7 +121,7 @@ function createSession(userId, deviceId, tariffId, minutes) {
 
 function fetchSessionData(pcName) {
     return gql('GetSessionForRestart',
-        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name id sessions { id status endAt tariff { id name type } user { id nickname wallet { id } } } } } }',
+        'query GetSessionForRestart($clubId: Int!) { getDashboardDevices(params: {clubId: $clubId}) { devices { name id sessions { id status endAt tariff { id name } user { id nickname wallet { id } } } } } }',
         { clubId: CLUB_ID }
     ).then(function(data) {
         var devs = data && data.getDashboardDevices && data.getDashboardDevices.devices;
@@ -170,8 +170,33 @@ function getDeviceId(pcName, sess) {
 async function restartSession(pcName, onProgress) {
     onProgress('Получение данных сессии ' + pcName + '...');
 
-    // 1. Данные сессии — всегда с сервера для актуальности
+    // 1. Данные сессии — с сервера (актуальные данные включая userId и tariffType)
     var sess = await fetchSessionData(pcName);
+
+    // Если сервер не нашёл — пробуем из кэша (pcName может отличаться)
+    if (!sess) {
+        var cached = window._godjiSessionsData && window._godjiSessionsData[pcName];
+        if (cached && cached.sessionId && cached.tariffId && cached.walletId) {
+            // Нужен userId — запрашиваем отдельно по walletId
+            try {
+                var uidData = await gql('GetUserByWallet',
+                    'query GetUserByWallet($walletId:Int!){users_wallets_by_pk(id:$walletId){user_id user{users_reservations(where:{status:{_in:["active","playing"]},club_id:{_eq:'+CLUB_ID+'}},limit:1){id endAt tariff{id name}}}}}',
+                    {walletId: parseInt(cached.walletId)}
+                );
+                var w = uidData && uidData.users_wallets_by_pk;
+                var activeRes = w && w.user && w.user.users_reservations && w.user.users_reservations[0];
+                sess = {
+                    sessionId: cached.sessionId,
+                    tariffId:  cached.tariffId,
+                    walletId:  cached.walletId,
+                    userId:    w && w.user_id,
+                    nickname:  cached.nickname,
+                    endAt:     activeRes && activeRes.endAt,
+                    deviceId:  null,
+                };
+            } catch(e) {}
+        }
+    }
 
     if (!sess || !sess.sessionId) throw new Error('ПК ' + pcName + ': нет активного сеанса');
     if (!sess.userId || !sess.walletId) throw new Error('ПК ' + pcName + ': нет данных клиента');
@@ -186,7 +211,8 @@ async function restartSession(pcName, onProgress) {
     // 3. Определяем нужно ли начислять бонусы
     // minute-тариф → ERP вернёт деньги сам → не начисляем
     // packet-тариф → ERP не вернёт → начисляем бонусами
-    var origIsMinute = isMinuteTariff(sess.tariffId) || sess.tariffType === 'minute';
+    // Определяем по ZONE_MINUTE_TARIFFS и MINUTE_TARIFF_IDS — tariffType недоступен через API
+    var origIsMinute = isMinuteTariff(sess.tariffId);
     var needBonus = !origIsMinute;
 
     // 4. Тариф для нового сеанса — всегда minute соответствующей зоны
@@ -310,8 +336,26 @@ function tryInjectSingleMenu() {
 // ── Перехват contextmenu ──────────────────────────────────
 document.addEventListener('contextmenu', function(e) {
     var target = e.target;
-    var card = target.closest('[data-pc]');
-    if (card) { window._godjiLastContextPc = card.getAttribute('data-pc'); return; }
+    // Карточка карты — ищем data-pc в самом элементе и его родителях
+    var card = target.closest('[data-pc]') || target.closest('[data-device-name]') ||
+               target.closest('[data-name]');
+    if (card) {
+        window._godjiLastContextPc = card.getAttribute('data-pc') ||
+                                     card.getAttribute('data-device-name') ||
+                                     card.getAttribute('data-name');
+        if (window._godjiLastContextPc) return;
+    }
+    // Текст из карточки — ищем номер ПК в тексте ближайшего элемента
+    var pcCard = target.closest('[class*="card"], [class*="Card"], [class*="pc"], [class*="Pc"]');
+    if (pcCard) {
+        // Ищем элемент с номером ПК
+        var numEl = pcCard.querySelector('[class*="name"], [class*="Name"], [class*="num"], [class*="title"]');
+        if (numEl) { window._godjiLastContextPc = numEl.textContent.trim(); return; }
+        // Берём текст самой карточки
+        var txt = pcCard.textContent.trim().split(/\s+/)[0];
+        if (txt) { window._godjiLastContextPc = txt; return; }
+    }
+    // Строка таблицы
     var row = target.closest('tr');
     if (row) {
         var cell = row.querySelector('td[data-index="0"]') || row.querySelector('td:first-child');
