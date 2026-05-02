@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -96,7 +96,17 @@ function scan(){
                     var hist=loadHistory();
                     var nowT=Date.now();
                     var isDup=hist.some(function(r){return r.pc===capturedPc&&nowT-r.ts<12000;});
-                    if(!isDup){
+                    // Проверяем — не является ли это завершение частью перезапуска
+                    var isRestartFinish = false;
+                    try {
+                        var rGroups = JSON.parse(localStorage.getItem('godji_opjournal_restarts')||'{}');
+                        var rCutoff = nowT - 90000; // 90 сек
+                        for(var rk in rGroups){
+                            var rg = rGroups[rk];
+                            if(rg.ts >= rCutoff && !rg.closed){ isRestartFinish = true; break; }
+                        }
+                    } catch(e){}
+                    if(!isDup && !isRestartFinish){
                         hist.unshift({ts:nowT,pc:capturedPc,type:'finish',
                             userName:capturedPrev.userName||'',nick:capturedPrev.nick,
                             clientUrl:capturedPrev.clientUrl,phone:capturedPrev.phone,
