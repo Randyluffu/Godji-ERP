@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Перезапускает сеанс: завершает, зачисляет оставшееся время бонусами, запускает заново
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -162,10 +162,40 @@ async function restartSession(pcName, onProgress) {
     // 3. Завершаем сеанс
     await cancelSession(parseInt(sess.sessionId));
 
-    onProgress('ПК ' + pcName + ': начисляем ' + remainMin + ' бонусов...');
+    onProgress('ПК ' + pcName + ': проверяем возврат бонусов...');
 
-    // 4. Начисляем бонусы
-    await depositBonus(parseInt(sess.walletId), remainMin, COMMENT);
+    // 4. Ждём возможный возврат бонусов от сервера (300ms)
+    await new Promise(function(r){ setTimeout(r, 600); });
+
+    // Проверяем — не вернул ли сервер уже бонусы при завершении
+    var refundedBonus = 0;
+    try {
+        var refundData = await gql('GetRecentRefund',
+            'query GetRecentRefund($clubId:Int!){wallet_operations(where:{club_id:{_eq:$clubId}},order_by:{id:desc},limit:10){id amount money_type operation_type created_at wallet_operation_digest{name description}}}',
+            { clubId: CLUB_ID }
+        );
+        var recentOps = refundData && refundData.wallet_operations || [];
+        var cutoffTs = Date.now() - 10000; // последние 10 сек
+        recentOps.forEach(function(op){
+            var opTs = new Date(op.created_at).getTime();
+            if(opTs < cutoffTs) return;
+            var name = (op.wallet_operation_digest && op.wallet_operation_digest.name)||'';
+            // Возврат бонусов при завершении
+            if(op.operation_type === 'deposit' && op.money_type === 'non_cash' &&
+               (name.indexOf('возврат') !== -1 || name.indexOf('Возврат') !== -1)){
+                refundedBonus += Math.abs(op.amount||0);
+            }
+        });
+    } catch(e) {}
+
+    var bonusToAdd = remainMin - Math.round(refundedBonus);
+    if(bonusToAdd <= 0){
+        onProgress('ПК ' + pcName + ': бонусы уже возвращены сервером (' + Math.round(refundedBonus) + ' G)');
+    } else {
+        onProgress('ПК ' + pcName + ': начисляем ' + bonusToAdd + ' бонусов (возврат: ' + Math.round(refundedBonus) + ')...');
+        // 4. Начисляем только разницу
+        await depositBonus(parseInt(sess.walletId), bonusToAdd, COMMENT);
+    }
 
     onProgress('ПК ' + pcName + ': запускаем новый сеанс...');
 
@@ -226,7 +256,18 @@ function tryInjectSingleMenu() {
             break;
         }
     }
-    if (!rebootBtn) return;
+    // Показываем кнопку всегда (даже если ПК выключен) — ищем любой пункт как якорь
+    if (!rebootBtn) {
+        // Ищем "Продлить сеанс" как якорь
+        for (var i = 0; i < items.length; i++) {
+            var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
+            if (lbl && (lbl.textContent.trim() === 'Продлить сеанс' || lbl.textContent.trim() === 'Продлить')) {
+                rebootBtn = items[i];
+                break;
+            }
+        }
+        if (!rebootBtn) return;
+    }
 
     // Создаём кнопку в точно таком же стиле
     var btn = document.createElement('button');
@@ -383,7 +424,18 @@ var _multiObs = new MutationObserver(function() {
         var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
         if (lbl && lbl.textContent.trim() === 'Перезагрузить') { rebootBtn = items[i]; break; }
     }
-    if (!rebootBtn) return;
+    // Показываем кнопку всегда (даже если ПК выключен) — ищем любой пункт как якорь
+    if (!rebootBtn) {
+        // Ищем "Продлить сеанс" как якорь
+        for (var i = 0; i < items.length; i++) {
+            var lbl = items[i].querySelector('.mantine-Menu-itemLabel');
+            if (lbl && (lbl.textContent.trim() === 'Продлить сеанс' || lbl.textContent.trim() === 'Продлить')) {
+                rebootBtn = items[i];
+                break;
+            }
+        }
+        if (!rebootBtn) return;
+    }
 
     var mi = rebootBtn.cloneNode(true);
     mi.setAttribute('data-godji-restart-multi', '1');
