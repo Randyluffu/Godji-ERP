@@ -237,6 +237,8 @@
     function calcMinutes(amount, costPerMinute) {
         if (!costPerMinute || costPerMinute <= 0) return null;
         var mins = Math.ceil(amount / costPerMinute);
+        // API отклоняет сеансы длиннее ~120 мин — ограничиваем
+        if (mins > 120) mins = 120;
         return mins < 1 ? 1 : mins;
     }
 
