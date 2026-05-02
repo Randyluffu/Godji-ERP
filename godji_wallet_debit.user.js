@@ -179,7 +179,9 @@
             console.log('[debit] trying tariff', tariff.id, tariff.name, 'mins:', mins);
             var r = await startSession(clientId, deviceId, tariff.id, mins);
             if (!r || !r.errors) return {result: r, tariffId: tariff.id, minutes: mins};
-            console.log('[debit] tariff', tariff.id, 'failed:', r.errors[0].message);
+            var _ext = r.errors[0].extensions;
+            var _detail = _ext && _ext.internal ? (_ext.internal.error || JSON.stringify(_ext.internal.response && _ext.internal.response.body)) : '';
+            console.log('[debit] tariff', tariff.id, 'failed:', r.errors[0].message, _detail ? ('| '+_detail) : '');
         }
         return null;
     }
