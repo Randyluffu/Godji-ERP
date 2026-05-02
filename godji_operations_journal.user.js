@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -13,8 +13,36 @@
 'use strict';
 
 var STORAGE_KEY = 'godji_opjournal';
-var RESTART_KEY  = 'godji_opjournal_restarts'; // группы перезапусков
-var RESTART_WINDOW_MS = 90000; // операции в течение 90 сек = одна группа перезапуска
+var RESTART_KEY  = 'godji_opjournal_restarts';
+var RESTART_WINDOW_MS = 90000;
+
+function loadRestartGroups(){
+    try{ return JSON.parse(localStorage.getItem(RESTART_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveRestartGroups(g){
+    try{ localStorage.setItem(RESTART_KEY,JSON.stringify(g)); }catch(e){}
+}
+function getOrCreateRestartGroup(userId, ts){
+    var groups = loadRestartGroups();
+    var cutoff = ts - RESTART_WINDOW_MS;
+    var gId = null;
+    for(var k in groups){
+        var g = groups[k];
+        if(g.userId === userId && g.ts >= cutoff && !g.closed){ gId = k; break; }
+    }
+    if(!gId){
+        gId = 'restart_' + userId + '_' + ts;
+        groups[gId] = { userId: userId, ts: ts, opIds: [], closed: false, nick: '', pc: '' };
+        saveRestartGroups(groups);
+    }
+    return gId;
+}
+function addOpToRestartGroup(gId, opId){
+    var groups = loadRestartGroups();
+    if(!groups[gId]) return;
+    if(groups[gId].opIds.indexOf(opId) === -1) groups[gId].opIds.push(opId);
+    saveRestartGroups(groups);
+}
 var SAFE_KEY    = 'godji_opjournal_safe';
 var MAX_DAYS    = 3;
 var CLUB_ID     = 14;
