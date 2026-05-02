@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.7
+// @version      3.8
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -671,7 +671,7 @@ function renderModal(){
 
     // Добавляем синтетические группы перезапуска
     Object.keys(restartMap).forEach(function(k){ filtered.push(restartMap[k]); });
-    filtered.sort(function(a,b){ return b.ts - a.ts; });
+    filtered.sort(function(a,b){ return a.ts - b.ts; });
 
     if(_filterTypes.length){
         filtered=filtered.filter(function(r){
