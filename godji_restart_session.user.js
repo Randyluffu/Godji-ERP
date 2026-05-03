@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.1
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -167,6 +167,26 @@ function getDeviceId(pcName, sess) {
 }
 
 // ── Основная логика перезапуска ───────────────────────────
+// ── Расчёт стоимости оставшегося времени ─────────────────
+async function getCostForRemaining(sessionId, remainMin) {
+    var d = await gql('GetTariffsForRestart',
+        'query GetTariffsForRestart($sessionId:Int!,$minutes:Int){getAvailableTariffsForProlongation(params:{sessionId:$sessionId,minutes:$minutes}){tariffs{id name durationMin cost}}}',
+        {sessionId: sessionId, minutes: 1}
+    );
+    var tariffs = d && d.getAvailableTariffsForProlongation && d.getAvailableTariffsForProlongation.tariffs;
+    if (!tariffs || !tariffs.length) {
+        console.warn('[Restart] No tariffs, fallback to remainMin');
+        return remainMin;
+    }
+    // Берём поминутный тариф (durationMin=1) для точного расчёта
+    var t = tariffs.find(function(t){ return t.durationMin === 1; });
+    if (!t) t = tariffs.slice().sort(function(a,b){ return a.durationMin - b.durationMin; })[0];
+    var costPerMin = t.cost / t.durationMin;
+    var total = Math.round(costPerMin * remainMin);
+    console.log('[Restart] ' + t.name + ': ' + costPerMin + ' руб/мин × ' + remainMin + ' мин = ' + total + ' бонусов');
+    return total;
+}
+
 async function restartSession(pcName, onProgress) {
     onProgress('Получение данных сессии ' + pcName + '...');
 
