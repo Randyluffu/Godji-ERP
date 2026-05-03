@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.10
+// @version      3.13
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -998,6 +998,7 @@ function createSidebarBtn(){
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className=btnCls;
+    btn.style.cssText='width:100%;box-sizing:border-box;';
     btn.href='javascript:void(0)';
 
     var sec=document.createElement('span');
@@ -1028,10 +1029,16 @@ function createSidebarBtn(){
 
     // Порядок: опж перед историей сеансов (оба перед часами)
     var histBtn = document.getElementById('godji-history-btn');
+    // Оборачиваем в div с padding как оригинальные кнопки
+    var opjWrap = document.createElement('div');
+    opjWrap.id = 'godji-opj-wrap';
+    opjWrap.style.cssText = 'padding-inline:var(--mantine-spacing-md,16px);width:100%;box-sizing:border-box;';
+    opjWrap.appendChild(btn);
     if(histBtn && histBtn.parentNode === navbar){
-        navbar.insertBefore(btn, histBtn);
+        var histWrap = histBtn.parentNode.id === 'godji-history-wrap' ? histBtn.parentNode : histBtn;
+        navbar.insertBefore(opjWrap, histWrap);
     } else {
-        navbar.insertBefore(btn, clockSec);
+        navbar.insertBefore(opjWrap, clockSec);
     }
     updateBadge();
 }
