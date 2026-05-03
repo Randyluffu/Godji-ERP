@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.9
+// @version      3.10
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -152,15 +152,20 @@ function addEntry(entry){
 function findRestartGroupForOp(userId, ts){
     var groups = loadRestartGroups();
     var cutoff = ts - RESTART_WINDOW_MS;
+    // Операции приходят через polling с задержкой — ищем группу в широком окне
+    // Группа создаётся ДО операции, операция приходит через 10-30 сек polling
+    var best = null, bestDiff = Infinity;
     for(var k in groups){
         var g = groups[k];
-        // Группа в нужном временном окне, не закрытая, совпадает userId
-        if(g.ts >= cutoff && g.ts <= ts + 5000 &&
-           (g.userId === userId || (!g.userId && !userId))){
-            return k;
+        if(g.userId !== userId && !(g.walletId && !userId)) continue;
+        // Группа должна быть создана незадолго до операции (от -90 до +120 сек)
+        var diff = ts - g.ts;
+        if(diff >= -5000 && diff <= 120000){
+            if(diff < bestDiff){ bestDiff = diff; best = k; }
         }
     }
-    return null;
+    return best || null;
+    // old return null;
 }
 
 // ── Определение типа операции по digest.name ─────────────
@@ -304,7 +309,7 @@ function fetchNewOps(){
                 if(isRestartOp2){
                     // Ищем существующую группу по userId и времени
                     restartGId = findRestartGroupForOp(op.user_id, opTs2);
-                    if(!restartGId && op.user_id){
+                    if(!restartGId){
                         restartGId = getOrCreateRestartGroup(op.user_id, opTs2);
                     }
                     if(restartGId) addOpToRestartGroup(restartGId, op.id);
