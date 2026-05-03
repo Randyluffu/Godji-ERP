@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.5
+// @version      3.9
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -13,6 +13,36 @@
 'use strict';
 
 var STORAGE_KEY = 'godji_opjournal';
+var RESTART_KEY  = 'godji_opjournal_restarts';
+var RESTART_WINDOW_MS = 90000;
+
+function loadRestartGroups(){
+    try{ return JSON.parse(localStorage.getItem(RESTART_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveRestartGroups(g){
+    try{ localStorage.setItem(RESTART_KEY,JSON.stringify(g)); }catch(e){}
+}
+function getOrCreateRestartGroup(userId, ts){
+    var groups = loadRestartGroups();
+    var cutoff = ts - RESTART_WINDOW_MS;
+    var gId = null;
+    for(var k in groups){
+        var g = groups[k];
+        if(g.userId === userId && g.ts >= cutoff && !g.closed){ gId = k; break; }
+    }
+    if(!gId){
+        gId = 'restart_' + userId + '_' + ts;
+        groups[gId] = { userId: userId, ts: ts, opIds: [], closed: false, nick: '', pc: '' };
+        saveRestartGroups(groups);
+    }
+    return gId;
+}
+function addOpToRestartGroup(gId, opId){
+    var groups = loadRestartGroups();
+    if(!groups[gId]) return;
+    if(groups[gId].opIds.indexOf(opId) === -1) groups[gId].opIds.push(opId);
+    saveRestartGroups(groups);
+}
 var SAFE_KEY    = 'godji_opjournal_safe';
 var MAX_DAYS    = 3;
 var CLUB_ID     = 14;
@@ -118,6 +148,21 @@ function addEntry(entry){
     updateBadge();
 }
 
+// ── Поиск группы перезапуска для операции ────────────────
+function findRestartGroupForOp(userId, ts){
+    var groups = loadRestartGroups();
+    var cutoff = ts - RESTART_WINDOW_MS;
+    for(var k in groups){
+        var g = groups[k];
+        // Группа в нужном временном окне, не закрытая, совпадает userId
+        if(g.ts >= cutoff && g.ts <= ts + 5000 &&
+           (g.userId === userId || (!g.userId && !userId))){
+            return k;
+        }
+    }
+    return null;
+}
+
 // ── Определение типа операции по digest.name ─────────────
 function classifyOp(op){
     var name=(op.wallet_operation_digest&&op.wallet_operation_digest.name)||'';
@@ -128,7 +173,9 @@ function classifyOp(op){
 
     var type, icon, label, color, bg;
 
-    if(nl.indexOf('пополнение наличными')!==-1){
+    if(nl.indexOf('перезапуск')!==-1||(desc&&desc.toLowerCase().indexOf('перезапуск')!==-1)){
+        type='session_restart'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>'; label='Перезапуск сеанса'; color='#bf360c'; bg='#fff3e0';
+    } else if(nl.indexOf('пополнение наличными')!==-1){
         type='deposit_cash'; icon='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M6 12h.01M18 12h.01"/></svg>'; label='Пополнение наличными'; color='#166534'; bg='#dcfce7';
     } else if(nl.indexOf('пополнение по карте')!==-1||nl.indexOf('пополнение картой')!==-1||
               (nl.indexOf('пополнение')!==-1&&op.money_type==='non_cash'&&amt>0&&!resId&&nl.indexOf('бонус')===-1)){
@@ -246,10 +293,49 @@ function fetchNewOps(){
                 userInfo = nick ? '@'+nick : name2;
             }
 
+            // Определяем принадлежность к группе перезапуска
+            var opTs2 = new Date(op.created_at).getTime();
+            var isRestartOp2 = (cls.desc && cls.desc.indexOf('Перезапуск') !== -1) ||
+                               cls.type === 'session_restart';
+            var restartGId = null;
+            if(op.user_id || op.wallet_operation_digest){
+                var rGroups2 = loadRestartGroups();
+                var rCutoff2 = opTs2 - RESTART_WINDOW_MS;
+                if(isRestartOp2){
+                    // Ищем существующую группу по userId и времени
+                    restartGId = findRestartGroupForOp(op.user_id, opTs2);
+                    if(!restartGId && op.user_id){
+                        restartGId = getOrCreateRestartGroup(op.user_id, opTs2);
+                    }
+                    if(restartGId) addOpToRestartGroup(restartGId, op.id);
+                } else if(op.user_id) {
+                    // Ищем открытую группу перезапуска для этого пользователя
+                    for(var rk2 in rGroups2){
+                        var rg2 = rGroups2[rk2];
+                        if((rg2.userId === op.user_id || rg2.walletId == op.wallet_id) &&
+                           rg2.ts >= rCutoff2 && !rg2.closed){
+                            restartGId = rk2;
+                            addOpToRestartGroup(rk2, op.id);
+                            break;
+                        }
+                    }
+                }
+            }
+            // Обновляем pc и nick в группе перезапуска
+            if(restartGId){
+                var rgu = loadRestartGroups();
+                if(rgu[restartGId]){
+                    if(pcName && !rgu[restartGId].pc) rgu[restartGId].pc = pcName;
+                    if(nick && !rgu[restartGId].nick) rgu[restartGId].nick = nick;
+                    saveRestartGroups(rgu);
+                }
+            }
             addEntry({
                 opId: op.id,
                 id: 'op'+op.id,
                 ts: new Date(op.created_at).getTime(),
+                restartGroupId: restartGId,
+                hidden: !!restartGId,
                 type: isSusp ? 'suspicious' : cls.type,
                 icon: isSusp ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' : cls.icon,
                 label: isSusp ? 'Подозрит.: '+cls.label : cls.label,
@@ -470,7 +556,7 @@ function renderModal(){
     hIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     var hTit=document.createElement('span');
     hTit.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
-    hTit.textContent='История операций (7 дней)';
+    hTit.textContent='История операций (72 часа)';
     hL.appendChild(hIco); hL.appendChild(hTit);
     if(suspCount>0){
         var sB=document.createElement('span');
@@ -518,6 +604,7 @@ function renderModal(){
         ['session_transfer','🔀 Пересадка','#cc6600','#fff0e0'],
         ['debit_money','➖₽','#991b1b','#fee2e2'],
         ['debit_bonus','➖🎁','#7c3aed','#ede9fe'],
+        ['session_restart','↺ Перезапуск','#bf360c','#fff3e0'],
         ['other','• Прочее','#555','#f5f5f5']
     ];
 
@@ -578,10 +665,36 @@ function renderModal(){
     body.style.cssText='overflow-y:auto;flex:1;';
     _modal.appendChild(body);
 
-    var filtered=journal.slice();
+    // Строим список с группами перезапуска
+    var rGroups = loadRestartGroups();
+    var restartMap = {};
+    journal.forEach(function(r){
+        if(!r.restartGroupId) return;
+        if(!restartMap[r.restartGroupId]){
+            restartMap[r.restartGroupId] = {
+                id: r.restartGroupId,
+                type: 'session_restart',
+                label: 'Перезапуск сеанса',
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+                color: '#bf360c', bg: '#fff3e0',
+                ts: r.ts, client: r.client, clientUrl: r.clientUrl, pc: r.pc,
+                isRestartGroup: true, subEntries: [], amount: '', suspicious: false
+            };
+        }
+        var rg = restartMap[r.restartGroupId];
+        if(r.ts < rg.ts) rg.ts = r.ts;
+        rg.subEntries.push(r);
+    });
+
+    // Базовый список — только не-hidden записи
+    var filtered = journal.filter(function(r){ return !r.hidden || !r.restartGroupId; });
+
+    // Добавляем синтетические группы перезапуска
+    Object.keys(restartMap).forEach(function(k){ filtered.push(restartMap[k]); });
+    filtered.sort(function(a,b){ return a.ts - b.ts; });
+
     if(_filterTypes.length){
         filtered=filtered.filter(function(r){
-            // suspicious — отдельная проверка
             if(_filterTypes.indexOf('suspicious')!==-1&&r.suspicious&&safeIds.indexOf(r.id)===-1) return true;
             return _filterTypes.indexOf(r.type)!==-1;
         });
@@ -615,6 +728,78 @@ function renderModal(){
 
     var tbody=document.createElement('tbody');
     filtered.forEach(function(rec){
+        // Группа перезапуска — специальный рендер
+        if(rec.isRestartGroup){
+            var rgTr = document.createElement('tr');
+            rgTr.style.cssText = 'border-bottom:1px solid #f5f5f5;background:#fff8f6;cursor:pointer;transition:background 0.1s;';
+            rgTr.addEventListener('mouseenter',function(){ rgTr.style.background='#fff3e0'; });
+            rgTr.addEventListener('mouseleave',function(){ rgTr.style.background='#fff8f6'; });
+
+            var rgExpanded = false;
+            var rgSubRows = [];
+
+            function buildSubRows(){
+                rgSubRows.forEach(function(r){ if(r.parentNode) r.parentNode.removeChild(r); });
+                rgSubRows = [];
+                if(!rgExpanded) return;
+                rec.subEntries.forEach(function(sub){
+                    var subTr = document.createElement('tr');
+                    subTr.style.cssText = 'border-bottom:1px solid #fdebd0;background:#fffaf5;';
+                    var subTd = document.createElement('td');
+                    subTd.colSpan = 6;
+                    subTd.style.cssText = 'padding:5px 14px 5px 36px;';
+                    var subCls = classifyOp({
+                        wallet_operation_digest: { name: sub.label, description: sub.comment },
+                        amount: parseFloat(sub.amount)||0,
+                        operation_type: '', money_type: ''
+                    });
+                    var subBadge = '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:8px;font-size:11px;font-weight:600;background:'+(sub.bg||'#f5f5f5')+';color:'+(sub.color||'#333')+';">'+(sub.icon||'')+'<span>'+esc(sub.label||'')+'</span></span>';
+                    subTd.innerHTML = '<span style="font-size:11px;color:#aaa;margin-right:8px;">'+(new Date(sub.ts)).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+'</span>'+
+                        subBadge +
+                        '<span style="font-size:11px;color:#555;margin-left:8px;">'+(sub.amount||'')+'</span>'+
+                        '<span style="font-size:11px;color:#aaa;margin-left:8px;">'+(sub.comment||sub.extra||'')+'</span>';
+                    subTr.appendChild(subTd);
+                    rgSubRows.push(subTr);
+                    rgTr.parentNode && rgTr.parentNode.insertBefore(subTr, rgTr.nextSibling);
+                });
+            }
+
+            var rgTd1 = document.createElement('td');
+            rgTd1.style.cssText = 'padding:9px 14px;font-size:11px;color:#888;white-space:nowrap;';
+            rgTd1.textContent = (new Date(rec.ts)).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+            var rgTd2 = document.createElement('td');
+            rgTd2.style.cssText = 'padding:9px 14px;';
+            rgTd2.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700;background:#fff3e0;color:#bf360c;border:1px solid #ffccbc;">'+
+                rec.icon+'<span>Перезапуск сеанса</span>'+
+                '<span id="rg-chevron-'+rec.id+'" style="margin-left:4px;transition:transform .2s;">▼</span>'+
+                '</span>';
+
+            var rgTd3 = document.createElement('td');
+            rgTd3.style.cssText = 'padding:9px 14px;font-size:12px;color:#555;';
+            if(rec.client){
+                rgTd3.innerHTML = '<span style="color:#0066aa;font-weight:600;font-size:12px;">@'+esc(rec.client)+'</span>';
+            }
+            var rgTd4 = document.createElement('td');
+            rgTd4.style.cssText = 'padding:9px 14px;font-size:12px;color:#888;';
+            rgTd4.innerHTML = rec.subEntries.length + ' операций';
+
+            var rgTd5 = document.createElement('td'); rgTd5.style.cssText='padding:9px 14px;';
+            var rgTd6 = document.createElement('td'); rgTd6.style.cssText='padding:9px 14px;';
+
+            rgTr.appendChild(rgTd1); rgTr.appendChild(rgTd2); rgTr.appendChild(rgTd3);
+            rgTr.appendChild(rgTd4); rgTr.appendChild(rgTd5); rgTr.appendChild(rgTd6);
+
+            rgTr.addEventListener('click', function(){
+                rgExpanded = !rgExpanded;
+                var chev = document.getElementById('rg-chevron-'+rec.id);
+                if(chev) chev.style.transform = rgExpanded ? 'rotate(180deg)' : '';
+                buildSubRows();
+            });
+            tbody.appendChild(rgTr);
+            return;
+        }
+
         var isSafe=safeIds.indexOf(rec.id)!==-1;
         var isSusp=rec.suspicious&&!isSafe;
 
