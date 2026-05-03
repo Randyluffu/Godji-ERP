@@ -355,8 +355,6 @@
             statusCallback('Ищем свободный ПК…');
             var freePCs = await getFreePCs();
             if (!freePCs || !freePCs.length) {
-                var hasStuck = stuck && stuck.filter(function(r){ return r.status === 'end_rejected'; }).length > 0;
-                if (hasStuck) throw new Error('У клиента есть зависшие сессии (end_rejected). Очистите их вручную через ERP или попробуйте с другим клиентом.');
                 throw new Error('Нет свободных VIP-ПК. Дождитесь освобождения места.');
             }
             var startResult = null;
