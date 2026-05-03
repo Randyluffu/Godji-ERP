@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.1
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -96,24 +96,8 @@ function scan(){
                     var hist=loadHistory();
                     var nowT=Date.now();
                     var isDup=hist.some(function(r){return r.pc===capturedPc&&nowT-r.ts<12000;});
-                    // Проверяем — не является ли это завершение частью перезапуска
-                    var isRestartFinish = false;
-                    try {
-                        var rGroups = JSON.parse(localStorage.getItem('godji_opjournal_restarts')||'{}');
-                        var rCutoff = nowT - 120000; // 2 минуты
-                        for(var rk in rGroups){
-                            var rg = rGroups[rk];
-                            // Проверяем по ПК или нику — группа должна быть активной
-                            if(rg.ts >= rCutoff && !rg.closed &&
-                               (rg.pc === capturedPc || (capturedPrev && rg.nick && rg.nick === capturedPrev.nick))){
-                                isRestartFinish = true;
-                                break;
-                            }
-                        }
-                    } catch(e){}
-                    if(!isDup && !isRestartFinish){
-                        var entryType = 'finish';
-                        hist.unshift({ts:nowT,pc:capturedPc,type:entryType,
+                    if(!isDup){
+                        hist.unshift({ts:nowT,pc:capturedPc,type:'finish',
                             userName:capturedPrev.userName||'',nick:capturedPrev.nick,
                             clientUrl:capturedPrev.clientUrl,phone:capturedPrev.phone,
                             pastTime:capturedPrev.pastTime});
@@ -121,7 +105,7 @@ function scan(){
                         hist=hist.filter(function(r){return r.ts>cutoff;});
                         saveHistory(hist);updateModal();
                         try{ localStorage.setItem('godji_session_events', JSON.stringify({
-                            ts:nowT, events:[{type:entryType,pc:capturedPc,
+                            ts:nowT, events:[{type:'finish',pc:capturedPc,
                                 nick:capturedPrev.nick,userName:capturedPrev.userName||'',
                                 clientUrl:capturedPrev.clientUrl,pastTime:capturedPrev.pastTime,ts:nowT}]
                         })); } catch(e){}
