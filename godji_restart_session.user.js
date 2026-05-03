@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -214,6 +214,7 @@ async function restartSession(pcName, onProgress) {
     // Определяем по ZONE_MINUTE_TARIFFS и MINUTE_TARIFF_IDS — tariffType недоступен через API
     var origIsMinute = isMinuteTariff(sess.tariffId);
     var needBonus = !origIsMinute;
+    var bonusAmount = 0;
 
     // 4. Тариф для нового сеанса — всегда minute соответствующей зоны
     var newTariffId = getMinuteTariffId(parseInt(sess.tariffId));
@@ -243,8 +244,15 @@ async function restartSession(pcName, onProgress) {
 
     // 6. Начисляем бонусы только для пакетных тарифов
     if (needBonus) {
-        onProgress('ПК ' + pcName + ': начисляем ' + remainMin + ' бонусов (пакетный тариф)...');
-        await depositBonus(parseInt(sess.walletId), remainMin, COMMENT);
+        onProgress('ПК ' + pcName + ': считаем стоимость ' + remainMin + ' мин...');
+        var bonusAmount = remainMin;
+        try {
+            bonusAmount = await getCostForRemaining(parseInt(sess.sessionId), remainMin);
+        } catch(e) {
+            bonusAmount = remainMin; // fallback
+        }
+        onProgress('ПК ' + pcName + ': начисляем ' + bonusAmount + ' бонусов (пакетный)...');
+        await depositBonus(parseInt(sess.walletId), bonusAmount, COMMENT);
     } else {
         onProgress('ПК ' + pcName + ': почасовой — ERP вернёт деньги автоматически');
         // Небольшая пауза чтобы ERP успел провести возврат
@@ -267,7 +275,7 @@ async function restartSession(pcName, onProgress) {
         localStorage.setItem('godji_opjournal_restarts', JSON.stringify(rClose));
     } catch(e) {}
 
-    return { mins: remainMin, bonus: needBonus, newTariffId: newTariffId };
+    return { mins: remainMin, bonus: needBonus, bonusAmount: bonusAmount || 0, newTariffId: newTariffId };
 }
 
 // ── Toast ─────────────────────────────────────────────────
