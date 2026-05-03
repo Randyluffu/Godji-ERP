@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -100,14 +100,20 @@ function scan(){
                     var isRestartFinish = false;
                     try {
                         var rGroups = JSON.parse(localStorage.getItem('godji_opjournal_restarts')||'{}');
-                        var rCutoff = nowT - 90000; // 90 сек
+                        var rCutoff = nowT - 120000; // 2 минуты
                         for(var rk in rGroups){
                             var rg = rGroups[rk];
-                            if(rg.ts >= rCutoff && !rg.closed){ isRestartFinish = true; break; }
+                            // Проверяем по ПК или нику — группа должна быть активной
+                            if(rg.ts >= rCutoff && !rg.closed &&
+                               (rg.pc === capturedPc || (capturedPrev && rg.nick && rg.nick === capturedPrev.nick))){
+                                isRestartFinish = true;
+                                break;
+                            }
                         }
                     } catch(e){}
-                    if(!isDup && !isRestartFinish){
-                        hist.unshift({ts:nowT,pc:capturedPc,type:'finish',
+                    if(!isDup){
+                        var entryType = isRestartFinish ? 'restart' : 'finish';
+                        hist.unshift({ts:nowT,pc:capturedPc,type:entryType,
                             userName:capturedPrev.userName||'',nick:capturedPrev.nick,
                             clientUrl:capturedPrev.clientUrl,phone:capturedPrev.phone,
                             pastTime:capturedPrev.pastTime});
@@ -115,7 +121,7 @@ function scan(){
                         hist=hist.filter(function(r){return r.ts>cutoff;});
                         saveHistory(hist);updateModal();
                         try{ localStorage.setItem('godji_session_events', JSON.stringify({
-                            ts:nowT, events:[{type:'finish',pc:capturedPc,
+                            ts:nowT, events:[{type:entryType,pc:capturedPc,
                                 nick:capturedPrev.nick,userName:capturedPrev.userName||'',
                                 clientUrl:capturedPrev.clientUrl,pastTime:capturedPrev.pastTime,ts:nowT}]
                         })); } catch(e){}
@@ -291,7 +297,7 @@ function updateModal(){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Дата и время','110px'],['ПК','55px'],['Клиент','150px'],['Ник','130px'],['Телефон','115px'],['Время сеанса','95px']].forEach(function(c){
+    [['Дата и время','110px'],['ПК','55px'],['Клиент','150px'],['Ник','130px'],['Телефон','115px'],['Время сеанса','95px'],['Тип','100px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0];hr.appendChild(th);
@@ -356,7 +362,26 @@ function updateModal(){
         tdT.style.cssText='padding:9px 12px;color:#888;font-size:12px;';
         tdT.textContent=rec.pastTime||'—';
 
-        [tdD,tdPc,tdN,tdNk,tdPh,tdT].forEach(function(td){tr.appendChild(td);});
+        // Тип операции
+        var tdType=document.createElement('td');
+        tdType.style.cssText='padding:9px 12px;';
+        var typeLabel = rec.type==='transfer' ? 'Пересадка' :
+                        rec.type==='restart'  ? 'Перезапуск' : 'Завершение';
+        var typeColor = rec.type==='transfer' ? '#1565c0' :
+                        rec.type==='restart'  ? '#bf360c' : '#cc0001';
+        var typeBg    = rec.type==='transfer' ? 'rgba(21,101,192,0.1)' :
+                        rec.type==='restart'  ? 'rgba(191,54,12,0.1)' : 'rgba(204,0,1,0.08)';
+        var typeIcon  = rec.type==='transfer'
+            ? '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>'
+            : rec.type==='restart'
+            ? '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>'
+            : '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
+        var badge=document.createElement('span');
+        badge.style.cssText='display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:8px;font-size:11px;font-weight:600;background:'+typeBg+';color:'+typeColor+';border:1px solid '+typeColor+'33;';
+        badge.innerHTML=typeIcon+'<span>'+typeLabel+'</span>';
+        tdType.appendChild(badge);
+
+        [tdD,tdPc,tdN,tdNk,tdPh,tdT,tdType].forEach(function(td){tr.appendChild(td);});
         tbody.appendChild(tr);
     });
     table.appendChild(tbody);wrap.innerHTML='';wrap.appendChild(table);
