@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -180,18 +180,18 @@ async function restartSession(pcName, onProgress) {
             // Нужен userId — запрашиваем отдельно по walletId
             try {
                 var uidData = await gql('GetUserByWallet',
-                    'query GetUserByWallet($walletId:Int!){users_wallets_by_pk(id:$walletId){user_id user{users_reservations(where:{status:{_in:["active","playing"]},club_id:{_eq:'+CLUB_ID+'}},limit:1){id endAt tariff{id name}}}}}',
-                    {walletId: parseInt(cached.walletId)}
+                    'query GetUserByWallet($wid:Int!){users_wallets(where:{id:{_eq:$wid}},limit:1){user_id}}',
+                    {wid: parseInt(cached.walletId)}
                 );
-                var w = uidData && uidData.users_wallets_by_pk;
-                var activeRes = w && w.user && w.user.users_reservations && w.user.users_reservations[0];
+                var wallets2 = uidData && uidData.users_wallets;
+                var uid2 = wallets2 && wallets2[0] && wallets2[0].user_id;
                 sess = {
                     sessionId: cached.sessionId,
                     tariffId:  cached.tariffId,
                     walletId:  cached.walletId,
-                    userId:    w && w.user_id,
+                    userId:    uid2,
                     nickname:  cached.nickname,
-                    endAt:     activeRes && activeRes.endAt,
+                    endAt:     cached.endAt || cached.timeTo,
                     deviceId:  null,
                 };
             } catch(e) {}
@@ -220,7 +220,25 @@ async function restartSession(pcName, onProgress) {
 
     onProgress('ПК ' + pcName + ': ' + remainMin + ' мин, тариф #' + newTariffId + '. Завершаем...');
 
-    // 5. Завершаем сеанс
+    // 5. Записываем маркер перезапуска ДО завершения — чтобы история сеансов и операций знала
+    var restartMarkerKey = 'godji_opjournal_restarts';
+    var restartTs = Date.now();
+    var restartGid = 'restart_' + (sess.userId||sess.walletId) + '_' + restartTs;
+    try {
+        var rMarkers = JSON.parse(localStorage.getItem(restartMarkerKey)||'{}');
+        rMarkers[restartGid] = {
+            userId: sess.userId || '',
+            walletId: sess.walletId,
+            pc: pcName,
+            nick: sess.nickname || '',
+            ts: restartTs,
+            opIds: [],
+            closed: false
+        };
+        localStorage.setItem(restartMarkerKey, JSON.stringify(rMarkers));
+    } catch(e) {}
+
+    // 6. Завершаем сеанс
     await cancelSession(parseInt(sess.sessionId));
 
     // 6. Начисляем бонусы только для пакетных тарифов
@@ -241,6 +259,13 @@ async function restartSession(pcName, onProgress) {
 
     // 8. Новый сеанс на почасовом тарифе
     await createSession(sess.userId, parseInt(deviceId), newTariffId, remainMin);
+
+    // 9. Закрываем группу перезапуска
+    try {
+        var rClose = JSON.parse(localStorage.getItem('godji_opjournal_restarts')||'{}');
+        if(rClose[restartGid]) { rClose[restartGid].closed = true; }
+        localStorage.setItem('godji_opjournal_restarts', JSON.stringify(rClose));
+    } catch(e) {}
 
     return { mins: remainMin, bonus: needBonus, newTariffId: newTariffId };
 }
@@ -336,9 +361,17 @@ function tryInjectSingleMenu() {
             .catch(function(err){ showToast('✗ ' + pcName + ': ' + err.message, false, 6000); });
     });
 
-    // Вставляем сразу после "Продлить сеанс"
-    var next = anchorBtn.nextSibling;
-    anchorBtn.parentNode.insertBefore(btn, next || null);
+    // Вставляем после "Продление сеанса" / "Продлить сеанс"
+    var insertAfter = null;
+    var PROLONG_LABELS = ['Продлить сеанс','Продлить','Продление сеанса'];
+    for (var pi = 0; pi < items.length; pi++) {
+        var plbl = items[pi].querySelector('.mantine-Menu-itemLabel');
+        if (plbl && PROLONG_LABELS.indexOf(plbl.textContent.trim()) !== -1) {
+            insertAfter = items[pi]; break;
+        }
+    }
+    if (!insertAfter) insertAfter = anchorBtn;
+    insertAfter.parentNode.insertBefore(btn, insertAfter.nextSibling || null);
 }
 
 // ── Перехват contextmenu ──────────────────────────────────
