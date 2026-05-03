@@ -128,61 +128,27 @@
     function startSession(clientId, deviceId, tariffId, minutes) {
         var now = new Date();
         var end = new Date(now.getTime() + minutes * 60000);
-        var vars = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
-              sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
-              userId: clientId, isDirect: true };
+        // Только isDirect:true — без retry, т.к. каждая неудача создаёт end_rejected в БД
         return gql(
             'mutation CreateBooking($clubId: Int!, $deviceId: Int!, $tariffId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!, $userId: String!, $isDirect: Boolean) { userReservationCreate(params: {clubId: $clubId, deviceId: $deviceId, tariffId: $tariffId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, userId: $userId, isDirect: $isDirect}) { __typename } }',
-            vars, 'CreateBooking'
-        ).then(function(r) {
-            if(r && r.errors && r.errors.length) {
-                console.warn('[debit] CreateBooking with isDirect failed:', r.errors[0].message, '— retrying without isDirect');
-                var vars2 = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
-                    sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
-                    userId: clientId };
-                return gql(
-                    'mutation CreateBooking2($clubId: Int!, $deviceId: Int!, $tariffId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!, $userId: String!) { userReservationCreate(params: {clubId: $clubId, deviceId: $deviceId, tariffId: $tariffId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, userId: $userId}) { __typename } }',
-                    vars2, 'CreateBooking2'
-                );
-            }
-            return r;
-        });
+            { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+              sessionStart: now.toISOString(), sessionEnd: end.toISOString(),
+              userId: clientId, isDirect: true },
+            'CreateBooking'
+        );
     }
 
     // Пробуем создать сеанс с разными тарифами
     async function startSessionMultiTariff(clientId, deviceId, minutes) {
+        // Одна попытка с кэшированным тарифом — не накапливаем end_rejected
         var cachedTariff = getTariffFromCache();
-        // Получаем доступные тарифы для этого ПК
-        // Берём тарифы из кэша free_time и также пробуем тарифы которые клиент использовал ранее
-        var tariffs = [];
-        if (cachedTariff) {
-            tariffs.push({id: cachedTariff.tariffId, durationMin: 60, cost: cachedTariff.costPerMin * 60});
-        }
-        // Добавляем известные тарифы VIP зоны из резерваций клиента
-        var KNOWN_TARIFFS = [
-            {id: 102, durationMin: 60, cost: null},
-            {id: 103, durationMin: 60, cost: null},
-            {id: 104, durationMin: 60, cost: null},
-            {id: 105, durationMin: 60, cost: null},
-            {id: 111, durationMin: 60, cost: null},
-        ];
-        KNOWN_TARIFFS.forEach(function(t){
-            if(!tariffs.some(function(x){return x.id===t.id;})) tariffs.push(t);
-        });
-        console.log('[debit] will try tariffs for PC', deviceId, ':', tariffs.map(function(t){return t.id;}));
-        
-        for (var ti = 0; ti < tariffs.length; ti++) {
-            var tariff = tariffs[ti];
-            // Если стоимость тарифа неизвестна — используем кэш
-            var cpm = tariff.cost ? tariff.cost / tariff.durationMin : (cachedTariff ? cachedTariff.costPerMin : null);
-            var mins = minutes; // используем уже рассчитанные минуты
-            console.log('[debit] trying tariff', tariff.id, tariff.name, 'mins:', mins);
-            var r = await startSession(clientId, deviceId, tariff.id, mins);
-            if (!r || !r.errors) return {result: r, tariffId: tariff.id, minutes: mins};
-            var _ext = r.errors[0].extensions;
-            var _detail = _ext && _ext.internal ? (_ext.internal.error || JSON.stringify(_ext.internal.response && _ext.internal.response.body)) : '';
-            console.log('[debit] tariff', tariff.id, 'failed:', r.errors[0].message, _detail ? ('| '+_detail) : '');
-        }
+        if (!cachedTariff) return null;
+        console.log('[debit] trying PC', deviceId, 'tariff', cachedTariff.tariffId, 'mins:', minutes);
+        var r = await startSession(clientId, deviceId, cachedTariff.tariffId, minutes);
+        if (!r || !r.errors) return {result: r, tariffId: cachedTariff.tariffId, minutes: minutes};
+        var _ext = r.errors[0].extensions;
+        var _detail = _ext && _ext.internal ? (_ext.internal.error || JSON.stringify(_ext.internal.response && _ext.internal.response.body)) : '';
+        console.log('[debit] PC', deviceId, 'failed:', r.errors[0].message, _detail ? ('| ' + _detail) : '');
         return null;
     }
 
