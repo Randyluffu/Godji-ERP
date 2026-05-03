@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -435,7 +435,8 @@ function createSidebarButton(){
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
-    btn.href = 'javascript:void(0)';
+
+    btn.style.cssText = 'width:100%;box-sizing:border-box;';    btn.href = 'javascript:void(0)';
 
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
@@ -460,8 +461,12 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем ПРЯМО ПЕРЕД блоком с часами в navbar
-    navbar.insertBefore(btn, clockSec);
+    // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
+    var btnWrap = document.createElement('div');
+    btnWrap.id = 'godji-history-wrap';
+    btnWrap.style.cssText = 'padding-inline:var(--mantine-spacing-md,16px);width:100%;box-sizing:border-box;';
+    btnWrap.appendChild(btn);
+    navbar.insertBefore(btnWrap, clockSec);
 }
 
 setTimeout(tryInit,5000);
