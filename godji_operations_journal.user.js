@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.8
+// @version      3.9
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -148,6 +148,21 @@ function addEntry(entry){
     updateBadge();
 }
 
+// ── Поиск группы перезапуска для операции ────────────────
+function findRestartGroupForOp(userId, ts){
+    var groups = loadRestartGroups();
+    var cutoff = ts - RESTART_WINDOW_MS;
+    for(var k in groups){
+        var g = groups[k];
+        // Группа в нужном временном окне, не закрытая, совпадает userId
+        if(g.ts >= cutoff && g.ts <= ts + 5000 &&
+           (g.userId === userId || (!g.userId && !userId))){
+            return k;
+        }
+    }
+    return null;
+}
+
 // ── Определение типа операции по digest.name ─────────────
 function classifyOp(op){
     var name=(op.wallet_operation_digest&&op.wallet_operation_digest.name)||'';
@@ -283,19 +298,24 @@ function fetchNewOps(){
             var isRestartOp2 = (cls.desc && cls.desc.indexOf('Перезапуск') !== -1) ||
                                cls.type === 'session_restart';
             var restartGId = null;
-            if(op.user_id){
-                var rGroups = loadRestartGroups();
-                var rCutoff = opTs2 - RESTART_WINDOW_MS;
+            if(op.user_id || op.wallet_operation_digest){
+                var rGroups2 = loadRestartGroups();
+                var rCutoff2 = opTs2 - RESTART_WINDOW_MS;
                 if(isRestartOp2){
-                    restartGId = getOrCreateRestartGroup(op.user_id, opTs2);
-                    addOpToRestartGroup(restartGId, op.id);
-                } else {
+                    // Ищем существующую группу по userId и времени
+                    restartGId = findRestartGroupForOp(op.user_id, opTs2);
+                    if(!restartGId && op.user_id){
+                        restartGId = getOrCreateRestartGroup(op.user_id, opTs2);
+                    }
+                    if(restartGId) addOpToRestartGroup(restartGId, op.id);
+                } else if(op.user_id) {
                     // Ищем открытую группу перезапуска для этого пользователя
-                    for(var rk in rGroups){
-                        var rg = rGroups[rk];
-                        if(rg.userId === op.user_id && rg.ts >= rCutoff && !rg.closed){
-                            restartGId = rk;
-                            addOpToRestartGroup(rk, op.id);
+                    for(var rk2 in rGroups2){
+                        var rg2 = rGroups2[rk2];
+                        if((rg2.userId === op.user_id || rg2.walletId == op.wallet_id) &&
+                           rg2.ts >= rCutoff2 && !rg2.closed){
+                            restartGId = rk2;
+                            addOpToRestartGroup(rk2, op.id);
                             break;
                         }
                     }
