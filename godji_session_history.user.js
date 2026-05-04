@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.6
+// @version      5.7
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -462,11 +462,8 @@ function createSidebarButton(){
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    var btnWrap = document.createElement('div');
-    btnWrap.id = 'godji-history-wrap';
-    btnWrap.style.cssText = 'padding-inline:var(--mantine-spacing-md,16px);width:100%;box-sizing:border-box;';
-    btnWrap.appendChild(btn);
-    navbar.insertBefore(btnWrap, clockSec);
+    btn.style.width = '100%';
+    navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
