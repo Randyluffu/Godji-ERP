@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.4
 // @description  Перезапускает сеанс: завершает и запускает заново на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -114,7 +114,7 @@ function createSession(userId, deviceId, tariffId, minutes) {
     var end = new Date(now.getTime() + minutes * 60000);
     function iso(d) { return d.toISOString().replace('Z', '+00:00'); }
     return gql('CreateSession',
-        'mutation CreateSession($userId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $userId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd, isDirect: true}) { reservationId } }',
+        'mutation CreateSession($userId: String!, $deviceId: Int!, $tariffId: Int!, $clubId: Int!, $sessionStart: timestamptz!, $sessionEnd: timestamptz!) { userReservationCreate(params: {userId: $userId, deviceId: $deviceId, tariffId: $tariffId, clubId: $clubId, sessionStart: $sessionStart, sessionEnd: $sessionEnd}) { reservationId } }',
         { userId: userId, deviceId: deviceId, tariffId: tariffId, clubId: CLUB_ID, sessionStart: iso(now), sessionEnd: iso(end) }
     );
 }
@@ -175,15 +175,13 @@ async function getCostForRemaining(sessionId, remainMin) {
     );
     var tariffs = d && d.getAvailableTariffsForProlongation && d.getAvailableTariffsForProlongation.tariffs;
     if (!tariffs || !tariffs.length) {
-        console.warn('[Restart] No tariffs, fallback to remainMin');
-        return remainMin;
+            return remainMin;
     }
     // Берём поминутный тариф (durationMin=1) для точного расчёта
     var t = tariffs.find(function(t){ return t.durationMin === 1; });
     if (!t) t = tariffs.slice().sort(function(a,b){ return a.durationMin - b.durationMin; })[0];
     var costPerMin = t.cost / t.durationMin;
     var total = Math.round(costPerMin * remainMin);
-    console.log('[Restart] ' + t.name + ': ' + costPerMin + ' руб/мин × ' + remainMin + ' мин = ' + total + ' бонусов');
     return total;
 }
 
