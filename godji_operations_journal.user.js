@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.13
+// @version      3.15
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -17,7 +17,15 @@ var RESTART_KEY  = 'godji_opjournal_restarts';
 var RESTART_WINDOW_MS = 90000;
 
 function loadRestartGroups(){
-    try{ return JSON.parse(localStorage.getItem(RESTART_KEY)||'{}'); }catch(e){ return {}; }
+    try{
+        var g = JSON.parse(localStorage.getItem(RESTART_KEY)||'{}');
+        // Чистим маркеры старше 24 часов
+        var cutoff = Date.now() - 86400000;
+        var changed = false;
+        for(var k in g){ if(g[k].ts < cutoff){ delete g[k]; changed = true; } }
+        if(changed) try{ localStorage.setItem(RESTART_KEY, JSON.stringify(g)); }catch(e){}
+        return g;
+    }catch(e){ return {}; }
 }
 function saveRestartGroups(g){
     try{ localStorage.setItem(RESTART_KEY,JSON.stringify(g)); }catch(e){}
@@ -157,15 +165,15 @@ function findRestartGroupForOp(userId, ts){
     var best = null, bestDiff = Infinity;
     for(var k in groups){
         var g = groups[k];
-        if(g.userId !== userId && !(g.walletId && !userId)) continue;
-        // Группа должна быть создана незадолго до операции (от -90 до +120 сек)
-        var diff = ts - g.ts;
-        if(diff >= -5000 && diff <= 120000){
+        // Матчим по userId
+        if(g.userId && g.userId !== userId) continue;
+        // Группа должна быть создана незадолго до операции (от 0 до 90 сек до операции)
+        var diff = ts - g.ts; // положительное = группа раньше операции
+        if(diff >= 0 && diff <= RESTART_WINDOW_MS){
             if(diff < bestDiff){ bestDiff = diff; best = k; }
         }
     }
-    return best || null;
-    // old return null;
+    return best || null; null;
 }
 
 // ── Определение типа операции по digest.name ─────────────
@@ -314,11 +322,11 @@ function fetchNewOps(){
                     }
                     if(restartGId) addOpToRestartGroup(restartGId, op.id);
                 } else if(op.user_id) {
-                    // Ищем открытую группу перезапуска для этого пользователя
+                    // Ищем группу перезапуска для этого пользователя
                     for(var rk2 in rGroups2){
                         var rg2 = rGroups2[rk2];
-                        if((rg2.userId === op.user_id || rg2.walletId == op.wallet_id) &&
-                           rg2.ts >= rCutoff2 && !rg2.closed){
+                        if((rg2.userId === op.user_id) &&
+                           rg2.ts >= rCutoff2 && rg2.ts <= opTs2){
                             restartGId = rk2;
                             addOpToRestartGroup(rk2, op.id);
                             break;
@@ -1030,15 +1038,11 @@ function createSidebarBtn(){
     // Порядок: опж перед историей сеансов (оба перед часами)
     var histBtn = document.getElementById('godji-history-btn');
     // Оборачиваем в div с padding как оригинальные кнопки
-    var opjWrap = document.createElement('div');
-    opjWrap.id = 'godji-opj-wrap';
-    opjWrap.style.cssText = 'padding-inline:var(--mantine-spacing-md,16px);width:100%;box-sizing:border-box;';
-    opjWrap.appendChild(btn);
+    btn.style.width = '100%';
     if(histBtn && histBtn.parentNode === navbar){
-        var histWrap = histBtn.parentNode.id === 'godji-history-wrap' ? histBtn.parentNode : histBtn;
-        navbar.insertBefore(opjWrap, histWrap);
+        navbar.insertBefore(btn, histBtn);
     } else {
-        navbar.insertBefore(opjWrap, clockSec);
+        navbar.insertBefore(btn, clockSec);
     }
     updateBadge();
 }
