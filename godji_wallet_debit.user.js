@@ -140,15 +140,39 @@
 
     // Пробуем создать сеанс с разными тарифами
     async function startSessionMultiTariff(clientId, deviceId, minutes) {
-        // Одна попытка с кэшированным тарифом — не накапливаем end_rejected
         var cachedTariff = getTariffFromCache();
-        if (!cachedTariff) return null;
-        console.log('[debit] trying PC', deviceId, 'tariff', cachedTariff.tariffId, 'mins:', minutes);
-        var r = await startSession(clientId, deviceId, cachedTariff.tariffId, minutes);
-        if (!r || !r.errors) return {result: r, tariffId: cachedTariff.tariffId, minutes: minutes};
+        var tariffId = cachedTariff ? cachedTariff.tariffId : null;
+        var costPerMin = cachedTariff ? cachedTariff.costPerMin : null;
+
+        // Получаем тарифы для конкретного ПК через API
+        var td = await gql(
+            'query GT($did:Int!,$cid:Int!){getAvailableTariffs(params:{deviceId:$did,clubId:$cid}){tariffs{id durationMin cost}}}',
+            {did:deviceId, cid:CLUB_ID}, 'GT'
+        ).catch(function(){return null;});
+
+        var apiTariffs = td && td.data && td.data.getAvailableTariffs && td.data.getAvailableTariffs.tariffs;
+        if (apiTariffs && apiTariffs.length) {
+            var sorted = apiTariffs.slice().sort(function(a,b){ return a.cost/a.durationMin - b.cost/b.durationMin; });
+            var best = sorted[0];
+            tariffId = best.id;
+            costPerMin = best.cost / best.durationMin;
+            // Пересчитываем минуты под тариф этого ПК
+            var totalRub = (cachedTariff ? cachedTariff.costPerMin : costPerMin) * minutes;
+            minutes = Math.min(120, Math.max(1, Math.ceil(totalRub / costPerMin)));
+            console.log('[debit] PC', deviceId, 'API tariffs:', apiTariffs.map(function(t){return t.id+':'+(t.cost/t.durationMin).toFixed(2)+'r/m';}), '=> tariff', tariffId, minutes+'min');
+        } else {
+            if (!tariffId) { console.log('[debit] PC', deviceId, 'no tariff available'); return null; }
+            console.log('[debit] PC', deviceId, 'using cached tariff', tariffId, minutes+'min');
+        }
+
+        var r = await startSession(clientId, deviceId, tariffId, minutes);
+        if (!r || !r.errors) return {result: r, tariffId: tariffId, minutes: minutes};
         var _ext = r.errors[0].extensions;
-        var _detail = _ext && _ext.internal ? (_ext.internal.error || JSON.stringify(_ext.internal.response && _ext.internal.response.body)) : '';
-        console.log('[debit] PC', deviceId, 'failed:', r.errors[0].message, _detail ? ('| ' + _detail) : '');
+        var _int = _ext && _ext.internal;
+        var _detail = _int ? (_int.error || '') : '';
+        var _body = _int && _int.response && _int.response.body;
+        var _bodyStr = _body ? (typeof _body==='string' ? _body : JSON.stringify(_body)) : '';
+        console.log('[debit] PC', deviceId, 'tariff', tariffId, 'failed:', r.errors[0].message, _detail, _bodyStr);
         return null;
     }
 
