@@ -423,8 +423,9 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
+    var clockSec = getClockSection();
+    if(!clockSec) return;
+    var navbar = clockSec.parentNode;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -434,6 +435,8 @@ function createSidebarButton(){
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
+    // 280px = ширина navbar, box-sizing:border-box — точно как нативные кнопки
+    btn.style.cssText = 'width:280px;box-sizing:border-box;display:flex;';
     btn.href = 'javascript:void(0)';
 
     var sec = document.createElement('span');
@@ -459,30 +462,21 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем в конец linksInner — там те же отступы что у нативных кнопок
-    // НЕ используем MutationObserver на linksInner (вызывал краш)
-    // Позиция поддерживается через setInterval ниже
-    inner.appendChild(btn);
+    // Вставляем прямо в navbar перед секцией с часами
+    navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
 
-// setInterval держит кнопку в конце linksInner без MutationObserver
-// Проверяет каждые 2с: если кнопки нет или она не последняя — пересоздаёт
-setInterval(function(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    var btn = document.getElementById('godji-history-btn');
-    // Если нет — создаём
-    if(!btn){ createSidebarButton(); return; }
-    // Если есть но не в linksInner — переносим
-    if(btn.parentNode !== inner){ inner.appendChild(btn); }
-    // Если есть но не последняя — переносим в конец
-    else if(inner.lastElementChild !== btn){ inner.appendChild(btn); }
-}, 2000);
+function tryCreateHistBtn(){
+    if(document.getElementById('godji-history-btn')) return;
+    if(!getClockSection()){ setTimeout(tryCreateHistBtn,500); return; }
+    createSidebarButton();
+}
 
-setTimeout(createSidebarButton, 1200);
-setTimeout(createSidebarButton, 2500);
+setTimeout(tryCreateHistBtn,1200);
+setTimeout(tryCreateHistBtn,2500);
+setTimeout(tryCreateHistBtn,5000);
 
 })();
