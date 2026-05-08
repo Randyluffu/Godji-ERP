@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.17
+// @version      3.16
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -962,8 +962,7 @@ function watchCashboxCloseBtn(){
                 else { b._gojWatched=false; b.click(); b._gojWatched=true; }
             },true);
         });
-    // subtree:false — избегаем бесконечного цикла (subtree:true на body = тысячи вызовов в минуту = краш)
-    }).observe(document.body,{childList:true,subtree:false});
+    }).observe(document.body,{childList:true,subtree:true});
 }
 
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
@@ -994,11 +993,7 @@ function getClockSection(){
 }
 
 function createSidebarBtn(){
-    if(document.getElementById('godji-opj-sec')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
-
+    if(document.getElementById('godji-opj-btn')) return;
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var btnCls = nativeLink ? nativeLink.className
@@ -1036,50 +1031,46 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Порядок: опж перед историей сеансов (оба перед часами)
-    // Оборачиваем в секцию с padding-inline — как у оригинальных кнопок
-    var wrapSec = document.createElement('div');
-    wrapSec.id = 'godji-opj-sec';
-    wrapSec.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    wrapSec.style.cssText = 'padding-inline: var(--mantine-spacing-md);';
-    btn.style.width = '100%';
-    wrapSec.appendChild(btn);
-    var histSec = document.getElementById('godji-history-sec');
-    if(histSec && histSec.parentNode === navbar){
-        navbar.insertBefore(wrapSec, histSec);
+    // Вставляем в linksInner — те же отступы что у нативных кнопок
+    // НЕ используем MutationObserver на linksInner (вызывал краш)
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    // Опж перед историей сеансов
+    var histBtn = document.getElementById('godji-history-btn');
+    if(histBtn && histBtn.parentNode === inner){
+        inner.insertBefore(btn, histBtn);
     } else {
-        navbar.insertBefore(wrapSec, clockSec);
+        inner.appendChild(btn);
     }
     updateBadge();
 }
 
-function tryCreateSidebarBtn(){
-    if(document.getElementById('godji-opj-btn')) return;
-    if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
-    createSidebarBtn();
-}
-
-var _obs=new MutationObserver(function(muts){
-    muts.forEach(function(m){
-        if(m.addedNodes.length && !document.getElementById('godji-opj-btn')){
-            tryCreateSidebarBtn();
+// setInterval держит кнопку в linksInner без MutationObserver
+setInterval(function(){
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    var btn = document.getElementById('godji-opj-btn');
+    var histBtn = document.getElementById('godji-history-btn');
+    if(!btn){ createSidebarBtn(); return; }
+    if(btn.parentNode !== inner){ 
+        if(histBtn && histBtn.parentNode === inner) inner.insertBefore(btn, histBtn);
+        else inner.appendChild(btn);
+    } else {
+        // Держим опж перед историей сеансов
+        if(histBtn && histBtn.parentNode === inner && btn.nextElementSibling !== histBtn){
+            var ref = histBtn.nextElementSibling;
+            // Только если опж стоит ПОСЛЕ истории — переставляем
+            var nodes = Array.from(inner.children);
+            if(nodes.indexOf(btn) > nodes.indexOf(histBtn)){
+                inner.insertBefore(btn, histBtn);
+            }
         }
-    });
-});
+    }
+}, 2000);
 
-if(document.body){
-    _obs.observe(document.body,{childList:true,subtree:false});
-    setTimeout(tryCreateSidebarBtn,1200);
-    setTimeout(tryCreateSidebarBtn,2500);
-    setTimeout(tryCreateSidebarBtn,5000);
-    setTimeout(watchCashboxCloseBtn,2000);
-} else {
-    document.addEventListener('DOMContentLoaded',function(){
-        _obs.observe(document.body,{childList:true,subtree:false});
-        setTimeout(tryCreateSidebarBtn,1200);
-        setTimeout(watchCashboxCloseBtn,2000);
-    });
-}
+setTimeout(createSidebarBtn, 1200);
+setTimeout(createSidebarBtn, 2500);
+setTimeout(watchCashboxCloseBtn, 2000);
 
 setInterval(updateBadge,10000);
 
