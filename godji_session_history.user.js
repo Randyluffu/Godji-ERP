@@ -422,10 +422,9 @@ function getClockSection(){
 }
 
 function createSidebarButton(){
-    if(document.getElementById('godji-history-sec')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
+    if(document.getElementById('godji-history-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -435,8 +434,7 @@ function createSidebarButton(){
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
-
-    btn.style.cssText = 'width:100%;box-sizing:border-box;';    btn.href = 'javascript:void(0)';
+    btn.href = 'javascript:void(0)';
 
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
@@ -461,37 +459,30 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    // Секция с padding-inline — как у оригинальных кнопок
-    var wrapSec = document.createElement('div');
-    wrapSec.id = 'godji-history-sec';
-    wrapSec.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    wrapSec.style.cssText = 'padding-inline: var(--mantine-spacing-md);';
-    btn.style.width = '100%';
-    wrapSec.appendChild(btn);
-    navbar.insertBefore(wrapSec, clockSec);
+    // Вставляем в конец linksInner — там те же отступы что у нативных кнопок
+    // НЕ используем MutationObserver на linksInner (вызывал краш)
+    // Позиция поддерживается через setInterval ниже
+    inner.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
 
-function tryCreateHistBtn(){
-    if(document.getElementById('godji-history-btn')) return;
-    if(!getClockSection()){ setTimeout(tryCreateHistBtn,500); return; }
-    createSidebarButton();
-}
+// setInterval держит кнопку в конце linksInner без MutationObserver
+// Проверяет каждые 2с: если кнопки нет или она не последняя — пересоздаёт
+setInterval(function(){
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    var btn = document.getElementById('godji-history-btn');
+    // Если нет — создаём
+    if(!btn){ createSidebarButton(); return; }
+    // Если есть но не в linksInner — переносим
+    if(btn.parentNode !== inner){ inner.appendChild(btn); }
+    // Если есть но не последняя — переносим в конец
+    else if(inner.lastElementChild !== btn){ inner.appendChild(btn); }
+}, 2000);
 
-setTimeout(tryCreateHistBtn,1200);
-setTimeout(tryCreateHistBtn,2500);
-setTimeout(tryCreateHistBtn,5000);
-
-// Только body observer — без observer на linksInner (вызывал бесконечный цикл)
-new MutationObserver(function(muts){
-    muts.forEach(function(m){
-        if(m.addedNodes.length && !document.getElementById('godji-history-btn')){
-            tryCreateHistBtn();
-        }
-    });
-}).observe(document.body||document.documentElement,{childList:true,subtree:false});
+setTimeout(createSidebarButton, 1200);
+setTimeout(createSidebarButton, 2500);
 
 })();
