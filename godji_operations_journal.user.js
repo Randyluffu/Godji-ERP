@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.16
+// @version      3.17
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -994,7 +994,7 @@ function getClockSection(){
 }
 
 function createSidebarBtn(){
-    if(document.getElementById('godji-opj-btn')) return;
+    if(document.getElementById('godji-opj-sec')) return;
     var clockSec = getClockSection();
     if(!clockSec) return;
     var navbar = clockSec.parentNode;
@@ -1037,13 +1037,18 @@ function createSidebarBtn(){
     });
 
     // Порядок: опж перед историей сеансов (оба перед часами)
-    var histBtn = document.getElementById('godji-history-btn');
-    // Оборачиваем в div с padding как оригинальные кнопки
+    // Оборачиваем в секцию с padding-inline — как у оригинальных кнопок
+    var wrapSec = document.createElement('div');
+    wrapSec.id = 'godji-opj-sec';
+    wrapSec.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    wrapSec.style.cssText = 'padding-inline: var(--mantine-spacing-md);';
     btn.style.width = '100%';
-    if(histBtn && histBtn.parentNode === navbar){
-        navbar.insertBefore(btn, histBtn);
+    wrapSec.appendChild(btn);
+    var histSec = document.getElementById('godji-history-sec');
+    if(histSec && histSec.parentNode === navbar){
+        navbar.insertBefore(wrapSec, histSec);
     } else {
-        navbar.insertBefore(btn, clockSec);
+        navbar.insertBefore(wrapSec, clockSec);
     }
     updateBadge();
 }
