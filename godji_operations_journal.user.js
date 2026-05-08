@@ -962,7 +962,7 @@ function watchCashboxCloseBtn(){
                 else { b._gojWatched=false; b.click(); b._gojWatched=true; }
             },true);
         });
-    }).observe(document.body,{childList:true,subtree:true});
+    }).observe(document.body,{childList:true,subtree:false});
 }
 
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
@@ -994,6 +994,10 @@ function getClockSection(){
 
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
+    var clockSec = getClockSection();
+    if(!clockSec) return;
+    var navbar = clockSec.parentNode;
+
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var btnCls = nativeLink ? nativeLink.className
@@ -1002,6 +1006,8 @@ function createSidebarBtn(){
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className=btnCls;
+    // 280px = ширина navbar, box-sizing:border-box — точно как нативные кнопки
+    btn.style.cssText='width:280px;box-sizing:border-box;display:flex;';
     btn.style.cssText='width:100%;box-sizing:border-box;';
     btn.href='javascript:void(0)';
 
@@ -1031,46 +1037,26 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Вставляем в linksInner — те же отступы что у нативных кнопок
-    // НЕ используем MutationObserver на linksInner (вызывал краш)
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    // Опж перед историей сеансов
+    // Вставляем прямо в navbar: опж перед историей сеансов, оба перед часами
     var histBtn = document.getElementById('godji-history-btn');
-    if(histBtn && histBtn.parentNode === inner){
-        inner.insertBefore(btn, histBtn);
+    if(histBtn && histBtn.parentNode === navbar){
+        navbar.insertBefore(btn, histBtn);
     } else {
-        inner.appendChild(btn);
+        navbar.insertBefore(btn, clockSec);
     }
     updateBadge();
 }
 
-// setInterval держит кнопку в linksInner без MutationObserver
-setInterval(function(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    var btn = document.getElementById('godji-opj-btn');
-    var histBtn = document.getElementById('godji-history-btn');
-    if(!btn){ createSidebarBtn(); return; }
-    if(btn.parentNode !== inner){ 
-        if(histBtn && histBtn.parentNode === inner) inner.insertBefore(btn, histBtn);
-        else inner.appendChild(btn);
-    } else {
-        // Держим опж перед историей сеансов
-        if(histBtn && histBtn.parentNode === inner && btn.nextElementSibling !== histBtn){
-            var ref = histBtn.nextElementSibling;
-            // Только если опж стоит ПОСЛЕ истории — переставляем
-            var nodes = Array.from(inner.children);
-            if(nodes.indexOf(btn) > nodes.indexOf(histBtn)){
-                inner.insertBefore(btn, histBtn);
-            }
-        }
-    }
-}, 2000);
+function tryCreateSidebarBtn(){
+    if(document.getElementById('godji-opj-btn')) return;
+    if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
+    createSidebarBtn();
+}
 
-setTimeout(createSidebarBtn, 1200);
-setTimeout(createSidebarBtn, 2500);
-setTimeout(watchCashboxCloseBtn, 2000);
+setTimeout(tryCreateSidebarBtn,1200);
+setTimeout(tryCreateSidebarBtn,2500);
+setTimeout(tryCreateSidebarBtn,5000);
+setTimeout(watchCashboxCloseBtn,2000);
 
 setInterval(updateBadge,10000);
 
