@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.15
+// @version      3.16
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -962,7 +962,8 @@ function watchCashboxCloseBtn(){
                 else { b._gojWatched=false; b.click(); b._gojWatched=true; }
             },true);
         });
-    }).observe(document.body,{childList:true,subtree:true});
+    // subtree:false — избегаем бесконечного цикла (subtree:true на body = тысячи вызовов в минуту = краш)
+    }).observe(document.body,{childList:true,subtree:false});
 }
 
 // ── Кнопка в сайдбаре (footer, перед divider) ────────────
