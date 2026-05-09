@@ -18,7 +18,7 @@ var PROXY = 'http://localhost:6080';
 // Карта масштабируется до popup-размера через scale
 var MAP_ORIG_W = 1920, MAP_ORIG_H = 1133;
 // Размер попапа — берём 420px ширину, высота пропорциональна
-var POPUP_W = 420;
+var POPUP_W = 800;
 var POPUP_H = Math.round(MAP_ORIG_H / MAP_ORIG_W * POPUP_W); // ~248px
 var MAP_SCALE = POPUP_W / MAP_ORIG_W; // ~0.219
 
@@ -80,8 +80,9 @@ function openPopup(anchor){
     var btnRect = anchor.getBoundingClientRect();
     popup.style.cssText = [
         'position:fixed',
-        'left:288px',
-        'top:'+(btnRect.top-10)+'px',
+        'left:50%',
+        'top:50%',
+        'transform:translate(-50%,-50%)',
         'width:'+POPUP_W+'px',
         'z-index:299',
         'background:var(--mantine-color-body,#1a1b2e)',
@@ -137,10 +138,15 @@ function openPopup(anchor){
     document.body.appendChild(popup);
 
     // Подгоняем если выходит за низ экрана
-    var pRect = popup.getBoundingClientRect();
-    if(pRect.bottom > window.innerHeight - 10){
-        popup.style.top = Math.max(10, window.innerHeight - pRect.height - 10) + 'px';
-    }
+    setTimeout(function(){
+        var pRect = popup.getBoundingClientRect();
+        if(pRect.bottom > window.innerHeight - 10){
+            popup.style.top = Math.max(10, window.innerHeight - pRect.height - 10) + 'px';
+        }
+        if(pRect.top < 10){
+            popup.style.top = '10px';
+        }
+    }, 0);
 
     // Закрытие по клику снаружи
     setTimeout(function(){
@@ -191,7 +197,7 @@ function renderMap(mapWrap, data){
     mapWrap.appendChild(bg);
 
     // Накладываем карточки ПК с точными координатами
-    var CARD = 28; // размер карточки в пикселях на попапе (55 * MAP_SCALE ~ 12, но увеличим для кликабельности)
+    var CARD = 22; // при MAP_SCALE~0.417 даёт зазор между соседними ПК
 
     Object.keys(PC_POS).forEach(function(name){
         var pos = PC_POS[name];
