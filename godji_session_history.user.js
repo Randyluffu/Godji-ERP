@@ -435,9 +435,8 @@ function createSidebarButton(){
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
-    // 280px = ширина navbar, box-sizing:border-box — точно как нативные кнопки
-    btn.style.cssText = 'width:280px;box-sizing:border-box;display:flex;';
-    btn.href = 'javascript:void(0)';
+
+    btn.style.cssText = 'width:248px;box-sizing:border-box;';    btn.href = 'javascript:void(0)';
 
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
@@ -462,7 +461,8 @@ function createSidebarButton(){
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
 
-    // Вставляем прямо в navbar перед секцией с часами
+    // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
+    btn.style.width = '100%';
     navbar.insertBefore(btn, clockSec);
 }
 
@@ -478,5 +478,14 @@ function tryCreateHistBtn(){
 setTimeout(tryCreateHistBtn,1200);
 setTimeout(tryCreateHistBtn,2500);
 setTimeout(tryCreateHistBtn,5000);
+
+// Только body observer — без observer на linksInner (вызывал бесконечный цикл)
+new MutationObserver(function(muts){
+    muts.forEach(function(m){
+        if(m.addedNodes.length && !document.getElementById('godji-history-btn')){
+            tryCreateHistBtn();
+        }
+    });
+}).observe(document.body||document.documentElement,{childList:true,subtree:false});
 
 })();
