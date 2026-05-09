@@ -16,13 +16,18 @@ var PROXY = 'http://localhost:6080';
 
 // Точные координаты ПК с оригинальной карты дашборда (1920x1133)
 // Карта масштабируется до popup-размера через scale
-// Реальные координаты ПК из DevicesLayer дашборда (px при zoom=1)
-var LAYER_W = 658, LAYER_H = 533;
-// Попап: выдвигается вправо от сайдбара (280px)
-var POPUP_W = 700;
-var POPUP_H = Math.round(LAYER_H / LAYER_W * POPUP_W); // ~567px
-var MAP_SCALE = POPUP_W / LAYER_W; // ~1.064
+// Оригинальные размеры devicesLayer дашборда (px при zoom=1)
+var MAP_ORIG_W = 658, MAP_ORIG_H = 533;
+// Фоновое изображение карты (из TV страницы)
+var MAP_IMG_URL = 'https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693';
+// Оригинальные размеры фонового изображения (1920x1133)
+var MAP_BG_W = 1920, MAP_BG_H = 1133;
+// Размер попапа — выдвигается вправо от сайдбара
+var POPUP_W = 680;
+var POPUP_H = Math.round(MAP_ORIG_H / MAP_ORIG_W * POPUP_W); // ~551px
+var MAP_SCALE = POPUP_W / MAP_ORIG_W; // ~1.033
 
+// Реальные координаты ПК из DevicesLayer дашборда
 var PC_POS = {
     '01':{x:349,y:194},'02':{x:316,y:195},'03':{x:316,y:138},
     '04':{x:353,y:136},'05':{x:390,y:137},'06':{x:435,y:238},
@@ -45,7 +50,7 @@ function toast(msg, ok){
     if(old) old.remove();
     var t = document.createElement('div');
     t.id = 'gj-vnc-toast';
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999999;pointer-events:none;'
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:299;pointer-events:none;'
         + 'background:var(--mantine-color-body,#1a1b2e);border:1px solid '+(ok?'rgba(74,222,128,.3)':'rgba(239,68,68,.3)')
         + ';border-radius:8px;padding:10px 18px;font-size:13px;font-family:var(--mantine-font-family,inherit);'
         + 'color:'+(ok?'#4ade80':'#f87171')+';display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);';
@@ -76,7 +81,8 @@ function openPopup(anchor){
     _popup = popup;
     popup.id = 'gj-vnc-popup';
 
-    // Выдвигается вправо от сайдбара с анимацией, z-index под Mantine модалки
+    // Позиционируем справа от сайдбара (280px) под кнопкой
+    var btnRect = anchor.getBoundingClientRect();
     popup.style.cssText = [
         'position:fixed',
         'left:284px',
@@ -85,18 +91,17 @@ function openPopup(anchor){
         'width:'+POPUP_W+'px',
         'z-index:299',
         'background:#1a1b2e',
-        'border-left:1px solid rgba(255,255,255,0.12)',
-        'border-radius:0 12px 12px 0',
+        'border-left:1px solid rgba(255,255,255,0.1)',
+        'border-radius:0 8px 8px 0',
         'box-shadow:4px 0 32px rgba(0,0,0,.7)',
         'font-family:var(--mantine-font-family,inherit)',
         'overflow:hidden',
         'display:flex',
         'flex-direction:column',
-        'transform:translateX(-20px)',
+        'transform:translateX(-16px)',
         'opacity:0',
-        'transition:transform 0.22s ease,opacity 0.22s ease',
+        'transition:transform 0.2s ease,opacity 0.2s ease',
     ].join(';');
-    // Анимация появления
     requestAnimationFrame(function(){
         popup.style.transform = 'translateX(0)';
         popup.style.opacity = '1';
@@ -104,7 +109,7 @@ function openPopup(anchor){
 
     // Шапка
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;color:#fff;';
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;color:#fff;background:#1a1b2e;';
 
     var hdrL = document.createElement('div');
     hdrL.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -169,10 +174,10 @@ function outsideClose(e){
 
 function closePopup(){
     if(_popup){
-        var p = _popup; _popup = null;
-        p.style.transform = 'translateX(-20px)';
-        p.style.opacity = '0';
-        setTimeout(function(){ if(p.parentNode) p.remove(); }, 220);
+        var p=_popup; _popup=null;
+        p.style.transform='translateX(-16px)';
+        p.style.opacity='0';
+        setTimeout(function(){ if(p.parentNode) p.remove(); },220);
     }
     _popupOpen = false;
     updateSidebarBtn(false);
@@ -196,12 +201,31 @@ function loadPCData(mapWrap, statusDot){
 
 function renderMap(mapWrap, data){
     mapWrap.innerHTML = '';
-    // Фон — светло-серый как оригинальная карта ERP
-    var bg = document.createElement('div');
-    bg.style.cssText = 'position:absolute;inset:0;background:#e8eaf0;border-radius:4px;';
-    mapWrap.appendChild(bg);
+    mapWrap.style.position = 'relative';
+    mapWrap.style.overflow = 'hidden';
 
-    var CARD = 20; // размер карточки ПК в пикселях
+    // Фоновое изображение карты — масштабируем под POPUP_W x POPUP_H
+    var bgImg = document.createElement('img');
+    bgImg.src = MAP_IMG_URL;
+    bgImg.style.cssText = [
+        'position:absolute',
+        'left:0','top:0',
+        'width:'+POPUP_W+'px',
+        'height:'+POPUP_H+'px',
+        'object-fit:cover',
+        'object-position:left top',
+        'pointer-events:none',
+        'user-select:none',
+        'opacity:0.85',
+    ].join(';');
+    mapWrap.appendChild(bgImg);
+
+    // Тёмный оверлей для читаемости карточек
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(10,10,20,0.35);pointer-events:none;';
+    mapWrap.appendChild(overlay);
+
+    var CARD = 26;
     Object.keys(PC_POS).forEach(function(name){
         var pos = PC_POS[name];
         var px = Math.round(pos.x * MAP_SCALE);
@@ -209,62 +233,57 @@ function renderMap(mapWrap, data){
         var st = data[name] || {};
         var occupied = st.status === 'occupied' || st.occupied;
 
-        var card = document.createElement('div');
-        card.style.cssText = [
+        var cell = document.createElement('div');
+        cell.style.cssText = [
             'position:absolute',
-            'left:'+(px)+'px',
-            'top:'+(py)+'px',
-            'width:'+CARD+'px',
-            'height:'+CARD+'px',
-            'background:'+(occupied?'#cc0001':'rgba(204,0,1,0.25)'),
-            'border:1px solid '+(occupied?'#cc0001':'rgba(204,0,1,0.5)'),
-            'border-radius:4px',
+            'left:'+px+'px','top:'+py+'px',
+            'width:'+CARD+'px','height:'+CARD+'px',
+            'background:'+(occupied?'rgba(204,0,1,0.85)':'rgba(74,222,128,0.2)'),
+            'border:2px solid '+(occupied?'#cc0001':'rgba(74,222,128,0.7)'),
+            'border-radius:5px',
             'cursor:pointer',
-            'display:flex',
-            'flex-direction:column',
-            'align-items:center',
-            'justify-content:center',
-            'transition:transform 0.1s,border-color 0.1s',
+            'display:flex','align-items:center','justify-content:center',
+            'transition:transform 0.1s,box-shadow 0.1s',
             'box-sizing:border-box',
+            'z-index:2',
         ].join(';');
-
         var lbl = document.createElement('div');
-        lbl.style.cssText = 'color:#fff;font-size:7px;font-weight:700;line-height:1;text-align:center;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.8);';
+        lbl.style.cssText = 'color:#fff;font-size:7px;font-weight:800;text-align:center;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.9);line-height:1;';
         lbl.textContent = name;
-        card.appendChild(lbl);
+        cell.appendChild(lbl);
 
-        card.addEventListener('mouseenter', function(){ card.style.transform='scale(1.15)'; card.style.borderColor='#fff'; });
-        card.addEventListener('mouseleave', function(){ card.style.transform=''; card.style.borderColor=occupied?'#cc0001':'rgba(204,0,1,0.5)'; });
-        card.addEventListener('click', function(e){
-            e.stopPropagation();
-            onCardClick(name, st);
+        cell.addEventListener('mouseenter',function(){
+            cell.style.transform='scale(1.2)';
+            cell.style.boxShadow='0 2px 8px rgba(0,0,0,0.6)';
+            cell.style.zIndex='10';
         });
-        mapWrap.appendChild(card);
+        cell.addEventListener('mouseleave',function(){
+            cell.style.transform='';
+            cell.style.boxShadow='';
+            cell.style.zIndex='2';
+        });
+        cell.addEventListener('click',function(e){
+            e.stopPropagation();
+            connectPC(name,cell);
+        });
+        mapWrap.appendChild(cell);
     });
 }
 
 function connectPC(name, cell){
-    cell.disabled = true;
-    cell.style.opacity = '.5';
-    fetch(PROXY + '/connect?pc=' + encodeURIComponent(name))
-        .then(function(r){ return r.json(); })
-        .then(function(res){
-            if(res.error) throw new Error(res.error);
-            toast('Просмотр экрана ПК ' + name + ' открыт', true);
-            cell.style.background = 'rgba(74,222,128,.25)';
-            cell.style.borderColor = 'rgba(74,222,128,.6)';
-            setTimeout(function(){
-                cell.disabled = false;
-                cell.style.opacity = '';
-                cell.style.background = 'rgba(204,0,1,.18)';
-                cell.style.borderColor = 'rgba(204,0,1,.5)';
-            }, 2000);
-        })
-        .catch(function(e){
-            toast(e.message || 'Ошибка подключения', false);
-            cell.disabled = false;
-            cell.style.opacity = '';
-        });
+    // Открываем VNC в новой вкладке — PROXY содержит базовый URL
+    // Номер ПК используем как последний октет IP или как идентификатор в URL
+    var num = parseInt(name, 10);
+    var url = PROXY + (isNaN(num) ? '/?pc='+encodeURIComponent(name) : '/?pc='+num);
+    window.open(url, '_blank');
+    // Подсвечиваем карточку
+    var wasOccupied = cell.style.background.indexOf('204,0,1') >= 0;
+    cell.style.background = 'rgba(74,222,128,0.5)';
+    cell.style.borderColor = 'rgba(74,222,128,1)';
+    setTimeout(function(){
+        cell.style.background = wasOccupied ? 'rgba(204,0,1,0.85)' : 'rgba(74,222,128,0.2)';
+        cell.style.borderColor = wasOccupied ? '#cc0001' : 'rgba(74,222,128,0.7)';
+    }, 1500);
 }
 
 // ── Кнопка в сайдбаре ────────────────────────────────────
