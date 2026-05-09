@@ -1037,8 +1037,7 @@ btn.href='javascript:void(0)';
     // Порядок: опж перед историей сеансов (оба перед часами)
     var histBtn = document.getElementById('godji-history-btn');
     // Оборачиваем в div с padding как оригинальные кнопки
-    btn.style.width = '100%';
-    if(histBtn && histBtn.parentNode === navbar){
+if(histBtn && histBtn.parentNode === navbar){
         navbar.insertBefore(btn, histBtn);
     } else {
         navbar.insertBefore(btn, clockSec);
