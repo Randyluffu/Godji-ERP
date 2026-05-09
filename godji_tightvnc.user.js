@@ -335,8 +335,6 @@ function updateSidebarBtn(open){
     else btn.removeAttribute('data-active');
 }
 
-// ── Кнопка просмотра в карточке ПК на дашборде ───────────
-
 
 // ── Init — только body observer, никакого observer на linksInner ──
 function tryInit(){
@@ -348,7 +346,7 @@ new MutationObserver(function(muts){
     muts.forEach(function(m){
         if(m.addedNodes.length && !document.getElementById('gj-vnc-sidebar-btn')) tryInit();
     });
-}).observe(document.body || document.documentElement, {childList:true, subtree:false});
+}).observe(document.body || document.documentElement, {childList:true,subtree:false});
 
 setTimeout(tryInit, 1000);
 setTimeout(tryInit, 2500);
