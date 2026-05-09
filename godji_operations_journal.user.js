@@ -994,9 +994,8 @@ function getClockSection(){
 
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
 
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
@@ -1035,22 +1034,20 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Порядок: опж перед историей сеансов (оба перед часами)
+    // Опж вставляем перед историей сеансов если она уже есть
     var histBtn = document.getElementById('godji-history-btn');
-    var _sec = document.createElement('div');
-    _sec.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    _sec.style.paddingInline = 'var(--mantine-spacing-md)';
-    _sec.appendChild(btn);
-    if(histBtn && histBtn.parentNode === navbar){
-        navbar.insertBefore(_sec, histBtn);
+    if(histBtn && histBtn.parentNode === inner){
+        inner.insertBefore(btn, histBtn);
     } else {
-        navbar.insertBefore(_sec, clockSec);
+        inner.appendChild(btn);
     }
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
     if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
