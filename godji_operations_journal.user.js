@@ -1006,9 +1006,7 @@ function createSidebarBtn(){
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className=btnCls;
-    btn.style.cssText='width:248px;box-sizing:border-box;';
-    btn.style.cssText='width:248px;box-sizing:border-box;';
-    btn.style.cssText='width:100%;box-sizing:border-box;';
+    
     btn.href='javascript:void(0)';
 
     var sec=document.createElement('span');
@@ -1039,12 +1037,14 @@ function createSidebarBtn(){
 
     // Порядок: опж перед историей сеансов (оба перед часами)
     var histBtn = document.getElementById('godji-history-btn');
-    // Оборачиваем в div с padding как оригинальные кнопки
-    btn.style.width = '100%';
+    var _sec = document.createElement('div');
+    _sec.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    _sec.style.paddingInline = 'var(--mantine-spacing-md)';
+    _sec.appendChild(btn);
     if(histBtn && histBtn.parentNode === navbar){
-        navbar.insertBefore(btn, histBtn);
+        navbar.insertBefore(_sec, histBtn);
     } else {
-        navbar.insertBefore(btn, clockSec);
+        navbar.insertBefore(_sec, clockSec);
     }
     updateBadge();
 }
