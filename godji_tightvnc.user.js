@@ -16,32 +16,31 @@ var PROXY = 'http://localhost:6080';
 
 // Точные координаты ПК с оригинальной карты дашборда (1920x1133)
 // Карта масштабируется до popup-размера через scale
-// Оригинальные размеры devicesLayer дашборда (px при zoom=1)
-var MAP_ORIG_W = 658, MAP_ORIG_H = 533;
-// Фоновое изображение карты (из TV страницы)
-var MAP_IMG_URL = 'https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693';
-// Оригинальные размеры фонового изображения (1920x1133)
-var MAP_BG_W = 1920, MAP_BG_H = 1133;
-// Размер попапа — выдвигается вправо от сайдбара
-var POPUP_W = 680;
-var POPUP_H = Math.round(MAP_ORIG_H / MAP_ORIG_W * POPUP_W); // ~551px
-var MAP_SCALE = POPUP_W / MAP_ORIG_W; // ~1.033
+// Координаты ПК из TV HTML (left/top в px для карты 1920x1133)
+var MAP_ORIG_W = 1920, MAP_ORIG_H = 1133;
+var MAP_IMG = 'https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693';
+// Попап: ширина фиксирована, карта скроллируется по высоте
+var POPUP_W = 560;
+// Масштаб: вписываем ширину карты в POPUP_W
+var MAP_SCALE = POPUP_W / MAP_ORIG_W; // ~0.292
+// Высота отрисовки карты при этом масштабе
+var MAP_H = Math.round(MAP_ORIG_H * MAP_SCALE); // ~331px — вся карта видна
 
-// Реальные координаты ПК из DevicesLayer дашборда
+// Координаты из TV HTML (реальные left/top для 1920x1133)
 var PC_POS = {
-    '01':{x:349,y:194},'02':{x:316,y:195},'03':{x:316,y:138},
-    '04':{x:353,y:136},'05':{x:390,y:137},'06':{x:435,y:238},
-    '07':{x:473,y:238},'08':{x:571,y:173},'09':{x:605,y:173},
-    '10':{x:507,y:24},'11':{x:536,y:24},'12':{x:565,y:24},'13':{x:594,y:24},
-    '14':{x:553,y:89},'15':{x:583,y:89},'16':{x:605,y:140},'17':{x:573,y:140},
-    '18':{x:603,y:310},'19':{x:634,y:310},'20':{x:623,y:359},
-    '21':{x:590,y:359},'22':{x:558,y:359},'23':{x:553,y:391},'24':{x:589,y:391},
-    '25':{x:595,y:454},'26':{x:568,y:477},'27':{x:502,y:453},
-    '28':{x:530,y:441},'29':{x:501,y:426},'30':{x:466,y:419},
-    '31':{x:466,y:449},'32':{x:467,y:481},'33':{x:419,y:509},
-    '34':{x:418,y:473},'35':{x:419,y:441},'36':{x:384,y:441},
-    '37':{x:384,y:473},'38':{x:384,y:508},'39':{x:321,y:465},
-    '40':{x:321,y:433},'41':{x:429,y:308},'TV 1':{x:586,y:246}
+    '01':{x:698,y:388},'02':{x:632,y:390},'03':{x:632,y:275},
+    '04':{x:705,y:273},'05':{x:780,y:274},'06':{x:870,y:475},
+    '07':{x:946,y:477},'08':{x:1142,y:346},'09':{x:1210,y:346},
+    '10':{x:1014,y:48},'11':{x:1072,y:48},'12':{x:1131,y:48},'13':{x:1189,y:48},
+    '14':{x:1107,y:179},'15':{x:1167,y:178},'16':{x:1210,y:281},'17':{x:1145,y:280},
+    '18':{x:1206,y:621},'19':{x:1269,y:621},'20':{x:1247,y:718},
+    '21':{x:1181,y:718},'22':{x:1116,y:718},'23':{x:1105,y:782},'24':{x:1178,y:782},
+    '25':{x:1191,y:908},'26':{x:1137,y:954},'27':{x:1004,y:905},
+    '28':{x:1060,y:882},'29':{x:1003,y:852},'30':{x:933,y:838},
+    '31':{x:933,y:899},'32':{x:934,y:963},'33':{x:839,y:1018},
+    '34':{x:837,y:945},'35':{x:838,y:882},'36':{x:769,y:883},
+    '37':{x:769,y:946},'38':{x:769,y:1017},'39':{x:642,y:931},
+    '40':{x:642,y:865},'41':{x:859,y:615},'TV 1':{x:1173,y:492}
 };
 
 // ── Тост ─────────────────────────────────────────────────
@@ -50,7 +49,7 @@ function toast(msg, ok){
     if(old) old.remove();
     var t = document.createElement('div');
     t.id = 'gj-vnc-toast';
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:299;pointer-events:none;'
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:399;pointer-events:none;'
         + 'background:var(--mantine-color-body,#1a1b2e);border:1px solid '+(ok?'rgba(74,222,128,.3)':'rgba(239,68,68,.3)')
         + ';border-radius:8px;padding:10px 18px;font-size:13px;font-family:var(--mantine-font-family,inherit);'
         + 'color:'+(ok?'#4ade80':'#f87171')+';display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);';
@@ -81,8 +80,7 @@ function openPopup(anchor){
     _popup = popup;
     popup.id = 'gj-vnc-popup';
 
-    // Позиционируем справа от сайдбара (280px) под кнопкой
-    var btnRect = anchor.getBoundingClientRect();
+    // Попап выдвигается вправо от сайдбара — занимает всю высоту экрана
     popup.style.cssText = [
         'position:fixed',
         'left:284px',
@@ -98,7 +96,7 @@ function openPopup(anchor){
         'overflow:hidden',
         'display:flex',
         'flex-direction:column',
-        'transform:translateX(-16px)',
+        'transform:translateX(-20px)',
         'opacity:0',
         'transition:transform 0.2s ease,opacity 0.2s ease',
     ].join(';');
@@ -109,7 +107,7 @@ function openPopup(anchor){
 
     // Шапка
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;color:#fff;background:#1a1b2e;';
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;';
 
     var hdrL = document.createElement('div');
     hdrL.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -136,7 +134,7 @@ function openPopup(anchor){
 
     // Карта
     var mapWrap = document.createElement('div');
-    mapWrap.style.cssText = 'position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:hidden;';
+    mapWrap.style.cssText = 'position:relative;width:'+POPUP_W+'px;height:'+MAP_H+'px;flex-shrink:0;overflow:hidden;flex:1;';
     mapWrap.id = 'gj-vnc-map';
     popup.appendChild(mapWrap);
 
@@ -149,11 +147,7 @@ function openPopup(anchor){
 
     document.body.appendChild(popup);
 
-    // Подгоняем если выходит за низ экрана
-    var pRect = popup.getBoundingClientRect();
-    if(pRect.bottom > window.innerHeight - 10){
-        popup.style.top = Math.max(10, window.innerHeight - pRect.height - 10) + 'px';
-    }
+
 
     // Закрытие по клику снаружи
     setTimeout(function(){
@@ -173,10 +167,11 @@ function outsideClose(e){
 }
 
 function closePopup(){
+    var m = document.getElementById('gj-vnc-menu');
+    if(m) m.remove();
     if(_popup){
         var p=_popup; _popup=null;
-        p.style.transform='translateX(-16px)';
-        p.style.opacity='0';
+        p.style.transform='translateX(-20px)'; p.style.opacity='0';
         setTimeout(function(){ if(p.parentNode) p.remove(); },220);
     }
     _popupOpen = false;
@@ -201,89 +196,125 @@ function loadPCData(mapWrap, statusDot){
 
 function renderMap(mapWrap, data){
     mapWrap.innerHTML = '';
-    mapWrap.style.position = 'relative';
-    mapWrap.style.overflow = 'hidden';
+    mapWrap.style.cssText = 'position:relative;width:'+POPUP_W+'px;height:'+MAP_H+'px;flex-shrink:0;overflow:hidden;background:#12121f;';
 
-    // Фоновое изображение карты — масштабируем под POPUP_W x POPUP_H
-    var bgImg = document.createElement('img');
-    bgImg.src = MAP_IMG_URL;
-    bgImg.style.cssText = [
-        'position:absolute',
-        'left:0','top:0',
-        'width:'+POPUP_W+'px',
-        'height:'+POPUP_H+'px',
-        'object-fit:cover',
-        'object-position:left top',
-        'pointer-events:none',
-        'user-select:none',
-        'opacity:0.85',
-    ].join(';');
-    mapWrap.appendChild(bgImg);
+    // Фоновое изображение карты
+    var bg = document.createElement('img');
+    bg.src = MAP_IMG;
+    bg.style.cssText = 'position:absolute;top:0;left:0;width:'+POPUP_W+'px;height:'+MAP_H+'px;object-fit:fill;pointer-events:none;display:block;';
+    mapWrap.appendChild(bg);
 
-    // Тёмный оверлей для читаемости карточек
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(10,10,20,0.35);pointer-events:none;';
-    mapWrap.appendChild(overlay);
+    // Тёмный оверлей для читаемости
+    var ov = document.createElement('div');
+    ov.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.28);pointer-events:none;';
+    mapWrap.appendChild(ov);
 
-    var CARD = 26;
+    // Карточки ПК — размер 20px чтобы не накладывались
+    var CARD = 20;
     Object.keys(PC_POS).forEach(function(name){
         var pos = PC_POS[name];
         var px = Math.round(pos.x * MAP_SCALE);
         var py = Math.round(pos.y * MAP_SCALE);
-        var st = data[name] || {};
-        var occupied = st.status === 'occupied' || st.occupied;
 
-        var cell = document.createElement('div');
+        var numStr = name.replace('TV ','TV');
+        var pc = data[name] || data[numStr] || data[name.replace(/^0/,'')] || null;
+        var avail = !!pc;
+
+        var cell = document.createElement('button');
+        cell.title = 'ПК ' + name;
         cell.style.cssText = [
             'position:absolute',
-            'left:'+px+'px','top:'+py+'px',
+            'left:'+px+'px',
+            'top:'+py+'px',
             'width:'+CARD+'px','height:'+CARD+'px',
-            'background:'+(occupied?'rgba(204,0,1,0.85)':'rgba(74,222,128,0.2)'),
-            'border:2px solid '+(occupied?'#cc0001':'rgba(74,222,128,0.7)'),
-            'border-radius:5px',
-            'cursor:pointer',
+            'border-radius:4px',
+            'border:1.5px solid '+(avail?'rgba(220,38,38,0.95)':'rgba(255,255,255,0.2)'),
+            'background:'+(avail?'rgba(204,0,1,0.85)':'rgba(255,255,255,0.1)'),
+            'color:#fff','font-size:6px','font-weight:800',
+            'cursor:'+(avail?'pointer':'default'),
             'display:flex','align-items:center','justify-content:center',
-            'transition:transform 0.1s,box-shadow 0.1s',
-            'box-sizing:border-box',
-            'z-index:2',
+            'font-family:inherit','padding:0','line-height:1',
+            'transition:transform 0.1s','z-index:2',
+            'text-shadow:0 1px 2px rgba(0,0,0,0.8)',
         ].join(';');
-        var lbl = document.createElement('div');
-        lbl.style.cssText = 'color:#fff;font-size:7px;font-weight:800;text-align:center;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.9);line-height:1;';
-        lbl.textContent = name;
-        cell.appendChild(lbl);
+        cell.textContent = name;
 
-        cell.addEventListener('mouseenter',function(){
-            cell.style.transform='scale(1.2)';
-            cell.style.boxShadow='0 2px 8px rgba(0,0,0,0.6)';
-            cell.style.zIndex='10';
-        });
-        cell.addEventListener('mouseleave',function(){
-            cell.style.transform='';
-            cell.style.boxShadow='';
-            cell.style.zIndex='2';
-        });
-        cell.addEventListener('click',function(e){
-            e.stopPropagation();
-            connectPC(name,cell);
-        });
+        if(avail){
+            cell.addEventListener('mouseenter',function(){
+                cell.style.transform='scale(1.3)'; cell.style.zIndex='10';
+            });
+            cell.addEventListener('mouseleave',function(){
+                cell.style.transform=''; cell.style.zIndex='2';
+            });
+            cell.addEventListener('click',function(e){
+                e.stopPropagation();
+                showVncMenu(name, cell);
+            });
+        }
         mapWrap.appendChild(cell);
     });
 }
 
-function connectPC(name, cell){
-    // Открываем VNC в новой вкладке — PROXY содержит базовый URL
-    // Номер ПК используем как последний октет IP или как идентификатор в URL
-    var num = parseInt(name, 10);
-    var url = PROXY + (isNaN(num) ? '/?pc='+encodeURIComponent(name) : '/?pc='+num);
-    window.open(url, '_blank');
-    // Подсвечиваем карточку
-    var wasOccupied = cell.style.background.indexOf('204,0,1') >= 0;
-    cell.style.background = 'rgba(74,222,128,0.5)';
-    cell.style.borderColor = 'rgba(74,222,128,1)';
+// Показываем мини-меню выбора режима VNC
+function showVncMenu(name, cell){
+    // Убираем старое меню если есть
+    var old = document.getElementById('gj-vnc-menu');
+    if(old){ old.remove(); if(old._pc === name) return; }
+
+    var menu = document.createElement('div');
+    menu.id = 'gj-vnc-menu';
+    menu._pc = name;
+    var cellRect = cell.getBoundingClientRect();
+    menu.style.cssText = [
+        'position:fixed',
+        'left:'+(cellRect.right+6)+'px',
+        'top:'+(cellRect.top-4)+'px',
+        'background:#252640',
+        'border:1px solid rgba(255,255,255,0.15)',
+        'border-radius:8px',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.6)',
+        'z-index:9999',
+        'overflow:hidden',
+        'min-width:180px',
+        'font-family:var(--mantine-font-family,inherit)',
+    ].join(';');
+
+    function makeBtn(label, icon, cb){
+        var b = document.createElement('button');
+        b.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:9px 14px;background:none;border:none;color:#e8eaf0;font-size:12px;cursor:pointer;text-align:left;transition:background 0.1s;';
+        b.innerHTML = icon + '<span>'+label+'</span>';
+        b.addEventListener('mouseenter',function(){ b.style.background='rgba(255,255,255,0.07)'; });
+        b.addEventListener('mouseleave',function(){ b.style.background='none'; });
+        b.addEventListener('click',function(e){ e.stopPropagation(); menu.remove(); cb(); });
+        return b;
+    }
+
+    var pcNum = parseInt(name, 10);
+    var viewUrl = PROXY + (isNaN(pcNum) ? '/?pc='+encodeURIComponent(name) : '/?pc='+pcNum);
+    var ctrlUrl = PROXY + (isNaN(pcNum) ? '/?pc='+encodeURIComponent(name)+'&control=1' : '/?pc='+pcNum+'&control=1');
+
+    var titleEl = document.createElement('div');
+    titleEl.style.cssText = 'padding:8px 14px 6px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);border-bottom:1px solid rgba(255,255,255,0.07);';
+    titleEl.textContent = 'ПК ' + name;
+    menu.appendChild(titleEl);
+
+    menu.appendChild(makeBtn('Просмотр',
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+        function(){ window.open(viewUrl,'_blank'); }
+    ));
+    menu.appendChild(makeBtn('Просмотр с управлением',
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+        function(){ window.open(ctrlUrl,'_blank'); }
+    ));
+
+    document.body.appendChild(menu);
+
+    // Закрытие при клике снаружи
     setTimeout(function(){
-        cell.style.background = wasOccupied ? 'rgba(204,0,1,0.85)' : 'rgba(74,222,128,0.2)';
-        cell.style.borderColor = wasOccupied ? '#cc0001' : 'rgba(74,222,128,0.7)';
-    }, 1500);
+        document.addEventListener('click', function closeMenu(ev){
+            if(!menu.contains(ev.target)){ menu.remove(); document.removeEventListener('click',closeMenu); }
+        });
+    },0);
 }
 
 // ── Кнопка в сайдбаре ────────────────────────────────────
