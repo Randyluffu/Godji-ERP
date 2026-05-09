@@ -436,7 +436,7 @@ function createSidebarButton(){
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
 
-    btn.style.cssText = 'width:248px;box-sizing:border-box;';    btn.href = 'javascript:void(0)';
+        btn.href = 'javascript:void(0)';
 
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
@@ -462,8 +462,11 @@ function createSidebarButton(){
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    btn.style.width = '100%';
-    navbar.insertBefore(btn, clockSec);
+    var _sec = document.createElement('div');
+    _sec.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    _sec.style.paddingInline = 'var(--mantine-spacing-md)';
+    _sec.appendChild(btn);
+    navbar.insertBefore(_sec, clockSec);
 }
 
 setTimeout(tryInit,5000);
