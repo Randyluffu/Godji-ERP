@@ -1006,8 +1006,8 @@ function createSidebarBtn(){
     var btn=document.createElement('a');
     btn.id='godji-opj-btn';
     btn.className=btnCls;
-    // 280px = ширина navbar, box-sizing:border-box — точно как нативные кнопки
-    btn.style.cssText='width:280px;box-sizing:border-box;display:flex;';
+    btn.style.cssText='width:248px;box-sizing:border-box;';
+    btn.style.cssText='width:248px;box-sizing:border-box;';
     btn.style.cssText='width:100%;box-sizing:border-box;';
     btn.href='javascript:void(0)';
 
@@ -1037,8 +1037,10 @@ function createSidebarBtn(){
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Вставляем прямо в navbar: опж перед историей сеансов, оба перед часами
+    // Порядок: опж перед историей сеансов (оба перед часами)
     var histBtn = document.getElementById('godji-history-btn');
+    // Оборачиваем в div с padding как оригинальные кнопки
+    btn.style.width = '100%';
     if(histBtn && histBtn.parentNode === navbar){
         navbar.insertBefore(btn, histBtn);
     } else {
@@ -1053,10 +1055,27 @@ function tryCreateSidebarBtn(){
     createSidebarBtn();
 }
 
-setTimeout(tryCreateSidebarBtn,1200);
-setTimeout(tryCreateSidebarBtn,2500);
-setTimeout(tryCreateSidebarBtn,5000);
-setTimeout(watchCashboxCloseBtn,2000);
+var _obs=new MutationObserver(function(muts){
+    muts.forEach(function(m){
+        if(m.addedNodes.length && !document.getElementById('godji-opj-btn')){
+            tryCreateSidebarBtn();
+        }
+    });
+});
+
+if(document.body){
+    _obs.observe(document.body,{childList:true,subtree:false});
+    setTimeout(tryCreateSidebarBtn,1200);
+    setTimeout(tryCreateSidebarBtn,2500);
+    setTimeout(tryCreateSidebarBtn,5000);
+    setTimeout(watchCashboxCloseBtn,2000);
+} else {
+    document.addEventListener('DOMContentLoaded',function(){
+        _obs.observe(document.body,{childList:true,subtree:false});
+        setTimeout(tryCreateSidebarBtn,1200);
+        setTimeout(watchCashboxCloseBtn,2000);
+    });
+}
 
 setInterval(updateBadge,10000);
 
