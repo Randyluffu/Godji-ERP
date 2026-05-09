@@ -461,7 +461,9 @@ btn.href = 'javascript:void(0)';
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-navbar.insertBefore(btn, clockSec);
+// Вставляем кнопку прямо в clockSec первым элементом
+    // clockSec — секция с часами, наша кнопка идёт выше часов внутри той же секции
+    clockSec.insertBefore(btn, clockSec.firstChild);
 }
 
 setTimeout(tryInit,5000);
