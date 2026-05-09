@@ -423,6 +423,8 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
     var clockSec = getClockSection();
     if(!clockSec) return;
     var navbar = clockSec.parentNode;
@@ -462,11 +464,7 @@ function createSidebarButton(){
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    var _sec = document.createElement('div');
-    _sec.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    _sec.style.paddingInline = 'var(--mantine-spacing-md)';
-    _sec.appendChild(btn);
-    navbar.insertBefore(_sec, clockSec);
+    inner.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
@@ -474,6 +472,8 @@ setInterval(scan,2000);
 
 function tryCreateHistBtn(){
     if(document.getElementById('godji-history-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
     if(!getClockSection()){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
 }
