@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.20
+// @version      5.21
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -113,7 +113,7 @@ function createSearchBtn(){
         : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
     // Фиксированная позиция как раньше — архитектура скрипта
-    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:500;width:280px;';
+    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:200;width:280px;';
 
     // Иконка через ThemeIcon — точно как у нативных кнопок
     var sec=document.createElement('span');
