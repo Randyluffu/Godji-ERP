@@ -461,8 +461,7 @@ btn.href = 'javascript:void(0)';
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    btn.style.width = '100%';
-    navbar.insertBefore(btn, clockSec);
+navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
