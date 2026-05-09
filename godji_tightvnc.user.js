@@ -45,7 +45,7 @@ function toast(msg, ok){
     if(old) old.remove();
     var t = document.createElement('div');
     t.id = 'gj-vnc-toast';
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999999;pointer-events:none;'
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:299;pointer-events:none;'
         + 'background:var(--mantine-color-body,#1a1b2e);border:1px solid '+(ok?'rgba(74,222,128,.3)':'rgba(239,68,68,.3)')
         + ';border-radius:8px;padding:10px 18px;font-size:13px;font-family:var(--mantine-font-family,inherit);'
         + 'color:'+(ok?'#4ade80':'#f87171')+';display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);';
@@ -83,7 +83,7 @@ function openPopup(anchor){
         'left:288px',
         'top:'+(btnRect.top-10)+'px',
         'width:'+POPUP_W+'px',
-        'z-index:99990',
+        'z-index:299',
         'background:var(--mantine-color-body,#1a1b2e)',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:12px',
@@ -278,6 +278,9 @@ function connectPC(name, cell){
 // ── Кнопка в сайдбаре ────────────────────────────────────
 function createSidebarBtn(){
     if(document.getElementById('gj-vnc-sidebar-btn')) return;
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var cls = nativeLink ? nativeLink.className
@@ -307,14 +310,22 @@ function createSidebarBtn(){
     btn.appendChild(sec); btn.appendChild(body);
     btn.addEventListener('click', function(e){ e.stopPropagation(); togglePopup(btn); });
 
-    // position:fixed прямо под кнопкой поиска клиента (bottom:456px минус высота кнопки ~46px)
-    btn.style.position = 'fixed';
-    btn.style.bottom = '408px';
-    btn.style.left = '0';
-    btn.style.width = '280px';
-    btn.style.zIndex = '500';
-    btn.style.boxSizing = 'border-box';
-    document.body.appendChild(btn);
+    // Вставляем после последней нативной ссылки в linksInner
+    // (godji-search-btn — fixed в body, не здесь)
+    var allLinks = inner.querySelectorAll(':scope > a.mantine-NavLink-root');
+    var lastNative = null;
+    allLinks.forEach(function(a){
+        if(!a.id || (!a.id.startsWith('godji') && !a.id.startsWith('gj-'))){
+            lastNative = a;
+        }
+    });
+    if(lastNative && lastNative.nextSibling){
+        inner.insertBefore(btn, lastNative.nextSibling);
+    } else if(lastNative){
+        inner.appendChild(btn);
+    } else {
+        inner.appendChild(btn);
+    }
 }
 
 function updateSidebarBtn(open){
@@ -325,21 +336,11 @@ function updateSidebarBtn(open){
 }
 
 // ── Кнопка просмотра в карточке ПК на дашборде ───────────
-// hookPcCards убран — subtree:true на body вызывал краш браузера
 
-function addVncButtonToCard(panel, pcName){
-    if(panel.querySelector('.gj-vnc-card-btn')) return;
-    var btn = document.createElement('button');
-    btn.className = 'gj-vnc-card-btn';
-    btn.style.cssText = 'background:var(--mantine-color-gg_primary-filled,#cc0001);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;white-space:nowrap;';
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>Просмотр';
-    btn.addEventListener('click', function(e){ e.stopPropagation(); connectPC(pcName, btn); });
-    panel.appendChild(btn);
-}
 
 // ── Init — только body observer, никакого observer на linksInner ──
 function tryInit(){
-    if(!document.querySelector('nav.mantine-AppShell-navbar')){ setTimeout(tryInit,500); return; }
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryInit,500); return; }
     createSidebarBtn();
 }
 
