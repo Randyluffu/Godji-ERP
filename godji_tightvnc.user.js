@@ -16,13 +16,12 @@ var PROXY = 'http://localhost:6080';
 
 // Точные координаты ПК с оригинальной карты дашборда (1920x1133)
 // Карта масштабируется до popup-размера через scale
-var MAP_ORIG_W = 1920, MAP_ORIG_H = 1133;
-var MAP_IMG = 'https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693';
-// Обрезаем карту до области с ПК (убираем пустые края)
-var CROP_X = 602, CROP_Y = 18, CROP_W = 728, CROP_H = 1060;
-var POPUP_W = 500;
-var MAP_SCALE = POPUP_W / CROP_W; // ~0.687
-var POPUP_H = Math.round(CROP_H * MAP_SCALE); // ~728px
+var MAP_ORIG_W=1920, MAP_ORIG_H=1133;
+var MAP_IMG='https://goodgame-prod.storage.yandexcloud.net/tmp-2-1773905668693';
+var CROP_X=582,CROP_Y=18,CROP_W=748,CROP_H=1042;
+var POPUP_W=500;
+var MAP_SCALE=POPUP_W/CROP_W;
+var POPUP_H=Math.round(CROP_H*MAP_SCALE);
 
 // Реальные координаты ПК (left, top) с оригинальной карты
 var PC_POS = {
@@ -79,11 +78,9 @@ function openPopup(anchor){
     popup.id = 'gj-vnc-popup';
 
     // Позиционируем справа от сайдбара (280px) под кнопкой
-    popup.style.cssText = [
-        'position:fixed',
-        'left:284px','top:0','bottom:0',
-        'width:'+POPUP_W+'px',
-        'z-index:299',
+    popup.style.cssText=[
+        'position:fixed','left:284px','top:0','bottom:0',
+        'width:'+POPUP_W+'px','z-index:299',
         'background:var(--mantine-color-body,#1a1b2e)',
         'border-left:1px solid rgba(255,255,255,0.1)',
         'border-radius:0 8px 8px 0',
@@ -93,10 +90,7 @@ function openPopup(anchor){
         'transform:translateX(-20px)','opacity:0',
         'transition:transform 0.2s ease,opacity 0.2s ease',
     ].join(';');
-    requestAnimationFrame(function(){
-        popup.style.transform='translateX(0)';
-        popup.style.opacity='1';
-    });
+    requestAnimationFrame(function(){popup.style.transform='translateX(0)';popup.style.opacity='1';});
 
     // Шапка
     var hdr = document.createElement('div');
@@ -127,7 +121,7 @@ function openPopup(anchor){
 
     // Карта
     var mapWrap = document.createElement('div');
-    mapWrap.style.cssText = 'position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:auto;';
+    mapWrap.style.cssText='position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;overflow:hidden;flex:1;min-height:0;';
     mapWrap.id = 'gj-vnc-map';
     popup.appendChild(mapWrap);
 
@@ -166,9 +160,8 @@ function closePopup(){
         p.style.transform='translateX(-20px)'; p.style.opacity='0';
         setTimeout(function(){ if(p.parentNode) p.remove(); },220);
     }
-    _popupOpen=false;
-    updateSidebarBtn(false);
-    document.removeEventListener('click', outsideClose);
+    _popupOpen=false; updateSidebarBtn(false);
+    document.removeEventListener('click',outsideClose);
 }
 
 function loadPCData(mapWrap, statusDot){
@@ -187,99 +180,76 @@ function loadPCData(mapWrap, statusDot){
 }
 
 function renderMap(mapWrap, data){
-    mapWrap.innerHTML = '';
-    mapWrap.style.cssText = 'position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:hidden;background:#1a1b2e;';
+    mapWrap.innerHTML='';
+    mapWrap.style.cssText='position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;overflow:hidden;flex:1;min-height:0;';
+    // Фон: карта обрезана до области ПК через смещение
+    var scX=POPUP_W/CROP_W, scY=POPUP_H/CROP_H;
+    var fullW=Math.round(MAP_ORIG_W*scX), fullH=Math.round(MAP_ORIG_H*scY);
+    var offX=-Math.round(CROP_X*scX), offY=-Math.round(CROP_Y*scY);
+    var bgWrap=document.createElement('div');
+    bgWrap.style.cssText='position:absolute;inset:0;overflow:hidden;pointer-events:none;';
+    var img=document.createElement('img');
+    img.src=MAP_IMG;
+    img.style.cssText='position:absolute;left:'+offX+'px;top:'+offY+'px;width:'+fullW+'px;height:'+fullH+'px;display:block;';
+    bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
 
-    // Фоновое изображение с обрезкой через object-position
-    // Показываем только область CROP_X,CROP_Y размером CROP_W x CROP_H из 1920x1133
-    var bg = document.createElement('div');
-    var scaleX = POPUP_W / CROP_W;
-    var scaleY = POPUP_H / CROP_H;
-    var fullW = Math.round(MAP_ORIG_W * scaleX);
-    var fullH = Math.round(MAP_ORIG_H * scaleY);
-    var offX = -Math.round(CROP_X * scaleX);
-    var offY = -Math.round(CROP_Y * scaleY);
-    bg.style.cssText = [
-        'position:absolute;top:0;left:0',
-        'width:'+POPUP_W+'px;height:'+POPUP_H+'px',
-        'overflow:hidden;pointer-events:none',
-    ].join(';');
-    var img = document.createElement('img');
-    img.src = MAP_IMG;
-    img.style.cssText = [
-        'position:absolute',
-        'left:'+offX+'px;top:'+offY+'px',
-        'width:'+fullW+'px;height:'+fullH+'px',
-        'display:block;pointer-events:none',
-    ].join(';');
-    bg.appendChild(img);
-    mapWrap.appendChild(bg);
-
-    // БЕЗ затемнения — карта светлая как оригинал ERP
-
-    // Карточки ПК
-    var CARD = 22;
+    // Карточки ПК — крупнее, без затемнения
+    var CARD=26;
     Object.keys(PC_POS).forEach(function(name){
-        var pos = PC_POS[name];
-        // Смещаем координаты на CROP
-        var px = Math.round((pos.x - CROP_X) * MAP_SCALE);
-        var py = Math.round((pos.y - CROP_Y) * MAP_SCALE);
-
-        var numStr = name.replace('TV ','TV');
-        var pc = data[name] || data[numStr] || data[name.replace(/^0/,'')] || null;
-        var avail = !!pc;
-
-        var cell = document.createElement('button');
-        cell.title = 'ПК '+name;
-        cell.style.cssText = [
+        var pos=PC_POS[name];
+        var px=Math.round((pos.x-CROP_X)*MAP_SCALE);
+        var py=Math.round((pos.y-CROP_Y)*MAP_SCALE);
+        var pc=data[name]||data[name.replace('TV ','TV')]||data[name.replace(/^0/,'')]||null;
+        var avail=!!pc;
+        var cell=document.createElement('button');
+        cell.title='ПК '+name;
+        cell.style.cssText=[
             'position:absolute',
-            'left:'+(px - CARD/2)+'px',
-            'top:'+(py - CARD/2)+'px',
-            'width:'+CARD+'px;height:'+CARD+'px',
+            'left:'+(px-CARD/2)+'px','top:'+(py-CARD/2)+'px',
+            'width:'+CARD+'px','height:'+CARD+'px',
             'border-radius:5px',
-            'border:1.5px solid '+(avail?'rgba(220,38,38,0.9)':'rgba(255,255,255,0.3)'),
-            'background:'+(avail?'rgba(239,68,68,0.85)':'rgba(255,255,255,0.2)'),
-            'color:#fff;font-size:6px;font-weight:800',
+            'border:2px solid '+(avail?'rgba(200,0,0,0.95)':'rgba(140,140,170,0.45)'),
+            'background:'+(avail?'rgba(220,30,30,0.92)':'rgba(200,210,230,0.55)'),
+            'color:#fff','font-size:7px','font-weight:800',
             'cursor:'+(avail?'pointer':'default'),
-            'display:flex;flex-direction:column;align-items:center;justify-content:center',
-            'gap:1px;font-family:inherit;padding:0;line-height:1',
-            'transition:transform .1s;z-index:2',
+            'display:flex','flex-direction:column','align-items:center','justify-content:center',
+            'gap:1px','font-family:inherit','padding:0','line-height:1',
+            'transition:transform .1s','z-index:2',
             'text-shadow:0 1px 3px rgba(0,0,0,0.9)',
-            'box-shadow:0 1px 4px rgba(0,0,0,0.5)',
+            'box-shadow:0 1px 5px rgba(0,0,0,0.35)',
         ].join(';');
-
-        var numEl = document.createElement('span');
-        numEl.textContent = name;
-        cell.appendChild(numEl);
-
+        var lbl=document.createElement('span'); lbl.textContent=name; cell.appendChild(lbl);
         if(avail){
-            var dot = document.createElement('span');
-            dot.style.cssText = 'width:3px;height:3px;border-radius:50%;background:#fff;opacity:0.85;';
+            var dot=document.createElement('span');
+            dot.style.cssText='width:3px;height:3px;border-radius:50%;background:#fff;opacity:0.9;';
             cell.appendChild(dot);
-            cell.addEventListener('mouseenter',function(){
-                cell.style.transform='scale(1.25)'; cell.style.zIndex='10';
-            });
-            cell.addEventListener('mouseleave',function(){
-                cell.style.transform=''; cell.style.zIndex='2';
-            });
-            cell.addEventListener('click',function(e){
-                e.stopPropagation();
-                showVncMenu(name,cell);
-            });
+            cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.25)'; cell.style.zIndex='10'; });
+            cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.zIndex='2'; });
+            cell.addEventListener('click',function(e){ e.stopPropagation(); showVncMenu(name,cell); });
         }
         mapWrap.appendChild(cell);
     });
 }
 
-function showVncMenu(name, cell){
-    var old = document.getElementById('gj-vnc-menu');
-    if(old){ old.remove(); if(old._pc===name) return; }
+function connectPC(name, viewOnly){
+    // GET /connect?pc=N[&view=1] — сервер запускает tvnviewer.exe
+    var url=PROXY+'/connect?pc='+encodeURIComponent(name)+(viewOnly?'&view=1':'');
+    fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(function(res){
+            if(res.error) throw new Error(res.error);
+            toast('ПК '+name+' — '+(viewOnly?'просмотр':'управление')+' открыт', true);
+        })
+        .catch(function(e){ toast((e.message||'Ошибка подключения'), false); });
+}
 
-    var menu = document.createElement('div');
-    menu.id = 'gj-vnc-menu';
-    menu._pc = name;
-    var cr = cell.getBoundingClientRect();
-    menu.style.cssText = [
+function showVncMenu(name, cell){
+    var old=document.getElementById('gj-vnc-menu');
+    if(old){ old.remove(); if(old._pc===name) return; }
+    var menu=document.createElement('div');
+    menu.id='gj-vnc-menu'; menu._pc=name;
+    var cr=cell.getBoundingClientRect();
+    menu.style.cssText=[
         'position:fixed',
         'left:'+(cr.right+6)+'px',
         'top:'+(cr.top-4)+'px',
@@ -287,37 +257,28 @@ function showVncMenu(name, cell){
         'border:1px solid rgba(255,255,255,0.15)',
         'border-radius:8px',
         'box-shadow:0 4px 20px rgba(0,0,0,0.7)',
-        'z-index:9999;overflow:hidden;min-width:190px',
+        'z-index:9999','overflow:hidden','min-width:200px',
         'font-family:var(--mantine-font-family,inherit)',
     ].join(';');
-
-    var ttl = document.createElement('div');
-    ttl.style.cssText = 'padding:7px 14px 6px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.45);border-bottom:1px solid rgba(255,255,255,0.07);';
-    ttl.textContent = 'ПК '+name;
-    menu.appendChild(ttl);
-
-    function mkBtn(label, ico, cb){
-        var b = document.createElement('button');
-        b.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:9px 14px;background:none;border:none;color:#e8eaf0;font-size:12px;cursor:pointer;text-align:left;transition:background 0.1s;';
-        b.innerHTML = ico+'<span>'+label+'</span>';
-        b.addEventListener('mouseenter',function(){ b.style.background='rgba(255,255,255,0.07)'; });
-        b.addEventListener('mouseleave',function(){ b.style.background='none'; });
-        b.addEventListener('click',function(e){ e.stopPropagation(); menu.remove(); cb(); });
+    var ttl=document.createElement('div');
+    ttl.style.cssText='padding:7px 14px 6px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.5);border-bottom:1px solid rgba(255,255,255,0.07);';
+    ttl.textContent='ПК '+name; menu.appendChild(ttl);
+    function mkBtn(label,ico,cb){
+        var b=document.createElement('button');
+        b.style.cssText='display:flex;align-items:center;gap:8px;width:100%;padding:9px 14px;background:none;border:none;color:#e8eaf0;font-size:12px;cursor:pointer;text-align:left;';
+        b.innerHTML=ico+'<span>'+label+'</span>';
+        b.onmouseenter=function(){ b.style.background='rgba(255,255,255,0.07)'; };
+        b.onmouseleave=function(){ b.style.background='none'; };
+        b.onclick=function(e){ e.stopPropagation(); menu.remove(); cb(); };
         return b;
     }
-    var eyeIco = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    var ctrlIco = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
-
-    var num = parseInt(name, 10);
-    // PROXY = 'http://localhost:6080' — веб-интерфейс TightVNC
-    // view-only: добавляем ?view=1, управление — без параметра
-    var baseUrl = PROXY + (isNaN(num) ? '/?pc='+encodeURIComponent(name) : '/?pc='+num);
-    menu.appendChild(mkBtn('Только просмотр', eyeIco, function(){ window.open(baseUrl+'&view=1','_blank'); }));
-    menu.appendChild(mkBtn('Просмотр с управлением', ctrlIco, function(){ window.open(baseUrl,'_blank'); }));
-
+    var eyeIco='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var ctrlIco='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+    menu.appendChild(mkBtn('Только просмотр',eyeIco,function(){ connectPC(name,true); }));
+    menu.appendChild(mkBtn('Просмотр с управлением',ctrlIco,function(){ connectPC(name,false); }));
     document.body.appendChild(menu);
     setTimeout(function(){
-        document.addEventListener('click', function cm(ev){
+        document.addEventListener('click',function cm(ev){
             if(!menu.contains(ev.target)){ menu.remove(); document.removeEventListener('click',cm); }
         });
     },0);
