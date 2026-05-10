@@ -1042,7 +1042,18 @@ if(histBtn && histBtn.parentNode === navbar){
     } else {
         // Вставляем кнопку прямо в clockSec первым элементом
     // clockSec — секция с часами, наша кнопка идёт выше часов внутри той же секции
-    clockSec.insertBefore(btn, clockSec.firstChild);
+    // Создаём невидимую секцию поверх clockSec — кнопка выглядит как родная
+    var wrapId = btn.id + '-wrap';
+    var existWrap = document.getElementById(wrapId);
+    if(existWrap) existWrap.remove();
+    var wrap = document.createElement('div');
+    wrap.id = wrapId;
+    // Секция полностью прозрачная, без фона/рамок — только padding как у нативных
+    wrap.className = 'm_6dcfc7c7 mantine-AppShell-section';
+    wrap.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
+    btn.style.width = '100%';
+    wrap.appendChild(btn);
+    navbar.insertBefore(wrap, clockSec);
     }
     updateBadge();
 }
