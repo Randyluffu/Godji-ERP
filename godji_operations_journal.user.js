@@ -1034,26 +1034,22 @@ btn.href='javascript:void(0)';
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Порядок: опж перед историей сеансов (оба перед часами)
-    var histBtn = document.getElementById('godji-history-btn');
-    // Оборачиваем в div с padding как оригинальные кнопки
-if(histBtn && histBtn.parentNode === navbar){
-        navbar.insertBefore(btn, histBtn);
-    } else {
-        // Вставляем кнопку прямо в clockSec первым элементом
-    // clockSec — секция с часами, наша кнопка идёт выше часов внутри той же секции
-    // Создаём невидимую секцию поверх clockSec — кнопка выглядит как родная
-    var wrapId = btn.id + '-wrap';
-    var existWrap = document.getElementById(wrapId);
-    if(existWrap) existWrap.remove();
+    // Секция идентична нативным — padding-inline, без фона
+    var wrapId = 'godji-opj-btn-wrap';
+    var oldW = document.getElementById(wrapId);
+    if(oldW) oldW.remove();
     var wrap = document.createElement('div');
     wrap.id = wrapId;
-    // Секция полностью прозрачная, без фона/рамок — только padding как у нативных
     wrap.className = 'm_6dcfc7c7 mantine-AppShell-section';
     wrap.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
     btn.style.width = '100%';
     wrap.appendChild(btn);
-    navbar.insertBefore(wrap, clockSec);
+    // Опж перед историей сеансов если та уже есть
+    var histWrap = document.getElementById('godji-history-btn-wrap');
+    if(histWrap && histWrap.parentNode === navbar){
+        navbar.insertBefore(wrap, histWrap);
+    } else {
+        navbar.insertBefore(wrap, clockSec);
     }
     updateBadge();
 }
