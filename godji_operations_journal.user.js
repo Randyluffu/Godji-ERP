@@ -1035,19 +1035,23 @@ btn.href='javascript:void(0)';
     });
 
 
-    var wrapId = 'godji-opj-btn-wrap';
-    var oldW = document.getElementById(wrapId);
-    if(oldW) oldW.remove();
-    // Вставляем прямо в navbar перед clockSec без лишних обёрток
-    // Убираем width из стиля кнопки — пусть CSS класс управляет шириной
-    btn.removeAttribute('style');
-    btn.id = wrapId;
-    navbar.insertBefore(btn, clockSec);
+
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    var oldB = document.getElementById('godji-opj-btn');
+    if(oldB) oldB.remove();
+    var histBtn = document.getElementById('godji-history-btn');
+    if(histBtn && histBtn.parentNode === inner) {
+        inner.insertBefore(btn, histBtn);
+    } else {
+        inner.appendChild(btn);
+    }
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateSidebarBtn,400); return; }
     if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
@@ -1065,6 +1069,24 @@ if(document.body){
     setTimeout(tryCreateSidebarBtn,1200);
     setTimeout(tryCreateSidebarBtn,2500);
     setTimeout(tryCreateSidebarBtn,5000);
+// MutationObserver на linksInner — держит кнопку на месте (subtree:false = не краш)
+(function(){
+    var _innerObs = null;
+    function attachInnerObs(){
+        var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+        if(!inner || _innerObs) return;
+        _innerObs = new MutationObserver(function(){
+            var btn = document.getElementById('godji-opj-btn');
+            var inn = document.querySelector('.Sidebar_linksInner__oTy_4');
+            if(!btn || !inn) return;
+            if(btn.parentNode !== inn) { inn.appendChild(btn); return; }
+            var hist = document.getElementById('godji-history-btn'); if(hist && hist.parentNode===inn && Array.from(inn.children).indexOf(btn) > Array.from(inn.children).indexOf(hist)) inn.insertBefore(btn,hist);
+        });
+        _innerObs.observe(inner, {childList:true, subtree:false});
+    }
+    setTimeout(attachInnerObs, 2000);
+    setTimeout(attachInnerObs, 4000);
+})();
     setTimeout(watchCashboxCloseBtn,2000);
 } else {
     document.addEventListener('DOMContentLoaded',function(){
