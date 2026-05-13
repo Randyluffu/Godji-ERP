@@ -1034,22 +1034,22 @@ btn.href='javascript:void(0)';
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    // Секция идентична нативным — padding-inline, без фона
+    // Вставляем в linksInner — там нативный padding и ширина
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
     var wrapId = 'godji-opj-btn-wrap';
     var oldW = document.getElementById(wrapId);
     if(oldW) oldW.remove();
-    var wrap = document.createElement('div');
-    wrap.id = wrapId;
-    wrap.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    wrap.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
-    btn.style.width = '100%';
-    wrap.appendChild(btn);
-    // Опж перед историей сеансов если та уже есть
-    var histWrap = document.getElementById('godji-history-btn-wrap');
-    if(histWrap && histWrap.parentNode === navbar){
-        navbar.insertBefore(wrap, histWrap);
+    if(inner){
+        // Опж перед историей сеансов
+        var histBtn = document.getElementById('godji-history-btn-wrap');
+        if(histBtn && histBtn.parentNode === inner){
+            inner.insertBefore(btn, histBtn);
+        } else {
+            inner.appendChild(btn);
+        }
+        btn.id = wrapId;
     } else {
-        navbar.insertBefore(wrap, clockSec);
+        navbar.insertBefore(btn, clockSec);
     }
     updateBadge();
 }
