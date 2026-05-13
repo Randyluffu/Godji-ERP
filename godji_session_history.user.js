@@ -461,17 +461,18 @@ btn.href = 'javascript:void(0)';
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    // Секция идентична нативным — padding-inline, без фона
+    // Вставляем в Sidebar_links (linksInner) — там нативный padding и ширина
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
     var wrapId = 'godji-history-btn-wrap';
     var oldW = document.getElementById(wrapId);
     if(oldW) oldW.remove();
-    var wrap = document.createElement('div');
-    wrap.id = wrapId;
-    wrap.className = 'm_6dcfc7c7 mantine-AppShell-section';
-    wrap.style.cssText = 'padding-inline:var(--mantine-spacing-md);';
-    btn.style.width = '100%';
-    wrap.appendChild(btn);
-    navbar.insertBefore(wrap, clockSec);
+    if(inner){
+        // Добавляем в конец linksInner — там те же стили что у нативных кнопок
+        inner.appendChild(btn);
+        btn.id = wrapId; // используем wrapId как маркер
+    } else {
+        navbar.insertBefore(btn, clockSec);
+    }
 }
 
 setTimeout(tryInit,5000);
