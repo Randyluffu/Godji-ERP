@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.5
+// @version      3.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -95,7 +95,7 @@ function openPopup(anchor){
 
     // Шапка
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;';
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;color:#fff;';
 
     var hdrL = document.createElement('div');
     hdrL.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -128,7 +128,7 @@ function openPopup(anchor){
 
     // Легенда
     var legend = document.createElement('div');
-    legend.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(255,255,255,.06);font-size:10px;color:rgba(255,255,255,.35);flex-shrink:0;';
+    legend.style.cssText = 'color:#fff;display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(255,255,255,.06);font-size:10px;color:rgba(255,255,255,.35);flex-shrink:0;';
     legend.innerHTML = '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(204,0,1,.35);border:1px solid rgba(204,0,1,.6);display:inline-block;"></span>Доступен</span>'
         + '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);display:inline-block;"></span>Нет в конфиге</span>';
     popup.appendChild(legend);
@@ -177,6 +177,7 @@ function loadPCData(mapWrap, statusDot){
         .catch(function(){
             statusDot.innerHTML = '<span style="color:#f87171;">●</span> <span style="color:rgba(255,255,255,.3);">нет сервера</span>';
             renderMap(mapWrap, {});
+            toast('VNC-сервер не запущен. Запустите vnc_server.py', false);
         });
 }
 
@@ -196,31 +197,34 @@ function renderMap(mapWrap, data){
     bgWrap.appendChild(img);
     mapWrap.appendChild(bgWrap);
 
-    // Карточки ПК
     var CARD=30;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
-        var px=Math.round((pos.x-CROP_X)*MAP_SCALE);
-        var py=Math.round((pos.y-CROP_Y)*MAP_SCALE);
+        // Координаты из DevicesLayer — это left-top угол карточки 24x24px
+        // Масштабируем и центрируем наш CARD относительно центра оригинальной карточки
+        var origCenter = 12; // 24/2
+        var px = Math.round((pos.x + origCenter - CROP_X)*MAP_SCALE) - CARD/2;
+        var py = Math.round((pos.y + origCenter - CROP_Y)*MAP_SCALE) - CARD/2;
         var pc=data[name]||data[name.replace('TV ','TV')]||data[name.replace(/^0/,'')]||null;
         var avail=!!pc;
+
         var cell=document.createElement('button');
         cell.title='ПК '+name;
         cell.style.cssText=[
             'position:absolute',
-            'left:'+(px-CARD/2)+'px','top:'+(py-CARD/2)+'px',
+            'left:'+Math.round(px)+'px','top:'+Math.round(py)+'px',
             'width:'+CARD+'px','height:'+CARD+'px',
             'border-radius:6px',
-            'border:2px solid '+(avail?'#a00':'rgba(80,80,120,0.5)'),
-            'background:'+(avail?'rgba(204,0,0,0.9)':'rgba(180,185,210,0.5)'),
-            'color:'+(avail?'#fff':'#333'),
+            'border:2px solid '+(avail?'#cc0001':'rgba(100,100,140,0.4)'),
+            'background:'+(avail?'rgba(204,0,0,0.9)':'rgba(190,195,215,0.5)'),
+            'color:#fff',  // всегда белый — на светлом фоне карты с text-shadow читаемо
             'font-size:8px','font-weight:800',
             'cursor:'+(avail?'pointer':'default'),
             'display:flex','flex-direction:column','align-items:center','justify-content:center',
             'gap:2px','font-family:inherit','padding:0','line-height:1',
             'transition:transform .1s','z-index:2',
-            'text-shadow:'+(avail?'0 1px 3px rgba(0,0,0,0.95)':'none'),
-            'box-shadow:0 1px 4px rgba(0,0,0,0.3)',
+            'text-shadow:0 1px 3px rgba(0,0,0,0.85)',
+            'box-shadow:0 1px 5px rgba(0,0,0,0.25)',
         ].join(';');
         var lbl=document.createElement('span');
         lbl.textContent=name;
@@ -245,7 +249,13 @@ function connectPC(name, viewOnly){
             if(res.error) throw new Error(res.error);
             toast('ПК '+name+' — '+(viewOnly?'просмотр':'управление')+' открыт', true);
         })
-        .catch(function(e){ toast(e.message||'Сервер недоступен', false); });
+        .catch(function(e){
+            var msg = (e.message||'').toLowerCase().indexOf('refused')>=0||
+                      (e.message||'').toLowerCase().indexOf('failed')>=0
+                ? 'VNC-сервер не запущен. Запустите vnc_server.py'
+                : (e.message||'Ошибка подключения');
+            toast(msg, false);
+        });
 }
 
 // Меню выбора режима — в стиле ERP
@@ -339,12 +349,7 @@ function createSidebarBtn(){
     btn.addEventListener('click', function(e){ e.stopPropagation(); togglePopup(btn); });
 
     // Кнопка fixed прямо под "Поиск клиента" (godji-search-btn bottom:456px, высота ~46px)
-    btn.style.position = 'fixed';
-    btn.style.bottom = '408px';
-    btn.style.left = '0';
-    btn.style.width = '280px';
-    btn.style.zIndex = '200';
-    btn.style.boxSizing = 'border-box';
+    btn.style.cssText = 'position:fixed;bottom:408px;left:0;width:280px;z-index:150;box-sizing:border-box;';
     document.body.appendChild(btn);
 }
 
