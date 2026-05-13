@@ -184,54 +184,44 @@ function loadPCData(mapWrap, statusDot){
 function renderMap(mapWrap, data){
     mapWrap.innerHTML='';
     mapWrap.style.cssText='position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:hidden;';
-
-    // Фон — карта обрезана до области ПК
-    var scX=POPUP_W/CROP_W, scY=POPUP_H/CROP_H;
-    var fullW=Math.round(MAP_ORIG_W*scX), fullH=Math.round(MAP_ORIG_H*scY);
-    var offX=-Math.round(CROP_X*scX), offY=-Math.round(CROP_Y*scY);
+    var bgScaleX=(POPUP_W/CROP_W)*(LAYER_W/MAP_ORIG_W);
+    var bgScaleY=(POPUP_H/CROP_H)*(LAYER_H/MAP_ORIG_H);
+    var bgW=Math.round(MAP_ORIG_W*bgScaleX);
+    var bgH=Math.round(MAP_ORIG_H*bgScaleY);
+    var bgOffX=-Math.round(CROP_X*(bgW/LAYER_W));
+    var bgOffY=-Math.round(CROP_Y*(bgH/LAYER_H));
     var bgWrap=document.createElement('div');
     bgWrap.style.cssText='position:absolute;inset:0;overflow:hidden;pointer-events:none;';
     var img=document.createElement('img');
     img.src=MAP_IMG;
-    img.style.cssText='position:absolute;left:'+offX+'px;top:'+offY+'px;width:'+fullW+'px;height:'+fullH+'px;display:block;';
-    bgWrap.appendChild(img);
-    mapWrap.appendChild(bgWrap);
-
-    var CARD=30;
+    img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
+    bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
+    var CARD=28;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
-        // Координаты из DevicesLayer — это left-top угол карточки 24x24px
-        // Масштабируем и центрируем наш CARD относительно центра оригинальной карточки
-        var origCenter = 12; // 24/2
-        var px = Math.round((pos.x + origCenter - CROP_X)*MAP_SCALE) - CARD/2;
-        var py = Math.round((pos.y + origCenter - CROP_Y)*MAP_SCALE) - CARD/2;
+        var cx=pos.x+CARD_ORIG/2, cy=pos.y+CARD_ORIG/2;
+        var px=Math.round((cx-CROP_X)*MAP_SCALE)-CARD/2;
+        var py=Math.round((cy-CROP_Y)*MAP_SCALE)-CARD/2;
         var pc=data[name]||data[name.replace('TV ','TV')]||data[name.replace(/^0/,'')]||null;
         var avail=!!pc;
-
         var cell=document.createElement('button');
         cell.title='ПК '+name;
-        cell.style.cssText=[
-            'position:absolute',
-            'left:'+Math.round(px)+'px','top:'+Math.round(py)+'px',
-            'width:'+CARD+'px','height:'+CARD+'px',
-            'border-radius:6px',
+        cell.style.cssText=['position:absolute','left:'+px+'px','top:'+py+'px',
+            'width:'+CARD+'px','height:'+CARD+'px','border-radius:5px',
             'border:2px solid '+(avail?'#cc0001':'rgba(100,100,140,0.4)'),
-            'background:'+(avail?'rgba(204,0,0,0.9)':'rgba(190,195,215,0.5)'),
-            'color:#fff',  // всегда белый — на светлом фоне карты с text-shadow читаемо
-            'font-size:8px','font-weight:800',
+            'background:'+(avail?'rgba(204,0,0,0.88)':'rgba(185,190,210,0.5)'),
+            'color:#fff','font-size:8px','font-weight:800',
             'cursor:'+(avail?'pointer':'default'),
             'display:flex','flex-direction:column','align-items:center','justify-content:center',
             'gap:2px','font-family:inherit','padding:0','line-height:1',
             'transition:transform .1s','z-index:2',
-            'text-shadow:0 1px 3px rgba(0,0,0,0.85)',
-            'box-shadow:0 1px 5px rgba(0,0,0,0.25)',
+            'text-shadow:0 1px 3px rgba(0,0,0,0.9)',
+            'box-shadow:0 1px 4px rgba(0,0,0,0.3)',
         ].join(';');
-        var lbl=document.createElement('span');
-        lbl.textContent=name;
-        cell.appendChild(lbl);
+        var lbl=document.createElement('span'); lbl.textContent=name; cell.appendChild(lbl);
         if(avail){
             var dot=document.createElement('span');
-            dot.style.cssText='width:4px;height:4px;border-radius:50%;background:#fff;opacity:0.9;';
+            dot.style.cssText='width:3px;height:3px;border-radius:50%;background:#fff;opacity:0.9;';
             cell.appendChild(dot);
             cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.2)'; cell.style.zIndex='10'; });
             cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.zIndex='2'; });
