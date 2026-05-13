@@ -463,18 +463,15 @@ btn.href = 'javascript:void(0)';
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
     // Вставляем прямо в Sidebar_links__o1FyV — родительскую секцию linksInner
     // Это даёт те же отступы что у нативных кнопок
-    var linksSection = document.querySelector('.Sidebar_links__o1FyV');
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+
     var wrapId = 'godji-history-btn-wrap';
     var oldW = document.getElementById(wrapId);
     if(oldW) oldW.remove();
+    // Вставляем прямо в navbar перед clockSec без лишних обёрток
+    // Убираем width из стиля кнопки — пусть CSS класс управляет шириной
+    btn.removeAttribute('style');
     btn.id = wrapId;
-    btn.style.width = '100%';
-    if(inner){
-        inner.appendChild(btn);
-    } else {
-        navbar.insertBefore(btn, clockSec);
-    }
+    navbar.insertBefore(btn, clockSec);
 }
 
 setTimeout(tryInit,5000);
