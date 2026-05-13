@@ -461,15 +461,17 @@ btn.href = 'javascript:void(0)';
     });
 
     // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    // Вставляем в Sidebar_links (linksInner) — там нативный padding и ширина
+    // Вставляем прямо в Sidebar_links__o1FyV — родительскую секцию linksInner
+    // Это даёт те же отступы что у нативных кнопок
+    var linksSection = document.querySelector('.Sidebar_links__o1FyV');
     var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
     var wrapId = 'godji-history-btn-wrap';
     var oldW = document.getElementById(wrapId);
     if(oldW) oldW.remove();
+    btn.id = wrapId;
+    btn.style.width = '100%';
     if(inner){
-        // Добавляем в конец linksInner — там те же стили что у нативных кнопок
         inner.appendChild(btn);
-        btn.id = wrapId; // используем wrapId как маркер
     } else {
         navbar.insertBefore(btn, clockSec);
     }
@@ -479,14 +481,23 @@ setTimeout(tryInit,5000);
 setInterval(scan,2000);
 
 function tryCreateHistBtn(){
-    if(document.getElementById('godji-history-btn')) return;
-    if(!getClockSection()){ setTimeout(tryCreateHistBtn,500); return; }
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner){ setTimeout(tryCreateHistBtn,400); return; }
+    if(document.getElementById('godji-history-btn-wrap')) return;
+    if(!getClockSection()){ setTimeout(tryCreateHistBtn,400); return; }
     createSidebarButton();
+    // Через 1с проверяем позицию — если React переставил, возвращаем в конец
+    setTimeout(function(){
+        var btn = document.getElementById('godji-history-btn-wrap');
+        var innerNow = document.querySelector('.Sidebar_linksInner__oTy_4');
+        if(btn && innerNow && btn.parentNode === innerNow && innerNow.lastElementChild !== btn){
+            innerNow.appendChild(btn);
+        }
+    }, 1000);
 }
 
-setTimeout(tryCreateHistBtn,1200);
-setTimeout(tryCreateHistBtn,2500);
-setTimeout(tryCreateHistBtn,5000);
+setTimeout(tryCreateHistBtn,1500);
+setTimeout(tryCreateHistBtn,3000);
 
 // Только body observer — без observer на linksInner (вызывал бесконечный цикл)
 new MutationObserver(function(muts){
