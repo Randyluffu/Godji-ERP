@@ -1034,34 +1034,15 @@ btn.href='javascript:void(0)';
         else{showModal();btn.setAttribute('data-active','true');}
     });
 
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+
     var wrapId = 'godji-opj-btn-wrap';
     var oldW = document.getElementById(wrapId);
     if(oldW) oldW.remove();
+    // Вставляем прямо в navbar перед clockSec без лишних обёрток
+    // Убираем width из стиля кнопки — пусть CSS класс управляет шириной
+    btn.removeAttribute('style');
     btn.id = wrapId;
-    btn.style.width = '100%';
-    if(inner){
-        var histBtn = document.getElementById('godji-history-btn-wrap');
-        if(histBtn && histBtn.parentNode === inner){
-            inner.insertBefore(btn, histBtn);
-        } else {
-            inner.appendChild(btn);
-        }
-    } else {
-        navbar.insertBefore(btn, clockSec);
-    }
-    // Через 1с проверяем позицию
-    setTimeout(function(){
-        var b = document.getElementById('godji-opj-btn-wrap');
-        var h = document.getElementById('godji-history-btn-wrap');
-        var inn = document.querySelector('.Sidebar_linksInner__oTy_4');
-        if(!b || !inn || b.parentNode !== inn) return;
-        // опж должен стоять перед историей сеансов
-        if(h && h.parentNode === inn){
-            var nodes = Array.from(inn.children);
-            if(nodes.indexOf(b) > nodes.indexOf(h)) inn.insertBefore(b, h);
-        }
-    }, 1000);
+    navbar.insertBefore(btn, clockSec);
     updateBadge();
 }
 
