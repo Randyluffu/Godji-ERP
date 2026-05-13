@@ -464,14 +464,12 @@ btn.href = 'javascript:void(0)';
     // Вставляем прямо в Sidebar_links__o1FyV — родительскую секцию linksInner
     // Это даёт те же отступы что у нативных кнопок
 
-    var wrapId = 'godji-history-btn-wrap';
-    var oldW = document.getElementById(wrapId);
-    if(oldW) oldW.remove();
-    // Вставляем прямо в navbar перед clockSec без лишних обёрток
-    // Убираем width из стиля кнопки — пусть CSS класс управляет шириной
-    btn.removeAttribute('style');
-    btn.id = wrapId;
-    navbar.insertBefore(btn, clockSec);
+
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    var oldB = document.getElementById('godji-history-btn');
+    if(oldB) oldB.remove();
+    inner.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
@@ -481,6 +479,7 @@ function tryCreateHistBtn(){
     var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
     if(!inner){ setTimeout(tryCreateHistBtn,400); return; }
     if(document.getElementById('godji-history-btn-wrap')) return;
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateHistBtn,400); return; }
     if(!getClockSection()){ setTimeout(tryCreateHistBtn,400); return; }
     createSidebarButton();
     // Через 1с проверяем позицию — если React переставил, возвращаем в конец
