@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.7
+// @version      3.8
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -36,8 +36,8 @@ var PC_POS = {
     '14':{x:1048,y:170},'15':{x:1105,y:169},'16':{x:1146,y:266},'17':{x:1084,y:265},
     '18':{x:1142,y:588},'19':{x:1202,y:588},'20':{x:1181,y:680},
     '21':{x:1118,y:680},'22':{x:1057,y:680},'23':{x:1046,y:741},'24':{x:1116,y:741},
-    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:951,y:857},
-    '28':{x:1004,y:835},'29':{x:950,y:807},'30':{x:884,y:794},
+    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1004,y:875},
+    '28':{x:951,y:835},'29':{x:950,y:807},'30':{x:884,y:794},
     '31':{x:884,y:851},'32':{x:885,y:912},'33':{x:795,y:964},
     '34':{x:793,y:895},'35':{x:794,y:835},'36':{x:728,y:836},
     '37':{x:728,y:896},'38':{x:728,y:963},'39':{x:608,y:882},
@@ -86,7 +86,7 @@ function openPopup(anchor){
         'position:fixed','left:284px','top:60px',
         'width:'+POPUP_W+'px','max-height:calc(100vh - 70px)',
         'z-index:299',
-        'background:var(--mantine-color-body,#1a1b2e)',
+        'background:#1a1b2e',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:0 8px 8px 0',
         'box-shadow:4px 0 32px rgba(0,0,0,.7)',
@@ -202,7 +202,7 @@ function renderMap(mapWrap, data){
     img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
     bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
 
-    var CARD=32;
+    var CARD=36;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
         var cx=pos.x+CARD_ORIG/2, cy=pos.y+CARD_ORIG/2;
@@ -271,7 +271,7 @@ function showVncMenu(name, cell){
         'position:fixed',
         'left:'+(cr.right+4)+'px',
         'top:'+cr.top+'px',
-        'background:var(--mantine-color-body,#1a1b2e)',
+        'background:#1a1b2e',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:8px',
         'box-shadow:0 4px 24px rgba(0,0,0,0.6)',
