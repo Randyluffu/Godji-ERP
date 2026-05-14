@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.11
+// @version      5.12
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -423,43 +423,54 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    // Используем div — классы mantine-NavLink перебивают position:fixed на <a>
     var btn = document.createElement('div');
     btn.id = 'godji-history-btn';
-    // Точно копируем стиль нативных кнопок, добавляем position:fixed
-    btn.style.cssText = [
-        'position:fixed',
-        'bottom:316px',
-        'left:0',
-        'width:280px',
-        'z-index:150',
-        'box-sizing:border-box',
-        'display:flex',
-        'align-items:center',
-        'gap:0',
-        'padding:calc(0.5rem * var(--mantine-scale)) var(--mantine-spacing-md)',
-        'cursor:pointer',
-        'font-family:var(--mantine-font-family,inherit)',
-        'font-size:var(--mantine-font-size-sm)',
-        'font-weight:500',
-        'color:var(--mantine-color-white,#fff)',
-        'text-decoration:none',
-        'border-radius:var(--mantine-radius-sm,4px)',
-        'transition:background 0.1s',
-        'user-select:none',
-    ].join(';');
-    btn.addEventListener('mouseenter',function(){ btn.style.background='rgba(255,255,255,0.06)'; });
-    btn.addEventListener('mouseleave',function(){ btn.style.background='none'; });
+    // Применяем стили по одному — cssText блокируется CSP сайта
+    var s = btn.style;
+    s.setProperty('position','fixed','');
+    s.setProperty('bottom','316px','');
+    s.setProperty('left','0','');
+    s.setProperty('width','280px','');
+    s.setProperty('z-index','150','');
+    s.setProperty('box-sizing','border-box','');
+    s.setProperty('display','flex','');
+    s.setProperty('align-items','center','');
+    s.setProperty('padding','calc(0.5rem * var(--mantine-scale)) var(--mantine-spacing-md)','');
+    s.setProperty('cursor','pointer','');
+    s.setProperty('font-family','var(--mantine-font-family,inherit)','');
+    s.setProperty('font-size','var(--mantine-font-size-sm,14px)','');
+    s.setProperty('font-weight','500','');
+    s.setProperty('color','var(--mantine-color-white,#fff)','');
+    s.setProperty('border-radius','var(--mantine-radius-sm,4px)','');
+    s.setProperty('transition','background 0.1s','');
+    btn.addEventListener('mouseenter',function(){ btn.style.setProperty('background','rgba(255,255,255,0.06)',''); });
+    btn.addEventListener('mouseleave',function(){ btn.style.setProperty('background','none',''); });
 
     var sec = document.createElement('div');
-    sec.style.cssText = 'display:flex;align-items:center;margin-right:calc(0.75rem * var(--mantine-scale));flex-shrink:0;';
+    var ss = sec.style;
+    ss.setProperty('display','flex','');
+    ss.setProperty('align-items','center','');
+    ss.setProperty('margin-right','calc(0.75rem * var(--mantine-scale))','');
+    ss.setProperty('flex-shrink','0','');
+
     var ico = document.createElement('div');
-    ico.style.cssText = 'width:calc(1.875rem * var(--mantine-scale));height:calc(1.875rem * var(--mantine-scale));border-radius:var(--mantine-radius-sm,4px);background:#1565c0;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    var is = ico.style;
+    is.setProperty('width','calc(1.875rem * var(--mantine-scale))','');
+    is.setProperty('height','calc(1.875rem * var(--mantine-scale))','');
+    is.setProperty('border-radius','var(--mantine-radius-sm,4px)','');
+    is.setProperty('background','#1565c0','');
+    is.setProperty('color','#fff','');
+    is.setProperty('display','flex','');
+    is.setProperty('align-items','center','');
+    is.setProperty('justify-content','center','');
+    is.setProperty('flex-shrink','0','');
     ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
 
     var lbl = document.createElement('span');
-    lbl.style.cssText = 'color:var(--mantine-color-white,#fff);font-size:var(--mantine-font-size-sm,14px);font-weight:500;';
+    lbl.style.setProperty('color','var(--mantine-color-white,#fff)','');
+    lbl.style.setProperty('font-size','var(--mantine-font-size-sm,14px)','');
+    lbl.style.setProperty('font-weight','500','');
     lbl.textContent = 'История сеансов';
 
     btn.appendChild(sec); btn.appendChild(lbl);
