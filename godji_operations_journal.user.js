@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.17
+// @version      3.18
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -994,65 +994,44 @@ function getClockSection(){
 
 function createSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
-
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var btnCls = nativeLink ? nativeLink.className
         : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
-
-    var btn=document.createElement('a');
-    btn.id='godji-opj-btn';
-    btn.className=btnCls;
-btn.href='javascript:void(0)';
-
-    var sec=document.createElement('span');
-    sec.className='m_690090b5 mantine-NavLink-section';
+    var btn = document.createElement('a');
+    btn.id = 'godji-opj-btn';
+    btn.className = btnCls;
+    btn.href = 'javascript:void(0)';
+    // position:fixed — под историей сеансов
+    btn.style.cssText = 'position:fixed;bottom:362px;left:0;width:280px;z-index:150;box-sizing:border-box;';
+    var sec = document.createElement('span');
+    sec.className = 'm_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
-    var ico=document.createElement('div');
-    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    var ico = document.createElement('div');
+    ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1a1a2e;--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     sec.appendChild(ico);
-
-    var body=document.createElement('div');
-    body.className='m_f07af9d2 mantine-NavLink-body';
-    var lbl=document.createElement('span');
-    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.textContent='История операций';
-    var badge=document.createElement('span');
-    badge.id='goj-sidebar-badge';
-    badge.style.cssText='margin-left:auto;background:#cc0001;color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;display:none;flex-shrink:0;';
-    body.appendChild(lbl); body.appendChild(badge);
+    var body = document.createElement('div');
+    body.className = 'm_f07af9d2 mantine-NavLink-body';
+    var lbl = document.createElement('span');
+    lbl.className = 'm_1f6ac4c4 mantine-NavLink-label';
+    lbl.textContent = 'История операций';
+    body.appendChild(lbl);
     btn.appendChild(sec); btn.appendChild(body);
-    btn.addEventListener('click',function(e){
+    btn.addEventListener('click', function(e){
         e.stopPropagation();
-        if(_visible){hideModal();btn.removeAttribute('data-active');}
-        else{showModal();btn.setAttribute('data-active','true');}
+        if(_modalOpen){ hideModal(); btn.removeAttribute('data-active'); }
+        else { showModal(); btn.setAttribute('data-active','true'); }
     });
-
-
-
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    var oldB = document.getElementById('godji-opj-btn');
-    if(oldB) oldB.remove();
-    var histBtn = document.getElementById('godji-history-btn');
-    if(histBtn && histBtn.parentNode === inner) {
-        inner.insertBefore(btn, histBtn);
-    } else {
-        inner.appendChild(btn);
-    }
+    document.body.appendChild(btn);
     updateBadge();
 }
 
 function tryCreateSidebarBtn(){
     if(document.getElementById('godji-opj-btn')) return;
-    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateSidebarBtn,400); return; }
-    if(!getClockSection()){ setTimeout(tryCreateSidebarBtn,500); return; }
+    if(!document.querySelector('nav.mantine-AppShell-navbar')){ setTimeout(tryCreateSidebarBtn,500); return; }
     createSidebarBtn();
 }
 
@@ -1069,24 +1048,6 @@ if(document.body){
     setTimeout(tryCreateSidebarBtn,1200);
     setTimeout(tryCreateSidebarBtn,2500);
     setTimeout(tryCreateSidebarBtn,5000);
-// MutationObserver на linksInner — держит кнопку на месте (subtree:false = не краш)
-(function(){
-    var _innerObs = null;
-    function attachInnerObs(){
-        var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-        if(!inner || _innerObs) return;
-        _innerObs = new MutationObserver(function(){
-            var btn = document.getElementById('godji-opj-btn');
-            var inn = document.querySelector('.Sidebar_linksInner__oTy_4');
-            if(!btn || !inn) return;
-            if(btn.parentNode !== inn) { inn.appendChild(btn); return; }
-            var hist = document.getElementById('godji-history-btn'); if(hist && hist.parentNode===inn && Array.from(inn.children).indexOf(btn) > Array.from(inn.children).indexOf(hist)) inn.insertBefore(btn,hist);
-        });
-        _innerObs.observe(inner, {childList:true, subtree:false});
-    }
-    setTimeout(attachInnerObs, 2000);
-    setTimeout(attachInnerObs, 4000);
-})();
     setTimeout(watchCashboxCloseBtn,2000);
 } else {
     document.addEventListener('DOMContentLoaded',function(){
