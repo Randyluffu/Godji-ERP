@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.9
+// @version      5.10
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -423,30 +423,25 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    var clockSec = getClockSection();
-    if(!clockSec) return;
-    var navbar = clockSec.parentNode;
-
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     var btnCls = nativeLink ? nativeLink.className
         : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
-
     var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
     btn.className = btnCls;
-btn.href = 'javascript:void(0)';
-
+    btn.href = 'javascript:void(0)';
+    // position:fixed — как кнопки поиска и просмотра экрана
+    btn.style.cssText = 'position:fixed;bottom:316px;left:0;width:280px;z-index:150;box-sizing:border-box;';
     var sec = document.createElement('span');
     sec.className = 'm_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
     var ico = document.createElement('div');
     ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1565c0;--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
     ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
-
     var body = document.createElement('div');
     body.className = 'm_f07af9d2 mantine-NavLink-body';
     var lbl = document.createElement('span');
@@ -459,37 +454,16 @@ btn.href = 'javascript:void(0)';
         if(modalVisible){ hideModal(); btn.removeAttribute('data-active'); }
         else { showModal(); btn.setAttribute('data-active','true'); }
     });
-
-    // Оборачиваем в div с нужным padding чтобы совпадало с оригинальными кнопками
-    // Вставляем прямо в Sidebar_links__o1FyV — родительскую секцию linksInner
-    // Это даёт те же отступы что у нативных кнопок
-
-
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner) return;
-    var oldB = document.getElementById('godji-history-btn');
-    if(oldB) oldB.remove();
-    inner.appendChild(btn);
+    document.body.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
 setInterval(scan,2000);
 
 function tryCreateHistBtn(){
-    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
-    if(!inner){ setTimeout(tryCreateHistBtn,400); return; }
-    if(document.getElementById('godji-history-btn-wrap')) return;
-    if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryCreateHistBtn,400); return; }
-    if(!getClockSection()){ setTimeout(tryCreateHistBtn,400); return; }
+    if(document.getElementById('godji-history-btn')) return;
+    if(!document.querySelector('nav.mantine-AppShell-navbar')){ setTimeout(tryCreateHistBtn,500); return; }
     createSidebarButton();
-    // Через 1с проверяем позицию — если React переставил, возвращаем в конец
-    setTimeout(function(){
-        var btn = document.getElementById('godji-history-btn-wrap');
-        var innerNow = document.querySelector('.Sidebar_linksInner__oTy_4');
-        if(btn && innerNow && btn.parentNode === innerNow && innerNow.lastElementChild !== btn){
-            innerNow.appendChild(btn);
-        }
-    }, 1000);
 }
 
 setTimeout(tryCreateHistBtn,1500);
