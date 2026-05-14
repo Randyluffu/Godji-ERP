@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.9
+// @version      3.10
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -36,8 +36,8 @@ var PC_POS = {
     '14':{x:1048,y:170},'15':{x:1105,y:169},'16':{x:1146,y:266},'17':{x:1084,y:265},
     '18':{x:1142,y:588},'19':{x:1202,y:588},'20':{x:1181,y:680},
     '21':{x:1118,y:680},'22':{x:1057,y:680},'23':{x:1046,y:741},'24':{x:1116,y:741},
-    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1004,y:892},
-    '28':{x:1004,y:835},'29':{x:951,y:807},'30':{x:884,y:794},
+    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1060,y:930},
+    '28':{x:951,y:870},'29':{x:951,y:807},'30':{x:884,y:794},
     '31':{x:884,y:851},'32':{x:885,y:912},'33':{x:795,y:964},
     '34':{x:793,y:895},'35':{x:794,y:835},'36':{x:728,y:836},
     '37':{x:728,y:896},'38':{x:728,y:963},'39':{x:608,y:882},
@@ -271,39 +271,37 @@ function showVncMenu(name, cell){
         'position:fixed',
         'left:'+(cr.right+4)+'px',
         'top:'+cr.top+'px',
-        'background:#f8f9fa',
-        'border:1px solid rgba(255,255,255,0.1)',
+        'background:#ffffff',
+        'border:1px solid rgba(0,0,0,0.12)',
         'border-radius:8px',
-        'box-shadow:0 4px 24px rgba(0,0,0,0.6)',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.15)',
         'z-index:9999','overflow:hidden','min-width:210px',
         'font-family:var(--mantine-font-family,inherit)',
     ].join(';');
 
-    // Заголовок в стиле ERP
     var ttl=document.createElement('div');
-    ttl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 14px 8px;border-bottom:1px solid rgba(255,255,255,0.07);';
-    ttl.innerHTML='<div style="width:22px;height:22px;background:var(--mantine-color-gg_primary-filled,#cc0001);border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
+    ttl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 14px 8px;border-bottom:1px solid rgba(0,0,0,0.08);';
+    ttl.innerHTML='<div style="width:22px;height:22px;background:#cc0001;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
         +'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>'
-        +'<span style="font-size:12px;font-weight:700;color:var(--mantine-color-white,#e8eaf0);">ПК '+name+'</span>';
+        +'<span style="font-size:12px;font-weight:700;color:#1a1a2e;">ПК '+name+'</span>';
     menu.appendChild(ttl);
 
-    function mkItem(label,ico,cb){
+    function mkBtn(label,ico,cb){
         var b=document.createElement('button');
         b.style.cssText='display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;background:none;border:none;'
-            +'color:var(--mantine-color-white,#e8eaf0);font-size:13px;cursor:pointer;text-align:left;transition:background 0.1s;font-family:inherit;';
-        b.innerHTML='<span style="opacity:0.6;display:flex;">'+ico+'</span><span>'+label+'</span>';
-        b.onmouseenter=function(){ b.style.background='rgba(255,255,255,0.06)'; };
+            +'color:#1a1a2e;font-size:13px;cursor:pointer;text-align:left;transition:background 0.1s;font-family:inherit;';
+        b.innerHTML='<span style="opacity:0.5;display:flex;color:#1a1a2e;">'+ico+'</span><span style="color:#1a1a2e;">'+label+'</span>';
+        b.onmouseenter=function(){ b.style.background='rgba(0,0,0,0.05)'; };
         b.onmouseleave=function(){ b.style.background='none'; };
         b.onclick=function(e){ e.stopPropagation(); menu.remove(); cb(); };
         return b;
     }
     var eyeIco='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
     var ctrlIco='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
-    menu.appendChild(mkItem('Только просмотр',eyeIco,function(){ connectPC(name,true); }));
-    menu.appendChild(mkItem('Просмотр с управлением',ctrlIco,function(){ connectPC(name,false); }));
+    menu.appendChild(mkBtn('Только просмотр',eyeIco,function(){ connectPC(name,true); }));
+    menu.appendChild(mkBtn('Просмотр с управлением',ctrlIco,function(){ connectPC(name,false); }));
 
     document.body.appendChild(menu);
-    // Не выходит за правый край
     var mr=menu.getBoundingClientRect();
     if(mr.right>window.innerWidth-10) menu.style.left=(cr.left-mr.width-4)+'px';
     if(mr.bottom>window.innerHeight-10) menu.style.top=(window.innerHeight-mr.height-10)+'px';
