@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -113,7 +113,7 @@ function openPopup(anchor){
 
     var statusDot = document.createElement('span');
     statusDot.id = 'gj-vnc-status-dot';
-    statusDot.style.cssText = 'font-size:11px;color:rgba(255,255,255,.5);';
+    statusDot.style.cssText = 'font-size:11px;color:rgba(255,255,255,.6);font-weight:500;';
     statusDot.textContent = '●  проверка…';
 
     var closeBtn = document.createElement('button');
@@ -132,7 +132,7 @@ function openPopup(anchor){
 
     // Легенда
     var legend = document.createElement('div');
-    legend.style.cssText = 'color:#fff;display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(255,255,255,.06);font-size:10px;color:rgba(255,255,255,.35);flex-shrink:0;';
+    legend.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(255,255,255,.1);font-size:11px;color:rgba(255,255,255,.7);flex-shrink:0;';
     legend.innerHTML = '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(204,0,1,.35);border:1px solid rgba(204,0,1,.6);display:inline-block;"></span>Доступен</span>'
         + '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);display:inline-block;"></span>Нет в конфиге</span>';
     popup.appendChild(legend);
@@ -188,6 +188,7 @@ function loadPCData(mapWrap, statusDot){
 function renderMap(mapWrap, data){
     mapWrap.innerHTML='';
     mapWrap.style.cssText='position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:hidden;';
+    // Фон карты
     var bgScaleX=(POPUP_W/CROP_W)*(LAYER_W/MAP_ORIG_W);
     var bgScaleY=(POPUP_H/CROP_H)*(LAYER_H/MAP_ORIG_H);
     var bgW=Math.round(MAP_ORIG_W*bgScaleX);
@@ -200,7 +201,8 @@ function renderMap(mapWrap, data){
     img.src=MAP_IMG;
     img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
     bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
-    var CARD=28;
+
+    var CARD=32;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
         var cx=pos.x+CARD_ORIG/2, cy=pos.y+CARD_ORIG/2;
@@ -210,25 +212,31 @@ function renderMap(mapWrap, data){
         var avail=!!pc;
         var cell=document.createElement('button');
         cell.title='ПК '+name;
-        cell.style.cssText=['position:absolute','left:'+px+'px','top:'+py+'px',
-            'width:'+CARD+'px','height:'+CARD+'px','border-radius:5px',
-            'border:2px solid '+(avail?'#cc0001':'rgba(100,100,140,0.4)'),
-            'background:'+(avail?'rgba(204,0,0,0.88)':'rgba(185,190,210,0.5)'),
-            'color:#fff','font-size:8px','font-weight:800',
+        // Занятые — красные, свободные — зелёные
+        var bg = avail ? 'linear-gradient(135deg,#c00 0%,#e53935 100%)' : 'linear-gradient(135deg,#1b5e20 0%,#43a047 100%)';
+        var bdr = avail ? '#b71c1c' : '#2e7d32';
+        cell.style.cssText=[
+            'position:absolute',
+            'left:'+px+'px','top:'+py+'px',
+            'width:'+CARD+'px','height:'+CARD+'px',
+            'border-radius:7px',
+            'border:2px solid '+bdr,
+            'background:'+bg,
+            'color:#fff',
+            'font-size:8px','font-weight:800',
             'cursor:'+(avail?'pointer':'default'),
             'display:flex','flex-direction:column','align-items:center','justify-content:center',
             'gap:2px','font-family:inherit','padding:0','line-height:1',
-            'transition:transform .1s','z-index:2',
-            'text-shadow:0 1px 3px rgba(0,0,0,0.9)',
-            'box-shadow:0 1px 4px rgba(0,0,0,0.3)',
+            'transition:transform .12s,box-shadow .12s','z-index:2',
+            'text-shadow:0 1px 3px rgba(0,0,0,0.7)',
+            'box-shadow:0 2px 6px rgba(0,0,0,0.35)',
         ].join(';');
-        var lbl=document.createElement('span'); lbl.textContent=name; cell.appendChild(lbl);
+        var lbl=document.createElement('span');
+        lbl.style.cssText='color:#fff;font-size:8px;font-weight:800;line-height:1;pointer-events:none;';
+        lbl.textContent=name; cell.appendChild(lbl);
         if(avail){
-            var dot=document.createElement('span');
-            dot.style.cssText='width:3px;height:3px;border-radius:50%;background:#fff;opacity:0.9;';
-            cell.appendChild(dot);
-            cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.2)'; cell.style.zIndex='10'; });
-            cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.zIndex='2'; });
+            cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.18)'; cell.style.boxShadow='0 4px 12px rgba(0,0,0,0.5)'; cell.style.zIndex='10'; });
+            cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.boxShadow='0 2px 6px rgba(0,0,0,0.35)'; cell.style.zIndex='2'; });
             cell.addEventListener('click',function(e){ e.stopPropagation(); showVncMenu(name,cell); });
         }
         mapWrap.appendChild(cell);
