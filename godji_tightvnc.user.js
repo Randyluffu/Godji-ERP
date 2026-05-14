@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.8
+// @version      3.9
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -36,8 +36,8 @@ var PC_POS = {
     '14':{x:1048,y:170},'15':{x:1105,y:169},'16':{x:1146,y:266},'17':{x:1084,y:265},
     '18':{x:1142,y:588},'19':{x:1202,y:588},'20':{x:1181,y:680},
     '21':{x:1118,y:680},'22':{x:1057,y:680},'23':{x:1046,y:741},'24':{x:1116,y:741},
-    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1004,y:875},
-    '28':{x:951,y:835},'29':{x:950,y:807},'30':{x:884,y:794},
+    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1004,y:892},
+    '28':{x:1004,y:835},'29':{x:951,y:807},'30':{x:884,y:794},
     '31':{x:884,y:851},'32':{x:885,y:912},'33':{x:795,y:964},
     '34':{x:793,y:895},'35':{x:794,y:835},'36':{x:728,y:836},
     '37':{x:728,y:896},'38':{x:728,y:963},'39':{x:608,y:882},
@@ -86,7 +86,7 @@ function openPopup(anchor){
         'position:fixed','left:284px','top:60px',
         'width:'+POPUP_W+'px','max-height:calc(100vh - 70px)',
         'z-index:299',
-        'background:#1a1b2e',
+        'background:#f8f9fa',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:0 8px 8px 0',
         'box-shadow:4px 0 32px rgba(0,0,0,.7)',
@@ -99,7 +99,7 @@ function openPopup(anchor){
 
     // Шапка
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;color:#fff;';
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid rgba(0,0,0,0.08);flex-shrink:0;color:#1a1a2e;background:#f8f9fa;';
 
     var hdrL = document.createElement('div');
     hdrL.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -113,7 +113,7 @@ function openPopup(anchor){
 
     var statusDot = document.createElement('span');
     statusDot.id = 'gj-vnc-status-dot';
-    statusDot.style.cssText = 'font-size:11px;color:rgba(255,255,255,.6);font-weight:500;';
+    statusDot.style.cssText = 'font-size:11px;color:rgba(0,0,0,.5);font-weight:500;';
     statusDot.textContent = '●  проверка…';
 
     var closeBtn = document.createElement('button');
@@ -132,7 +132,7 @@ function openPopup(anchor){
 
     // Легенда
     var legend = document.createElement('div');
-    legend.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(255,255,255,.1);font-size:11px;color:rgba(255,255,255,.7);flex-shrink:0;';
+    legend.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:rgba(0,0,0,.6);flex-shrink:0;background:#f8f9fa;';
     legend.innerHTML = '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(204,0,1,.35);border:1px solid rgba(204,0,1,.6);display:inline-block;"></span>Доступен</span>'
         + '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);display:inline-block;"></span>Нет в конфиге</span>';
     popup.appendChild(legend);
@@ -271,7 +271,7 @@ function showVncMenu(name, cell){
         'position:fixed',
         'left:'+(cr.right+4)+'px',
         'top:'+cr.top+'px',
-        'background:#1a1b2e',
+        'background:#f8f9fa',
         'border:1px solid rgba(255,255,255,0.1)',
         'border-radius:8px',
         'box-shadow:0 4px 24px rgba(0,0,0,0.6)',
