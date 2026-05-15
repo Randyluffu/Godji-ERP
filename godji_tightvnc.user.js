@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.12
+// @version      3.14
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -380,8 +380,10 @@ new MutationObserver(function(muts){
     var btn = document.getElementById('gj-vnc-sidebar-btn');
     if(btn){
         var nav = document.querySelector('nav.mantine-AppShell-navbar');
-        var visible = nav && nav.offsetParent !== null && nav.offsetWidth > 0;
-        btn.style.display = visible ? '' : 'none';
+        // offsetParent=null у position:fixed — не признак скрытости, проверяем display
+        var hidden = !nav || window.getComputedStyle(nav).display === 'none';
+        if(hidden) btn.style.display = 'none';
+        else if(btn.style.display === 'none') btn.style.display = '';
     }
 }).observe(document.body || document.documentElement, {childList:true, subtree:false});
 
