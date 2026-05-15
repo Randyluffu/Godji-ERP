@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.11
+// @version      3.12
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -343,7 +343,14 @@ function createSidebarBtn(){
     btn.addEventListener('click', function(e){ e.stopPropagation(); togglePopup(btn); });
 
     // Кнопка fixed прямо под "Поиск клиента" (godji-search-btn bottom:456px, высота ~46px)
-    btn.style.cssText = 'position:fixed;bottom:408px;left:0;width:280px;z-index:150;box-sizing:border-box;';
+    // setProperty — обход CSP который блокирует style.cssText
+    var s=btn.style;
+    s.setProperty('position','fixed');
+    s.setProperty('bottom','408px');
+    s.setProperty('left','0');
+    s.setProperty('width','280px');
+    s.setProperty('z-index','150');
+    s.setProperty('box-sizing','border-box');
     document.body.appendChild(btn);
 }
 
