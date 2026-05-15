@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.15
+// @version      5.16
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -453,18 +453,15 @@ function createSidebarButton(){
     });
     inner.appendChild(btn);
     // Разделитель после кнопок историй — в стиле ERP
-    var spacer = document.getElementById('godji-history-spacer');
-    if(!spacer){
-        spacer = document.createElement('div');
-        spacer.id = 'godji-history-spacer';
-        spacer.style.cssText = 'height:calc(1.5rem * var(--mantine-scale));';
-        inner.appendChild(spacer);
+    var dividerEl = document.getElementById('godji-history-divider');
+    if(!dividerEl){
         var divider = document.createElement('div');
         divider.id = 'godji-history-divider';
         divider.className = 'm_3eebeb36 mantine-Divider-root';
         divider.setAttribute('data-orientation','horizontal');
         divider.setAttribute('role','separator');
-        divider.style.cssText = 'margin-block:var(--mantine-spacing-sm);';
+        // margin равный с обеих сторон — полоска ровно посередине
+        divider.style.cssText = 'margin-top:var(--mantine-spacing-sm);margin-bottom:var(--mantine-spacing-sm);';
         inner.appendChild(divider);
     }
 }
