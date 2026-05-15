@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.10
+// @version      3.11
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -36,7 +36,7 @@ var PC_POS = {
     '14':{x:1048,y:170},'15':{x:1105,y:169},'16':{x:1146,y:266},'17':{x:1084,y:265},
     '18':{x:1142,y:588},'19':{x:1202,y:588},'20':{x:1181,y:680},
     '21':{x:1118,y:680},'22':{x:1057,y:680},'23':{x:1046,y:741},'24':{x:1116,y:741},
-    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1060,y:930},
+    '25':{x:1116,y:848},'26':{x:1065,y:892},'27':{x:1008,y:860},
     '28':{x:951,y:870},'29':{x:951,y:807},'30':{x:884,y:794},
     '31':{x:884,y:851},'32':{x:885,y:912},'33':{x:795,y:964},
     '34':{x:793,y:895},'35':{x:794,y:835},'36':{x:728,y:836},
@@ -113,11 +113,11 @@ function openPopup(anchor){
 
     var statusDot = document.createElement('span');
     statusDot.id = 'gj-vnc-status-dot';
-    statusDot.style.cssText = 'font-size:11px;color:rgba(0,0,0,.5);font-weight:500;';
+    statusDot.style.cssText = 'font-size:11px;color:rgba(0,0,0,0.5);font-weight:500;';
     statusDot.textContent = '●  проверка…';
 
     var closeBtn = document.createElement('button');
-    closeBtn.style.cssText = 'background:none;border:none;color:rgba(255,255,255,.35);cursor:pointer;font-size:18px;line-height:1;padding:0;';
+    closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:4px;color:#1a1a2e;opacity:0.6;font-size:18px;line-height:1;';
     closeBtn.textContent = '×';
     closeBtn.onclick = closePopup;
 
@@ -130,13 +130,7 @@ function openPopup(anchor){
     mapWrap.id = 'gj-vnc-map';
     popup.appendChild(mapWrap);
 
-    // Легенда
-    var legend = document.createElement('div');
-    legend.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:rgba(0,0,0,.6);flex-shrink:0;background:#f8f9fa;';
-    legend.innerHTML = '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(204,0,1,.35);border:1px solid rgba(204,0,1,.6);display:inline-block;"></span>Доступен</span>'
-        + '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);display:inline-block;"></span>Нет в конфиге</span>';
-    popup.appendChild(legend);
-
+    
     document.body.appendChild(popup);
 
 
@@ -365,6 +359,8 @@ function updateSidebarBtn(open){
 
 // ── Init — только body observer, никакого observer на linksInner ──
 function tryInit(){
+    // Не показываем кнопку если нет сайдбара (например в поиске клиента)
+    if(!document.querySelector('nav.mantine-AppShell-navbar')){ setTimeout(tryInit,500); return; }
     if(!document.querySelector('.Sidebar_linksInner__oTy_4')){ setTimeout(tryInit,500); return; }
     createSidebarBtn();
 }
@@ -373,6 +369,13 @@ new MutationObserver(function(muts){
     muts.forEach(function(m){
         if(m.addedNodes.length && !document.getElementById('gj-vnc-sidebar-btn')) tryInit();
     });
+    // Скрываем кнопку если сайдбар не виден (страницы без navbar — поиск клиента и т.п.)
+    var btn = document.getElementById('gj-vnc-sidebar-btn');
+    if(btn){
+        var nav = document.querySelector('nav.mantine-AppShell-navbar');
+        var visible = nav && nav.offsetParent !== null && nav.offsetWidth > 0;
+        btn.style.display = visible ? '' : 'none';
+    }
 }).observe(document.body || document.documentElement, {childList:true, subtree:false});
 
 setTimeout(tryInit, 1000);
