@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @include      https://godji.cloud/clients/*
@@ -336,8 +336,8 @@
         function repositionNote() {
             var r = h2.getBoundingClientRect();
             if (r.width === 0 && r.height === 0) return;
-            noteBlock.style.top = Math.round(r.top + (r.height - 28) / 2) + 'px';
-            noteBlock.style.left = Math.round(r.left) + 'px';
+            noteBlock.style.top = Math.round(r.top + (r.height - 40) / 2) + 'px';
+            noteBlock.style.left = Math.round(r.left+200) + 'px';
         }
         repositionNote();
 
