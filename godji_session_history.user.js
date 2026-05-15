@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.12
+// @version      5.14
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -423,62 +423,35 @@ function getClockSection(){
 
 function createSidebarButton(){
     if(document.getElementById('godji-history-btn')) return;
-    var btn = document.createElement('div');
+    var inner = document.querySelector('.Sidebar_linksInner__oTy_4');
+    if(!inner) return;
+    var nativeLink = document.querySelector('a[href="/bookings"]') || document.querySelector('a.mantine-NavLink-root');
+    var btnCls = nativeLink ? nativeLink.className : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    var btn = document.createElement('a');
     btn.id = 'godji-history-btn';
-    // Применяем стили по одному — cssText блокируется CSP сайта
-    var s = btn.style;
-    s.setProperty('position','fixed','');
-    s.setProperty('bottom','316px','');
-    s.setProperty('left','0','');
-    s.setProperty('width','280px','');
-    s.setProperty('z-index','150','');
-    s.setProperty('box-sizing','border-box','');
-    s.setProperty('display','flex','');
-    s.setProperty('align-items','center','');
-    s.setProperty('padding','calc(0.5rem * var(--mantine-scale)) var(--mantine-spacing-md)','');
-    s.setProperty('cursor','pointer','');
-    s.setProperty('font-family','var(--mantine-font-family,inherit)','');
-    s.setProperty('font-size','var(--mantine-font-size-sm,14px)','');
-    s.setProperty('font-weight','500','');
-    s.setProperty('color','var(--mantine-color-white,#fff)','');
-    s.setProperty('border-radius','var(--mantine-radius-sm,4px)','');
-    s.setProperty('transition','background 0.1s','');
-    btn.addEventListener('mouseenter',function(){ btn.style.setProperty('background','rgba(255,255,255,0.06)',''); });
-    btn.addEventListener('mouseleave',function(){ btn.style.setProperty('background','none',''); });
-
-    var sec = document.createElement('div');
-    var ss = sec.style;
-    ss.setProperty('display','flex','');
-    ss.setProperty('align-items','center','');
-    ss.setProperty('margin-right','calc(0.75rem * var(--mantine-scale))','');
-    ss.setProperty('flex-shrink','0','');
-
+    btn.className = btnCls;
+    btn.href = 'javascript:void(0)';
+    var sec = document.createElement('span');
+    sec.className = 'm_690090b5 mantine-NavLink-section';
+    sec.setAttribute('data-position','left');
     var ico = document.createElement('div');
-    var is = ico.style;
-    is.setProperty('width','calc(1.875rem * var(--mantine-scale))','');
-    is.setProperty('height','calc(1.875rem * var(--mantine-scale))','');
-    is.setProperty('border-radius','var(--mantine-radius-sm,4px)','');
-    is.setProperty('background','#1565c0','');
-    is.setProperty('color','#fff','');
-    is.setProperty('display','flex','');
-    is.setProperty('align-items','center','');
-    is.setProperty('justify-content','center','');
-    is.setProperty('flex-shrink','0','');
-    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+    ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1565c0;--ti-color:#fff;--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
-
+    var body2 = document.createElement('div');
+    body2.className = 'm_f07af9d2 mantine-NavLink-body';
     var lbl = document.createElement('span');
-    lbl.style.setProperty('color','var(--mantine-color-white,#fff)','');
-    lbl.style.setProperty('font-size','var(--mantine-font-size-sm,14px)','');
-    lbl.style.setProperty('font-weight','500','');
+    lbl.className = 'm_1f6ac4c4 mantine-NavLink-label';
     lbl.textContent = 'История сеансов';
-
-    btn.appendChild(sec); btn.appendChild(lbl);
+    body2.appendChild(lbl);
+    btn.appendChild(sec); btn.appendChild(body2);
     btn.addEventListener('click', function(e){
         e.stopPropagation();
         if(modalVisible){ hideModal(); btn.removeAttribute('data-active'); } else { showModal(); btn.setAttribute('data-active','true'); }
     });
-    document.body.appendChild(btn);
+    inner.appendChild(btn);
 }
 
 setTimeout(tryInit,5000);
