@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История сеансов
 // @namespace    http://tampermonkey.net/
-// @version      5.14
+// @version      5.15
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_history.user.js
@@ -437,7 +437,7 @@ function createSidebarButton(){
     var ico = document.createElement('div');
     ico.className = 'LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
     ico.setAttribute('data-variant','filled');
-    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:#1565c0;--ti-color:#fff;--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.style.cssText = '--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled,#cc0001);--ti-color:#fff;--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
     ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
     sec.appendChild(ico);
     var body2 = document.createElement('div');
@@ -452,6 +452,21 @@ function createSidebarButton(){
         if(modalVisible){ hideModal(); btn.removeAttribute('data-active'); } else { showModal(); btn.setAttribute('data-active','true'); }
     });
     inner.appendChild(btn);
+    // Разделитель после кнопок историй — в стиле ERP
+    var spacer = document.getElementById('godji-history-spacer');
+    if(!spacer){
+        spacer = document.createElement('div');
+        spacer.id = 'godji-history-spacer';
+        spacer.style.cssText = 'height:calc(1.5rem * var(--mantine-scale));';
+        inner.appendChild(spacer);
+        var divider = document.createElement('div');
+        divider.id = 'godji-history-divider';
+        divider.className = 'm_3eebeb36 mantine-Divider-root';
+        divider.setAttribute('data-orientation','horizontal');
+        divider.setAttribute('role','separator');
+        divider.style.cssText = 'margin-block:var(--mantine-spacing-sm);';
+        inner.appendChild(divider);
+    }
 }
 
 setTimeout(tryInit,5000);
