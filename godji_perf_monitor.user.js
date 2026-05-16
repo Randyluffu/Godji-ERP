@@ -1,21 +1,23 @@
 // ==UserScript==
 // @name         Godji — Монитор производительности
 // @namespace    godji-erp
-// @version      5.2
+// @version      5.3
 // @description  Мониторинг ресурсоёмкости Tampermonkey-скриптов ERP
 // @match        https://godji.cloud/*
-// @grant        none
+// @grant        unsafeWindow
 // @run-at       document-start
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  // ─── Глобальный реестр — другие скрипты регистрируются здесь ─────────────
-  // Каждый скрипт при старте вызывает: window.__gjPerfRegister('Имя скрипта')
-  // Монитор создаёт этот реестр первым (document-start), остальные скрипты
-  // подхватывают его. Без регистрации — используем перехват стека.
-  window.__gjPerfRegistry = window.__gjPerfRegistry || {};
+  // unsafeWindow — реальный window страницы (не sandbox Tampermonkey)
+  // Нужен для записи в localStorage страницы и для window.__gjPerfRegistry
+  const _win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+  const _ls  = _win.localStorage;
+
+  // ─── Глобальный реестр ────────────────────────────────────────────────────
+  _win.__gjPerfRegistry = _win.__gjPerfRegistry || {};
 
   // ─── Известные имена (для авторазрешения из имени файла) ─────────────────
   const KNOWN = [
@@ -587,18 +589,18 @@
           fetch: { calls: s.fetch.calls,  ms:   Math.round(s.fetch.ms) },
         };
       }
-      localStorage.setItem('__gjPerfData',   JSON.stringify(export_data));
-      localStorage.setItem('__gjPerfUptime', String(Math.round(up)));
-      localStorage.setItem('__gjPerfTs',     String(Date.now()));
+      _ls.setItem('__gjPerfData',   JSON.stringify(export_data));
+      _ls.setItem('__gjPerfUptime', String(Math.round(up)));
+      _ls.setItem('__gjPerfTs',     String(Date.now()));
     } catch(e) {}
   }, 1000);
 
   // ─── Чтение throttle-команд от расширения Chrome ─────────────────────────
   _NatSI(()=>{
     try {
-      const raw = localStorage.getItem('__gjPerfCmdPending');
+      const raw = _ls.getItem('__gjPerfCmdPending');
       if (!raw) return;
-      localStorage.removeItem('__gjPerfCmdPending');
+      _ls.removeItem('__gjPerfCmdPending');
       const cmd = JSON.parse(raw);
       if (!cmd || !cmd.ts || Date.now() - cmd.ts > 5000) return;
       if (cmd.action === 'throttle' && cmd.name) {
