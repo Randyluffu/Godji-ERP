@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Монитор производительности
 // @namespace    godji-erp
-// @version      5.0
+// @version      5.2
 // @description  Мониторинг ресурсоёмкости Tampermonkey-скриптов ERP
 // @match        https://godji.cloud/*
 // @grant        none
@@ -554,8 +554,62 @@
   function _upd(id,val,color){ const e=document.getElementById(id); if(!e)return; e.textContent=val; e.style.color=color; }
   function _bar(id,pct,cls){ const e=document.getElementById(id); if(!e)return; e.style.width=Math.min(100,pct)+'%'; e.className='pm-mfill '+cls; }
 
-  // Автообновление
-  _NatSI(()=>{ if(_open)_render(); }, 1000);
+  // Автообновление + экспорт данных для расширения Chrome
+  _NatSI(()=>{
+    if(_open) _render();
+    // Пишем метрики в localStorage под ключом __gjPerfData
+    // localStorage доступен и из Tampermonkey sandbox, и из инжектированного кода расширения
+    try {
+      const up = _uptime();
+      const export_data = {};
+      for(const [name, s] of _db.entries()){
+        const ms  = s.obs.ms + s.ivl.ms;
+        const pct = Math.min(99, Math.round((ms/(up*1000))*100));
+        export_data[name] = {
+          name,
+          totalMs:   Math.round(ms),
+          pct,
+          throttled: s.throttled,
+          obs: {
+            total:        s.obs.items.length,
+            active:       s.obs.items.filter(e=>e.active).length,
+            subtreeCount: s.obs.items.filter(e=>e.active&&e.opts&&e.opts.subtree).length,
+            calls:        s.obs.calls,
+            ms:           Math.round(s.obs.ms),
+          },
+          ivl: {
+            total:  s.ivl.items.length,
+            active: s.ivl.items.filter(e=>e.active).length,
+            calls:  s.ivl.calls,
+            ms:     Math.round(s.ivl.ms),
+          },
+          tmo:   { pending: s.tmo.pending, done: s.tmo.done },
+          fetch: { calls: s.fetch.calls,  ms:   Math.round(s.fetch.ms) },
+        };
+      }
+      localStorage.setItem('__gjPerfData',   JSON.stringify(export_data));
+      localStorage.setItem('__gjPerfUptime', String(Math.round(up)));
+      localStorage.setItem('__gjPerfTs',     String(Date.now()));
+    } catch(e) {}
+  }, 1000);
+
+  // ─── Чтение throttle-команд от расширения Chrome ─────────────────────────
+  _NatSI(()=>{
+    try {
+      const raw = localStorage.getItem('__gjPerfCmdPending');
+      if (!raw) return;
+      localStorage.removeItem('__gjPerfCmdPending');
+      const cmd = JSON.parse(raw);
+      if (!cmd || !cmd.ts || Date.now() - cmd.ts > 5000) return;
+      if (cmd.action === 'throttle' && cmd.name) {
+        _throttle(cmd.name, !!cmd.enable);
+        if (_open) _render();
+      } else if (cmd.action === 'throttle_all') {
+        for (const s of _db.values()) _throttle(s.name, !!cmd.enable);
+        if (_open) _render();
+      }
+    } catch {}
+  }, 500);
 
   // ─── Инит ─────────────────────────────────────────────────────────────────
   const _iObs=new _NatObs(()=>{ if(_buildUI())_iObs.disconnect(); });
