@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Монитор производительности
 // @namespace    godji-erp
-// @version      5.3
+// @version      5.5
 // @description  Мониторинг ресурсоёмкости Tampermonkey-скриптов ERP
 // @match        https://godji.cloud/*
 // @grant        unsafeWindow
@@ -83,16 +83,25 @@
   // ─── Получение имени текущего скрипта ────────────────────────────────────
   // Tampermonkey кладёт имя файла в URL iframe: ...name=XXX&id=YYY
   // Ищем в стеке строку с userscript.html и вытаскиваем name=
+  const _idMap = new Map(); // uuid → имя скрипта
+
   function _detectName() {
     try {
       const st = new Error().stack || '';
-      // Вариант 1: name=XXX в URL
+      // Вариант 1: name=XXX в URL Tampermonkey (декодируем)
       let m = st.match(/[?&]name=([^&\s\n#]+)/);
       if (m) return _resolveName(m[1]);
-      // Вариант 2: просто "userscript" в стеке
+      // Вариант 2: id=XXX — уникальный UUID скрипта, используем как ключ
+      let m2 = st.match(/id=([0-9a-f-]{30,})/i);
+      if (m2) {
+        const id = m2[1];
+        if (!_idMap.has(id)) _idMap.set(id, 'Скрипт ' + (_idMap.size + 1));
+        return _idMap.get(id);
+      }
+      // Вариант 3: просто userscript без имени
       if (st.includes('userscript')) return 'Неизвестный скрипт';
     } catch {}
-    return null; // не скрипт — страница ERP
+    return null;
   }
 
   // ─── Хранилище метрик ────────────────────────────────────────────────────
@@ -113,8 +122,8 @@
   }
 
   // ─── Перехват MutationObserver ────────────────────────────────────────────
-  const _NatObs = window.MutationObserver;
-  window.MutationObserver = function(cb) {
+  const _NatObs = _win.MutationObserver;
+  _win.MutationObserver = function(cb) {
     const sn = _detectName();
     let ent = null;
     const wrapped = function(mut, obs) {
@@ -141,9 +150,9 @@
   };
 
   // ─── Перехват setInterval ─────────────────────────────────────────────────
-  const _NatSI = window.setInterval;
-  const _NatCI = window.clearInterval;
-  window.setInterval = function(fn, ms, ...args) {
+  const _NatSI = _win.setInterval;
+  const _NatCI = _win.clearInterval;
+  _win.setInterval = function(fn, ms, ...args) {
     const sn = _detectName();
     let ent = null;
     const w = typeof fn !== 'function' ? fn : function() {
@@ -161,7 +170,7 @@
     }
     return nid;
   };
-  window.clearInterval = function(nid) {
+  _win.clearInterval = function(nid) {
     for (const s of _db.values()) {
       const e = s.ivl.items.find(i=>i.nid===nid);
       if (e) { e.active=false; break; }
@@ -170,9 +179,9 @@
   };
 
   // ─── Перехват setTimeout ──────────────────────────────────────────────────
-  const _NatST = window.setTimeout;
-  const _NatCT = window.clearTimeout;
-  window.setTimeout = function(fn, ms, ...args) {
+  const _NatST = _win.setTimeout;
+  const _NatCT = _win.clearTimeout;
+  _win.setTimeout = function(fn, ms, ...args) {
     const sn = _detectName();
     if (sn) {
       const s = _db_get(sn);
@@ -185,11 +194,11 @@
     }
     return _NatST(fn, ms, ...args);
   };
-  window.clearTimeout = function(id) { return _NatCT(id); };
+  _win.clearTimeout = function(id) { return _NatCT(id); };
 
   // ─── Перехват fetch ───────────────────────────────────────────────────────
-  const _NatFetch = window.fetch;
-  window.fetch = async function(...args) {
+  const _NatFetch = _win.fetch;
+  _win.fetch = async function(...args) {
     const sn = _detectName();
     const t = performance.now();
     const r = await _NatFetch(...args);
@@ -199,7 +208,7 @@
   };
 
   // ─── Регистрация скрипта вручную (вызывается из других скриптов) ─────────
-  window.__gjPerfRegister = function(name) {
+  _win.__gjPerfRegister = function(name) {
     _db_get(name); // просто создаёт запись
   };
 
