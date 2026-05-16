@@ -107,15 +107,30 @@ class Handler(BaseHTTPRequestHandler):
 
             view_only = params.get('view') == '1'
             try:
+                # Для view-only создаём временный .vnc файл с ViewOnly=1
+                # TightVNC 2.x Windows не поддерживает -viewonly через CLI,
+                # но принимает конфиг-файл с настройками
+                import tempfile, os
                 if view_only:
-                    # Просмотр без управления — открываем встроенный веб-клиент TightVNC Server
-                    # TightVNC Server слушает HTTP на порту 5800
-                    import webbrowser
-                    _http_port = HTTP_PORT if 'HTTP_PORT' in dir() else 5800
-                    url = f'http://{ip}:{_http_port}'
-                    webbrowser.open(url)
-                    print(f'[TightVNC] ПК {pc} ({ip}) — просмотр (браузер {url})')
-                    self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': True, 'url': url})
+                    cfg = (
+                        f'host={ip}\n'
+                        f'port={VNC_PORT}\n'
+                        'ViewOnly=1\n'
+                        'FullScreen=0\n'
+                    )
+                    if VNC_PASSWORD:
+                        cfg += f'Password={VNC_PASSWORD}\n'
+                    tmp = tempfile.NamedTemporaryFile(
+                        mode='w', suffix='.vnc', delete=False, encoding='utf-8'
+                    )
+                    tmp.write(cfg); tmp.close()
+                    cmd = [TVNVIEWER_PATH, tmp.name]
+                    subprocess.Popen(cmd, shell=False)
+                    # Удаляем файл через 5 сек после запуска
+                    import threading
+                    threading.Timer(5.0, lambda: os.unlink(tmp.name) if os.path.exists(tmp.name) else None).start()
+                    print(f'[TightVNC] ПК {pc} ({ip}) — просмотр (ViewOnly)')
+                    self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': True})
                 else:
                     cmd = [TVNVIEWER_PATH, ip + ':' + str(VNC_PORT)]
                     if VNC_PASSWORD:
