@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.23
+// @version      3.24
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -467,7 +467,7 @@ function initLastId(){
 
         // Запускаем polling операций и проверку событий сеансов
         setInterval(fetchNewOps, POLL_MS);
-        setInterval(checkSessionEvents, 2500); // чуть чаще чем scan() в session_history
+        setInterval(checkSessionEvents, 5000); // чуть чаще чем scan() в session_history
     }).catch(function(){
         setTimeout(initLastId,3000);
     });
