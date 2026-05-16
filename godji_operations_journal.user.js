@@ -1020,7 +1020,7 @@ function createSidebarBtn(){
     btn.appendChild(sec); btn.appendChild(body2);
     btn.addEventListener('click', function(e){
         e.stopPropagation();
-        if(_modalOpen){ hideModal(); btn.removeAttribute('data-active'); } else { showModal(); btn.setAttribute('data-active','true'); }
+        if(_visible){ hideModal(); btn.removeAttribute('data-active'); } else { showModal(); btn.setAttribute('data-active','true'); }
     });
     inner.appendChild(btn);
     updateBadge();
@@ -1046,12 +1046,6 @@ if(document.body){
     setTimeout(tryCreateSidebarBtn,2500);
     setTimeout(tryCreateSidebarBtn,5000);
     setTimeout(watchCashboxCloseBtn,2000);
-} else {
-    document.addEventListener('DOMContentLoaded',function(){
-        _obs.observe(document.body,{childList:true,subtree:false});
-        setTimeout(tryCreateSidebarBtn,1200);
-        setTimeout(watchCashboxCloseBtn,2000);
-    });
 }
 
 setInterval(updateBadge,10000);
