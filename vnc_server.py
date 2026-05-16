@@ -57,6 +57,7 @@ PC_LIST = {
 
 TVNVIEWER_PATH = r"C:\Program Files\TightVNC\tvnviewer.exe"
 VNC_PORT       = 5900
+HTTP_PORT      = 5800  # TightVNC Server встроенный веб-клиент (view-only)
 VNC_PASSWORD   = ""       # пустой — без пароля
 SERVER_PORT    = 6080
 # ==============================
@@ -106,17 +107,22 @@ class Handler(BaseHTTPRequestHandler):
 
             view_only = params.get('view') == '1'
             try:
-                cmd = [TVNVIEWER_PATH, ip + ':' + str(VNC_PORT)]
-                if VNC_PASSWORD:
-                    cmd += ['-password', VNC_PASSWORD]
                 if view_only:
-                    # TightVNC Viewer 2.8+: /viewonly (Windows-стиль флагов)
-                    cmd += ['/viewonly']
-
-                subprocess.Popen(cmd, shell=False)
-                mode = 'просмотр' if view_only else 'управление'
-                print(f'[TightVNC] ПК {pc} ({ip}) — {mode}')
-                self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': view_only})
+                    # Просмотр без управления — открываем встроенный веб-клиент TightVNC Server
+                    # TightVNC Server слушает HTTP на порту 5800
+                    import webbrowser
+                    _http_port = HTTP_PORT if 'HTTP_PORT' in dir() else 5800
+                    url = f'http://{ip}:{_http_port}'
+                    webbrowser.open(url)
+                    print(f'[TightVNC] ПК {pc} ({ip}) — просмотр (браузер {url})')
+                    self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': True, 'url': url})
+                else:
+                    cmd = [TVNVIEWER_PATH, ip + ':' + str(VNC_PORT)]
+                    if VNC_PASSWORD:
+                        cmd += ['-password', VNC_PASSWORD]
+                    subprocess.Popen(cmd, shell=False)
+                    print(f'[TightVNC] ПК {pc} ({ip}) — управление')
+                    self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': False})
 
             except Exception as e:
                 print(f'[Ошибка] {e}')
