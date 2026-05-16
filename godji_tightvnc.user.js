@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.16
+// @version      3.17
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -113,7 +113,7 @@ function openPopup(anchor){
 
     var statusDot = document.createElement('span');
     statusDot.id = 'gj-vnc-status-dot';
-    statusDot.style.cssText = 'font-size:11px;color:rgba(0,0,0,0.5);font-weight:500;';
+    statusDot.style.cssText = 'font-size:11px;color:rgba(0,0,0,0.55);font-weight:500;';
     statusDot.textContent = '●  проверка…';
 
     var closeBtn = document.createElement('button');
