@@ -6,6 +6,8 @@ import sys
 import json
 import os
 import traceback
+import tempfile
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==============================
@@ -110,7 +112,6 @@ class Handler(BaseHTTPRequestHandler):
                 # Для view-only создаём временный .vnc файл с ViewOnly=1
                 # TightVNC 2.x Windows не поддерживает -viewonly через CLI,
                 # но принимает конфиг-файл с настройками
-                import tempfile, os
                 if view_only:
                     cfg = (
                         f'host={ip}\n'
@@ -127,7 +128,6 @@ class Handler(BaseHTTPRequestHandler):
                     cmd = [TVNVIEWER_PATH, tmp.name]
                     subprocess.Popen(cmd, shell=False)
                     # Удаляем файл через 5 сек после запуска
-                    import threading
                     threading.Timer(5.0, lambda: os.unlink(tmp.name) if os.path.exists(tmp.name) else None).start()
                     print(f'[TightVNC] ПК {pc} ({ip}) — просмотр (ViewOnly)')
                     self._json({'success': True, 'pc': pc, 'ip': ip, 'view_only': True})
