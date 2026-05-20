@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.17
+// @version      3.19
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
