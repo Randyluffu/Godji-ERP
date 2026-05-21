@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC
 // @namespace    http://tampermonkey.net/
-// @version      3.19
+// @version      3.20
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -231,7 +231,7 @@ function renderMap(mapWrap, data){
         if(avail){
             cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.18)'; cell.style.boxShadow='0 4px 12px rgba(0,0,0,0.5)'; cell.style.zIndex='10'; });
             cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.boxShadow='0 2px 6px rgba(0,0,0,0.35)'; cell.style.zIndex='2'; });
-            cell.addEventListener('click',function(e){ e.stopPropagation(); showVncMenu(name,cell); });
+            cell.addEventListener('click',function(e){ e.stopPropagation(); connectPC(name,false); });
         }
         mapWrap.appendChild(cell);
     });
@@ -255,57 +255,7 @@ function connectPC(name, viewOnly){
 }
 
 // Меню выбора режима — в стиле ERP
-function showVncMenu(name, cell){
-    var old=document.getElementById('gj-vnc-menu');
-    if(old){ old.remove(); if(old._pc===name) return; }
-    var menu=document.createElement('div');
-    menu.id='gj-vnc-menu'; menu._pc=name;
-    var cr=cell.getBoundingClientRect();
-    menu.style.cssText=[
-        'position:fixed',
-        'left:'+(cr.right+4)+'px',
-        'top:'+cr.top+'px',
-        'background:#ffffff',
-        'border:1px solid rgba(0,0,0,0.12)',
-        'border-radius:8px',
-        'box-shadow:0 4px 20px rgba(0,0,0,0.15)',
-        'z-index:9999','overflow:hidden','min-width:210px',
-        'font-family:var(--mantine-font-family,inherit)',
-    ].join(';');
-
-    var ttl=document.createElement('div');
-    ttl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 14px 8px;border-bottom:1px solid rgba(0,0,0,0.08);';
-    ttl.innerHTML='<div style="width:22px;height:22px;background:#cc0001;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
-        +'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>'
-        +'<span style="font-size:12px;font-weight:700;color:#1a1a2e;">ПК '+name+'</span>';
-    menu.appendChild(ttl);
-
-    function mkBtn(label,ico,cb){
-        var b=document.createElement('button');
-        b.style.cssText='display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;background:none;border:none;'
-            +'color:#1a1a2e;font-size:13px;cursor:pointer;text-align:left;transition:background 0.1s;font-family:inherit;';
-        b.innerHTML='<span style="opacity:0.5;display:flex;color:#1a1a2e;">'+ico+'</span><span style="color:#1a1a2e;">'+label+'</span>';
-        b.onmouseenter=function(){ b.style.background='rgba(0,0,0,0.05)'; };
-        b.onmouseleave=function(){ b.style.background='none'; };
-        b.onclick=function(e){ e.stopPropagation(); menu.remove(); cb(); };
-        return b;
-    }
-    var eyeIco='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    var ctrlIco='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
-    menu.appendChild(mkBtn('Только просмотр',eyeIco,function(){ connectPC(name,true); }));
-    menu.appendChild(mkBtn('Просмотр с управлением',ctrlIco,function(){ connectPC(name,false); }));
-
-    document.body.appendChild(menu);
-    var mr=menu.getBoundingClientRect();
-    if(mr.right>window.innerWidth-10) menu.style.left=(cr.left-mr.width-4)+'px';
-    if(mr.bottom>window.innerHeight-10) menu.style.top=(window.innerHeight-mr.height-10)+'px';
-
-    setTimeout(function(){
-        document.addEventListener('click',function cm(ev){
-            if(!menu.contains(ev.target)){ menu.remove(); document.removeEventListener('click',cm); }
-        });
-    },0);
-}
+// showVncMenu удалён — прямое подключение по клику
 
 // ── Кнопка в сайдбаре ────────────────────────────────────
 function createSidebarBtn(){
