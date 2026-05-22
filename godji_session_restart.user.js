@@ -664,4 +664,3 @@
     menuObserver.observe(document.body, { childList: true, subtree: false });
 
 })();
-
