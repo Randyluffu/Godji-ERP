@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Годжи — Касса смены
+// @name         Годжи — Касса смены1
 // @namespace    http://tampermonkey.net/
 // @version      2.7
 // @match        https://godji.cloud/*
