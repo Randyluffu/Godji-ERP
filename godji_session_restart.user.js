@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      4.1
 // @description  Перезапускает сеанс с сохранением остатка времени на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -238,15 +238,14 @@
         });
     }
 
-    // Получить deviceId по имени ПК
+    // Получить deviceId по имени ПК через club_devices
     function getDeviceId(pcName) {
         return xhrGql(
-            'query($clubId:Int!){getDashboardDevices(params:{clubId:$clubId}){devices{name deviceId}}}',
-            { clubId: CLUB_ID }
+            'query($clubId:Int!,$name:String!){club_devices(where:{club_id:{_eq:$clubId},name:{_eq:$name}}){id}}',
+            { clubId: CLUB_ID, name: pcName }
         ).then(function (r) {
-            if (!r || !r.data || !r.data.getDashboardDevices) return null;
-            var dev = r.data.getDashboardDevices.devices.find(function (d) { return d.name === pcName; });
-            return dev ? dev.deviceId : null;
+            if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) return null;
+            return r.data.club_devices[0].id;
         });
     }
 
