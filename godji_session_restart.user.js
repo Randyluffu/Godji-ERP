@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.5
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -229,13 +229,16 @@
     }
 
     function prolongSession(sessionId, tariffId, minutes) {
+        // Для пакетных тарифов minutes не передаём — API сам знает длительность пакета
+        var vars = { sessionId: sessionId, tariffId: tariffId };
+        if (minutes !== null && minutes !== undefined) vars.minutes = minutes;
         return xhrGql(
             'mutation prolongateSession($sessionId:Int!,$tariffId:Int!,$minutes:Int){' +
             '  userReservationProlongate(params:{sessionId:$sessionId,tariffId:$tariffId,minutes:$minutes}){' +
             '    success __typename' +
             '  }' +
             '}',
-            { sessionId: sessionId, tariffId: tariffId, minutes: minutes }
+            vars
         );
     }
 
@@ -467,7 +470,7 @@
                                         if (cr2 && cr2.errors) throw new Error(cr2.errors[0] && cr2.errors[0].message || 'Ошибка создания почасового сеанса');
                                         var newSessionId = cr2 && cr2.data && cr2.data.userReservationCreate && cr2.data.userReservationCreate.reservationId;
                                         if (!newSessionId) throw new Error('Не получен id нового сеанса');
-                                        return prolongSession(newSessionId, plan.packet.id, plan.packet.durationMin);
+                                        return prolongSession(newSessionId, plan.packet.id, null);
                                     });
                                 } else {
                                     // Просто пакет
