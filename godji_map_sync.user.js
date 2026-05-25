@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.5
+// @version      3.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -126,8 +126,6 @@
         if (!card) return;
         // Не скроллим карту если активен мультивыбор
         if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) return;
-        // Не скроллим если карточка уже видна
-        if (isCardVisible(card)) return;
 
         if (card.classList.contains('gm-card')) {
             var layer = document.getElementById('gm-layer');
@@ -154,7 +152,8 @@
                 return;
             }
         }
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Для обычных карточек — только если не видна во вьюпорте
+        if (!isCardVisible(card)) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     // ─── Основное действие выбора ПК ──────────────────────────────────────────
