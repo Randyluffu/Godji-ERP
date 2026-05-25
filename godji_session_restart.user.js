@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -140,6 +140,7 @@
             if (!activeIds.length) return;
 
             var ids = activeIds.map(function (x) { return x.sessionId; });
+            // Шаг 2: time_to из reservations
             xhrGql(
                 'query($ids:[Int!]!) { reservations(where:{id:{_in:$ids}}) { id time_to } }',
                 { ids: ids }
@@ -153,6 +154,37 @@
                     }
                 });
                 window._godjiSessionsData = sessionsData;
+
+                // Шаг 3: определяем тип тарифа (packet/minute) через getBookingTariffs
+                // Запрашиваем для каждого активного ПК чьё timeTo уже известно
+                activeIds.forEach(function (x) {
+                    var sd = sessionsData[x.pc];
+                    if (!sd || !sd.timeTo) return;
+
+                    // Получаем deviceId и запрашиваем тарифы
+                    xhrGql(
+                        'query($clubId:Int!,$name:String!){club_devices(where:{club_id:{_eq:$clubId},name:{_eq:$name}}){id}}',
+                        { clubId: CLUB_ID, name: x.pc }
+                    ).then(function (dr) {
+                        if (!dr || !dr.data || !dr.data.club_devices || !dr.data.club_devices.length) return;
+                        var deviceId = dr.data.club_devices[0].id;
+                        var remainMs = new Date(sd.timeTo).getTime() - Date.now();
+                        var remainMin = Math.max(1, Math.ceil(remainMs / 60000));
+                        return getBookingTariffs(deviceId, Date.now(), remainMin)
+                        .then(function (tariffs) {
+                            // Ищем текущий тариф сессии среди возвращённых
+                            var match = tariffs.filter(function (t) { return t.id === sd.tariffId; })[0];
+                            if (match) {
+                                sessionsData[x.pc].tariffType = match.type; // 'packet' или 'minute'
+                            } else {
+                                // Тариф не найден в списке — определяем по наличию packet-тарифов
+                                // Если в ответе есть packet-тарифы и текущий тариф не minute — считаем packet
+                                sessionsData[x.pc].tariffType = 'minute'; // fallback
+                            }
+                            window._godjiSessionsData = sessionsData;
+                        });
+                    }).catch(function () {});
+                });
             }).catch(function () {});
         }).catch(function () { window._godjiRestartPending = false; });
     }
@@ -377,7 +409,10 @@
         var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
         var walletId     = session.walletId;
         var oldSessionId = session.sessionId;
-        var wasPackage   = isPackageTariffName(session.tariffName);
+        // Тип определяется по полю tariffType из getBookingTariffs (packet/minute)
+        // Fallback на название тарифа если tariffType ещё не загружен
+        var wasPackage = session.tariffType === 'packet' ||
+                         (session.tariffType === undefined && isPackageTariffName(session.tariffName));
 
         notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
 
