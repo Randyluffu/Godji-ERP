@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.7
+// @version      5.8
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -252,6 +252,45 @@
         }
 
         showToast(labels[op] + ' ✓ для ' + ids.length + ' ПК');
+        clearAll();
+    }
+
+    // --- Перезапуск сеансов ---
+    async function restartSelected() {
+        closeMenu();
+        var ids = Object.keys(selected);
+        if (!ids.length) return;
+
+        showToast('Загрузка данных сессий...');
+        var sessions = window._godjiSessionsData;
+        if (!sessions || !Object.keys(sessions).length) {
+            sessions = await fetchSessionsForSelected();
+            window._godjiSessionsData = sessions;
+        }
+
+        var pcNames = ids.map(function(id) { return selected[id]; }).filter(Boolean);
+        var active  = pcNames.filter(function(n) { return sessions[n] && sessions[n].sessionId; });
+
+        if (!active.length) { showToast('Нет активных сеансов'); return; }
+
+        showToast('Перезапуск сеансов для ' + active.length + ' ПК...');
+
+        var results = { ok: 0, err: 0 };
+        for (var i = 0; i < active.length; i++) {
+            var pcName = active[i];
+            try {
+                // Вызываем doRestart из скрипта перезапуска если он доступен
+                if (window._godjiRestartPc) {
+                    await window._godjiRestartPc(pcName);
+                    results.ok++;
+                } else {
+                    results.err++;
+                }
+            } catch(e) { results.err++; }
+            if (i < active.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
+        }
+
+        showToast('Перезапуск: ' + results.ok + ' ✓' + (results.err ? ', ' + results.err + ' ✗' : ''));
         clearAll();
     }
 
@@ -622,6 +661,12 @@
                 function() { runForAll('UserReservationCancel'); },
                 getBg('Завершить сессию', 'rgba(183,28,28,0.10)'),
                 getBg('Завершить сессию', 'rgba(183,28,28,0.18)')));
+            menu.appendChild(makeMenuItem('Перезапустить сеансы',
+                '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path>',
+                getColor('Перезапустить сеансы', '#cc0001'),
+                restartSelected,
+                getBg('Перезапустить сеансы', 'rgba(204,0,1,0.07)'),
+                getBg('Перезапустить сеансы', 'rgba(204,0,1,0.14)')));
         }
 
         document.body.appendChild(menu);
