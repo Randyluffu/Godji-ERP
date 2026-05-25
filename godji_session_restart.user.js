@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      4.3
+// @version      4.5
 // @description  Перезапускает сеанс с сохранением остатка времени на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -170,24 +170,29 @@
         );
     }
 
-    function getHourlyTariff(sessionId) {
-        function tryFetch(mins) {
-            return xhrGql(
-                'query($minutes:Int,$sessionId:Int!){getAvailableTariffsForProlongation(params:{minutes:$minutes,sessionId:$sessionId}){tariffs{id name durationMin cost}}}',
-                { sessionId: sessionId, minutes: mins }
-            ).then(function (r) {
-                return r.data && r.data.getAvailableTariffsForProlongation && r.data.getAvailableTariffsForProlongation.tariffs;
-            });
-        }
-        return tryFetch(1)
-            .then(function (t) { return (!t || !t.length) ? tryFetch(60) : t; })
-            .then(function (t) { return (!t || !t.length) ? tryFetch(30) : t; })
-            .then(function (tariffs) {
-                if (!tariffs || !tariffs.length) return null;
-                var sorted = tariffs.slice().sort(function (a, b) { return a.durationMin - b.durationMin; });
-                var t = sorted[0];
-                return { tariffId: t.id, tariffName: t.name, costPerMin: t.cost / t.durationMin };
-            });
+    // Получаем почасовые тарифы через getBookingTariffs — тот же запрос что делает ERP при посадке.
+    // Используем окно from=now, to=now+remainMin для точного расчёта стоимости.
+    function getHourlyTariff(deviceId, remainMin) {
+        var now  = new Date();
+        var from = now.toISOString();
+        var to   = new Date(now.getTime() + remainMin * 60000).toISOString();
+        return xhrGql(
+            'query GetBookingRates($clubId:Int!,$deviceId:Int!,$from:timestamptz!,$to:timestamptz!){' +
+            '  getBookingTariffs(params:{clubId:$clubId,deviceId:$deviceId,timeline:{from:$from,to:$to}}){' +
+            '    tariffs{id name sessionEnd type durationMin cost}' +
+            '  }' +
+            '}',
+            { clubId: CLUB_ID, deviceId: deviceId, from: from, to: to }
+        ).then(function (r) {
+            var tariffs = r && r.data && r.data.getBookingTariffs && r.data.getBookingTariffs.tariffs;
+            if (!tariffs || !tariffs.length) return null;
+            // Берём тариф с минимальной длительностью — поминутный
+            var sorted = tariffs.slice().sort(function (a, b) { return a.durationMin - b.durationMin; });
+            var t = sorted[0];
+            // cost у getBookingTariffs — стоимость за весь период (from→to), делим на минуты
+            var costPerMin = t.cost / remainMin;
+            return { tariffId: t.id, tariffName: t.name, costPerMin: costPerMin, totalCost: t.cost };
+        });
     }
 
     function getLastOpId(walletId) {
@@ -267,35 +272,7 @@
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Мониторинг возврата бонусов от ERP
-    // -------------------------------------------------------------------------
-    function watchForBonusReturn(walletId, oldSessionId, lastOpIdBefore, comment) {
-        var attempts = 0;
-        var timer = setInterval(function () {
-            attempts++;
-            if (attempts > 80) { clearInterval(timer); return; }
 
-            xhrGql(
-                'query($wid:Int!,$afterId:Int!){' +
-                '  wallet_operations(where:{wallet_id:{_eq:$wid},id:{_gt:$afterId},amount_type:{_eq:"bonus"},operation_type:{_eq:"deposit"}},order_by:{id:desc},limit:5){' +
-                '    id amount wallet_operation_digest{name reservation_id}' +
-                '  }' +
-                '}',
-                { wid: walletId, afterId: lastOpIdBefore }
-            ).then(function (r) {
-                var ops = r && r.data && r.data.wallet_operations;
-                if (!ops || !ops.length) return;
-                ops.forEach(function (op) {
-                    var d = op.wallet_operation_digest;
-                    if (d && d.name === 'Возврат бонусов' && d.reservation_id === oldSessionId) {
-                        clearInterval(timer);
-                        withdrawBonus(walletId, op.amount, comment).catch(function () {});
-                    }
-                });
-            }).catch(function () {});
-        }, 3000);
-    }
 
     // -------------------------------------------------------------------------
     // Уведомление вместо модалки
@@ -333,77 +310,108 @@
     // -------------------------------------------------------------------------
     // Основная логика перезапуска
     // -------------------------------------------------------------------------
+    // Ждём возврата бонусов от ERP после завершения сеанса.
+    // Возвращает Promise с суммой возврата.
+    function waitForBonusReturn(walletId, oldSessionId, lastOpIdBefore) {
+        return new Promise(function (resolve, reject) {
+            var attempts = 0;
+            var maxChecks = 40; // 2 минуты
+            var timer = setInterval(function () {
+                attempts++;
+                if (attempts > maxChecks) {
+                    clearInterval(timer);
+                    reject(new Error('ERP не вернул бонусы в течение 2 минут'));
+                    return;
+                }
+                xhrGql(
+                    'query($wid:Int!,$afterId:Int!){' +
+                    '  wallet_operations(where:{wallet_id:{_eq:$wid},id:{_gt:$afterId},amount_type:{_eq:"bonus"},operation_type:{_eq:"deposit"}},order_by:{id:desc},limit:5){' +
+                    '    id amount wallet_operation_digest{name reservation_id}' +
+                    '  }' +
+                    '}',
+                    { wid: walletId, afterId: lastOpIdBefore }
+                ).then(function (r) {
+                    var ops = r && r.data && r.data.wallet_operations;
+                    if (!ops || !ops.length) return;
+                    ops.forEach(function (op) {
+                        var d = op.wallet_operation_digest;
+                        if (d && d.name === 'Возврат бонусов' && d.reservation_id === oldSessionId) {
+                            clearInterval(timer);
+                            resolve(op.amount);
+                        }
+                    });
+                }).catch(function () {});
+            }, 3000);
+        });
+    }
+
     function doRestart(pcName) {
         var session = sessionsData[pcName];
         if (!session) { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
         if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
         if (!session.timeTo) { notify('Нет данных об остатке времени. Подождите обновления.', 'err'); return; }
 
-        var msLeft    = new Date(session.timeTo).getTime() - Date.now();
-        var remainMin = Math.max(1, Math.ceil(msLeft / 60000));
-        var walletId  = session.walletId;
+        var msLeft       = new Date(session.timeTo).getTime() - Date.now();
+        var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
+        var walletId     = session.walletId;
         var oldSessionId = session.sessionId;
         var wasPackage   = isPackageTariff(session.tariffName);
 
         notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
 
-        // Шаг 1: фиксируем lastOpId ДО всех действий
-        getLastOpId(walletId)
-        .then(function (lastOpId) {
+        var tariffInfo = null;
 
-            // Шаг 2: получаем поминутный тариф для этого сеанса
-            return getHourlyTariff(oldSessionId)
-            .then(function (tariffInfo) {
+        // Шаг 1: фиксируем lastOpId и получаем поминутный тариф параллельно
+        // Сначала получаем deviceId/userId, затем тариф (нужен deviceId)
+        Promise.all([
+            getLastOpId(walletId),
+            getDeviceAndUser(pcName, walletId)
+        ])
+        .then(function (results) {
+            var lastOpId = results[0];
+            var devInfo  = results[1];
+
+            return getHourlyTariff(devInfo.deviceId, remainMin)
+            .then(function (info) {
+                tariffInfo = info;
                 if (!tariffInfo) throw new Error('Не удалось получить поминутный тариф');
 
-                var bonusCost = Math.round(tariffInfo.costPerMin * remainMin * 100) / 100;
+            // Шаг 2: завершаем сеанс
+            return cancelSession(oldSessionId)
+            .then(function (res) {
+                if (!res || !res.data || !res.data.userReservationCancel || !res.data.userReservationCancel.success) {
+                    throw new Error('Не удалось завершить сеанс');
+                }
 
-                // Шаг 3: завершаем текущий сеанс
-                return cancelSession(oldSessionId)
-                .then(function (res) {
-                    if (!res || !res.data || !res.data.userReservationCancel || !res.data.userReservationCancel.success) {
-                        throw new Error('Не удалось завершить сеанс');
-                    }
-
-                    // Шаг 4: если был пакетный — мониторим возврат бонусов от ERP
-                    if (wasPackage) {
-                        watchForBonusReturn(
-                            walletId,
-                            oldSessionId,
-                            lastOpId,
-                            'Вернулся остаток времени с пакета (сеанс ' + oldSessionId + ')'
-                        );
-                    }
-
-                    // Шаг 5: начисляем бонусы только если был пакетный тариф
-                    // (почасовой — ERP сам вернёт бонусы за остаток, они покроют новый сеанс)
-                    var depositPromise;
-                    if (wasPackage) {
-                        var comment = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
-                        depositPromise = depositBonus(walletId, bonusCost, comment);
-                    } else {
-                        // Почасовой: ждём возврата бонусов от ERP (они уже летят после cancelSession)
-                        // Просто даём небольшую паузу чтобы ERP успел зачислить возврат
-                        depositPromise = new Promise(function(resolve) { setTimeout(resolve, 2000); });
-                    }
-                    return depositPromise;
-                })
-                .then(function () {
-                    // Шаг 6: получаем deviceId и сажаем на почасовой
-                    return getDeviceAndUser(pcName, walletId)
-                    .then(function (info) {
-                        var now = new Date();
-                        var sessionStart = now.toISOString();
-                        var sessionEnd   = new Date(now.getTime() + remainMin * 60000).toISOString();
-                        return createSession(info.deviceId, info.userId, tariffInfo.tariffId, sessionStart, sessionEnd);
-                    });
-                })
-                .then(function (res) {
-                    if (res && res.errors) {
-                        throw new Error(JSON.stringify(res.errors[0].message || res.errors));
-                    }
-                    notify('ПК ' + pcName + ': сеанс перезапущен на ' + remainMin + ' мин', 'ok');
-                });
+                // Шаг 3: ждём возврата бонусов от ERP
+                // — для почасового: ERP вернёт ровно стоимость остатка
+                // — для пакетного: пакеты не возвращают бонусы, поэтому
+                //   если ERP не вернул ничего за 10 сек — начисляем сами
+                if (wasPackage) {
+                    // Пакетный: ERP бонусы не вернёт — начисляем сами
+                    // totalCost — точная стоимость из getBookingTariffs за период remainMin
+                    var bonusCost = Math.round(tariffInfo.totalCost * 100) / 100;
+                    var comment   = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
+                    return depositBonus(walletId, bonusCost, comment)
+                    .then(function () { return bonusCost; });
+                } else {
+                    // Почасовой: ждём возврата от ERP — используем именно его сумму
+                    return waitForBonusReturn(walletId, oldSessionId, lastOpId);
+                }
+            })
+            .then(function (bonusAmount) {
+                // Шаг 4: сажаем на почасовой — бонусы уже на балансе
+                var now          = new Date();
+                var sessionStart = now.toISOString();
+                var sessionEnd   = new Date(now.getTime() + remainMin * 60000).toISOString();
+                return createSession(devInfo.deviceId, devInfo.userId, tariffInfo.tariffId, sessionStart, sessionEnd);
+            })
+            .then(function (res) {
+                if (res && res.errors) {
+                    throw new Error(res.errors[0] && res.errors[0].message ? res.errors[0].message : JSON.stringify(res.errors));
+                }
+                notify('ПК ' + pcName + ': сеанс перезапущен на ' + remainMin + ' мин', 'ok');
+            });
             });
         })
         .catch(function (err) {
