@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -115,8 +115,20 @@
         container.scrollTo({ top: rowTop - container.clientHeight / 2 + rRect.height / 2, behavior: 'smooth' });
     }
 
+    function isCardVisible(card) {
+        // Проверяем видна ли карточка во вьюпорте без скролла
+        var rect = card.getBoundingClientRect();
+        return rect.top >= 0 && rect.left >= 0 &&
+               rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+    }
+
     function scrollToCard(card) {
         if (!card) return;
+        // Не скроллим карту если активен мультивыбор
+        if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) return;
+        // Не скроллим если карточка уже видна
+        if (isCardVisible(card)) return;
+
         if (card.classList.contains('gm-card')) {
             var layer = document.getElementById('gm-layer');
             var wrap  = document.getElementById('gm-wrap');
