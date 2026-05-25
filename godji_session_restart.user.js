@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -23,16 +23,21 @@
     var authToken     = null;
     var hasuraRole    = 'club_admin';
 
-    // Определяем тип тарифа по полю type из API
-    // wasPackage = true если оригинальный тариф был пакетным
-    var PACKAGE_MARKERS = ['ночь', 'сутки', 'день', 'пакет', 'безлимит'];
-    function isPackageTariffName(name) {
-        if (!name) return false;
-        var n = name.toLowerCase();
-        for (var i = 0; i < PACKAGE_MARKERS.length; i++) {
-            if (n.indexOf(PACKAGE_MARKERS[i]) !== -1) return true;
-        }
-        return false;
+    // Определяем тип тарифа по названию.
+    // Почасовой (minute) = содержит "1 час" (ровно один час).
+    // Всё остальное — пакетный: "3 часа", "5 часов", "Ночь", "Сутки" и т.д.
+    // Дополнительно: если getBookingTariffs вернул tariffType — используем его.
+    function isPackageTariff(tariffName, tariffType) {
+        // Приоритет — поле type из API если есть
+        if (tariffType === 'packet') return true;
+        if (tariffType === 'minute') return false;
+        // Fallback по названию
+        if (!tariffName) return false;
+        var n = tariffName.toLowerCase();
+        // Почасовой = ровно "1 час" в начале названия
+        if (/^1\s*час/.test(n)) return false;
+        // Всё остальное — пакет
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -155,36 +160,7 @@
                 });
                 window._godjiSessionsData = sessionsData;
 
-                // Шаг 3: определяем тип тарифа (packet/minute) через getBookingTariffs
-                // Запрашиваем для каждого активного ПК чьё timeTo уже известно
-                activeIds.forEach(function (x) {
-                    var sd = sessionsData[x.pc];
-                    if (!sd || !sd.timeTo) return;
 
-                    // Получаем deviceId и запрашиваем тарифы
-                    xhrGql(
-                        'query($clubId:Int!,$name:String!){club_devices(where:{club_id:{_eq:$clubId},name:{_eq:$name}}){id}}',
-                        { clubId: CLUB_ID, name: x.pc }
-                    ).then(function (dr) {
-                        if (!dr || !dr.data || !dr.data.club_devices || !dr.data.club_devices.length) return;
-                        var deviceId = dr.data.club_devices[0].id;
-                        var remainMs = new Date(sd.timeTo).getTime() - Date.now();
-                        var remainMin = Math.max(1, Math.ceil(remainMs / 60000));
-                        return getBookingTariffs(deviceId, Date.now(), remainMin)
-                        .then(function (tariffs) {
-                            // Ищем текущий тариф сессии среди возвращённых
-                            var match = tariffs.filter(function (t) { return t.id === sd.tariffId; })[0];
-                            if (match) {
-                                sessionsData[x.pc].tariffType = match.type; // 'packet' или 'minute'
-                            } else {
-                                // Тариф не найден в списке — определяем по наличию packet-тарифов
-                                // Если в ответе есть packet-тарифы и текущий тариф не minute — считаем packet
-                                sessionsData[x.pc].tariffType = 'minute'; // fallback
-                            }
-                            window._godjiSessionsData = sessionsData;
-                        });
-                    }).catch(function () {});
-                });
             }).catch(function () {});
         }).catch(function () { window._godjiRestartPending = false; });
     }
@@ -409,10 +385,7 @@
         var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
         var walletId     = session.walletId;
         var oldSessionId = session.sessionId;
-        // Тип определяется по полю tariffType из getBookingTariffs (packet/minute)
-        // Fallback на название тарифа если tariffType ещё не загружен
-        var wasPackage = session.tariffType === 'packet' ||
-                         (session.tariffType === undefined && isPackageTariffName(session.tariffName));
+        var wasPackage = isPackageTariff(session.tariffName, session.tariffType);
 
         notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
 
@@ -433,6 +406,12 @@
 
                 var minuteTariff = tariffs.filter(function (t) { return t.type === 'minute'; })[0];
                 if (!minuteTariff) throw new Error('Поминутный тариф недоступен');
+
+                // Уточняем тип тарифа по актуальным данным из API
+                var currentTariff = tariffs.filter(function (t) { return t.id === session.tariffId; })[0];
+                if (currentTariff) {
+                    wasPackage = currentTariff.type === 'packet';
+                }
 
                 // Завершаем текущий сеанс
                 return cancelSession(oldSessionId)
