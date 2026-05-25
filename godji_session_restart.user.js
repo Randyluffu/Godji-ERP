@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.5
+// @version      5.6
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -225,6 +225,31 @@
                 return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
             }
             return r;
+        });
+    }
+
+    // Ждём пока сеанс станет активным (session_acting)
+    function waitForSessionActive(sessionId) {
+        return new Promise(function (resolve, reject) {
+            var attempts = 0;
+            var timer = setInterval(function () {
+                attempts++;
+                if (attempts > 20) {
+                    clearInterval(timer);
+                    reject(new Error('Сеанс не активировался за 60 секунд'));
+                    return;
+                }
+                xhrGql(
+                    'query($id:Int!){reservations(where:{id:{_eq:$id}}){id status}}',
+                    { id: sessionId }
+                ).then(function (r) {
+                    var res = r && r.data && r.data.reservations && r.data.reservations[0];
+                    if (res && res.status === 'session_acting') {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }).catch(function () {});
+            }, 3000);
         });
     }
 
@@ -470,7 +495,11 @@
                                         if (cr2 && cr2.errors) throw new Error(cr2.errors[0] && cr2.errors[0].message || 'Ошибка создания почасового сеанса');
                                         var newSessionId = cr2 && cr2.data && cr2.data.userReservationCreate && cr2.data.userReservationCreate.reservationId;
                                         if (!newSessionId) throw new Error('Не получен id нового сеанса');
-                                        return prolongSession(newSessionId, plan.packet.id, null);
+                                        // Ждём активации сеанса перед продлением
+                                        return waitForSessionActive(newSessionId)
+                                        .then(function () {
+                                            return prolongSession(newSessionId, plan.packet.id, null);
+                                        });
                                     });
                                 } else {
                                     // Просто пакет
@@ -529,11 +558,12 @@
         btn.setAttribute('role', 'menuitem');
         btn.setAttribute('data-menu-item', 'true');
         btn.setAttribute('data-mantine-stop-propagation', 'true');
-        btn.style.cssText = 'color:rgb(204,0,1);--menu-item-color:rgb(204,0,1);--menu-item-hover:rgba(204,0,1,0.08);';
+        btn.style.cssText = '--menu-item-color:rgb(204,0,1);--menu-item-hover:rgba(204,0,1,0.08);';
         btn.innerHTML =
             '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left">' +
-            '<div style="align-items:center;justify-content:center;width:calc(1.25rem * var(--mantine-scale));display:flex;">' +
-            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"' +
+            '<div class="LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root" data-variant="filled"' +
+            ' style="--ti-size:calc(1.25rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:none;">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"' +
             ' stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
             '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>' +
             '<path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>' +
