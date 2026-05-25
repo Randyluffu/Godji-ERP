@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.3
 // @description  Перезапускает сеанс с сохранением остатка времени на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -375,9 +375,18 @@
                         );
                     }
 
-                    // Шаг 5: начисляем бонусы для нового сеанса
-                    var comment = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
-                    return depositBonus(walletId, bonusCost, comment);
+                    // Шаг 5: начисляем бонусы только если был пакетный тариф
+                    // (почасовой — ERP сам вернёт бонусы за остаток, они покроют новый сеанс)
+                    var depositPromise;
+                    if (wasPackage) {
+                        var comment = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
+                        depositPromise = depositBonus(walletId, bonusCost, comment);
+                    } else {
+                        // Почасовой: ждём возврата бонусов от ERP (они уже летят после cancelSession)
+                        // Просто даём небольшую паузу чтобы ERP успел зачислить возврат
+                        depositPromise = new Promise(function(resolve) { setTimeout(resolve, 2000); });
+                    }
+                    return depositPromise;
                 })
                 .then(function () {
                     // Шаг 6: получаем deviceId и сажаем на почасовой
