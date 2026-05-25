@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      4.1
+// @version      4.2
 // @description  Перезапускает сеанс с сохранением остатка времени на почасовом тарифе
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -214,38 +214,56 @@
         );
     }
 
-    function createSession(deviceId, walletId, tariffId, minutes) {
-        return xhrGql(
-            'mutation CreateBooking($deviceId:Int!,$walletId:Int!,$tariffId:Int!,$minutes:Int){' +
-            '  userReservationCreate(params:{deviceId:$deviceId,walletId:$walletId,tariffId:$tariffId,minutes:$minutes,isDirect:true}){' +
-            '    id __typename' +
-            '  }' +
-            '}',
-            { deviceId: deviceId, walletId: walletId, tariffId: tariffId, minutes: minutes }
-        ).then(function (r) {
+    function createSession(deviceId, userId, tariffId, sessionStart, sessionEnd) {
+        var vars = {
+            clubId: CLUB_ID,
+            deviceId: deviceId,
+            tariffId: tariffId,
+            sessionStart: sessionStart,
+            sessionEnd: sessionEnd,
+            userId: userId,
+            isDirect: true
+        };
+        var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
+                '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
+                '    reservationId __typename' +
+                '  }' +
+                '}';
+        return xhrGql(q, vars).then(function (r) {
             if (r && r.errors) {
                 // Retry без isDirect
-                return xhrGql(
-                    'mutation CreateBooking($deviceId:Int!,$walletId:Int!,$tariffId:Int!,$minutes:Int){' +
-                    '  userReservationCreate(params:{deviceId:$deviceId,walletId:$walletId,tariffId:$tariffId,minutes:$minutes}){' +
-                    '    id __typename' +
-                    '  }' +
-                    '}',
-                    { deviceId: deviceId, walletId: walletId, tariffId: tariffId, minutes: minutes }
-                );
+                var vars2 = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId, sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
+                var q2 = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!){' +
+                         '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId}){' +
+                         '    reservationId __typename' +
+                         '  }' +
+                         '}';
+                return xhrGql(q2, vars2);
             }
             return r;
         });
     }
 
-    // Получить deviceId по имени ПК через club_devices
-    function getDeviceId(pcName) {
+    // Получить deviceId и userId по имени ПК
+    function getDeviceAndUser(pcName, walletId) {
         return xhrGql(
             'query($clubId:Int!,$name:String!){club_devices(where:{club_id:{_eq:$clubId},name:{_eq:$name}}){id}}',
             { clubId: CLUB_ID, name: pcName }
         ).then(function (r) {
-            if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) return null;
-            return r.data.club_devices[0].id;
+            if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
+                throw new Error('Не удалось получить deviceId ПК ' + pcName);
+            }
+            var deviceId = r.data.club_devices[0].id;
+            // Получаем userId через кошелёк
+            return xhrGql(
+                'query($wid:Int!){wallets_by_pk(id:$wid){user_id}}',
+                { wid: walletId }
+            ).then(function (r2) {
+                if (!r2 || !r2.data || !r2.data.wallets_by_pk || !r2.data.wallets_by_pk.user_id) {
+                    throw new Error('Не удалось получить userId клиента');
+                }
+                return { deviceId: deviceId, userId: r2.data.wallets_by_pk.user_id };
+            });
         });
     }
 
@@ -363,10 +381,12 @@
                 })
                 .then(function () {
                     // Шаг 6: получаем deviceId и сажаем на почасовой
-                    return getDeviceId(pcName)
-                    .then(function (deviceId) {
-                        if (!deviceId) throw new Error('Не удалось получить deviceId ПК ' + pcName);
-                        return createSession(deviceId, walletId, tariffInfo.tariffId, remainMin);
+                    return getDeviceAndUser(pcName, walletId)
+                    .then(function (info) {
+                        var now = new Date();
+                        var sessionStart = now.toISOString();
+                        var sessionEnd   = new Date(now.getTime() + remainMin * 60000).toISOString();
+                        return createSession(info.deviceId, info.userId, tariffInfo.tariffId, sessionStart, sessionEnd);
                     });
                 })
                 .then(function (res) {
