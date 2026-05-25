@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.6
+// @version      5.8
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -558,17 +558,8 @@
         btn.setAttribute('role', 'menuitem');
         btn.setAttribute('data-menu-item', 'true');
         btn.setAttribute('data-mantine-stop-propagation', 'true');
-        btn.style.cssText = '--menu-item-color:rgb(204,0,1);--menu-item-hover:rgba(204,0,1,0.08);';
-        btn.innerHTML =
-            '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left">' +
-            '<div class="LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root" data-variant="filled"' +
-            ' style="--ti-size:calc(1.25rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:none;">' +
-            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"' +
-            ' stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>' +
-            '<path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>' +
-            '</svg></div></div>' +
-            '<div class="m_5476e0d3 mantine-Menu-itemLabel">Перезапустить сеанс</div>';
+        btn.style.cssText = 'color:rgb(204,0,1);background-color:rgba(204,0,1,0.07);--menu-item-color:rgb(204,0,1);--menu-item-hover:rgba(204,0,1,0.12);';
+        btn.innerHTML = '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left"><div style="align-items:center;justify-content:center;width:calc(1.25rem * var(--mantine-scale));display:flex;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="stroke:rgb(204,0,1);"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></div></div><div class="m_5476e0d3 mantine-Menu-itemLabel">Перезапустить сеанс</div>';
 
         btn.addEventListener('mousedown', function (e) {
             e.preventDefault();
@@ -625,5 +616,16 @@
     });
 
     menuObserver.observe(document.body, { childList: true, subtree: false });
+
+    // Экспортируем doRestart для использования из других скриптов (multi_select)
+    window._godjiRestartPc = function(pcName) {
+        return new Promise(function(resolve) {
+            // Перехватываем notify чтобы получить результат
+            var origNotify = window._godjiRestartNotify;
+            doRestart(pcName);
+            // Ждём завершения — даём 90 сек
+            setTimeout(resolve, 90000);
+        });
+    };
 
 })();
