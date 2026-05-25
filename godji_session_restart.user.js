@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.3
+// @version      5.4
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -228,16 +228,14 @@
         });
     }
 
-    function prolongSession(sessionId, tariffId, fromMs, toMs) {
-        var sessionStart = new Date(fromMs).toISOString();
-        var sessionEnd   = new Date(toMs).toISOString();
+    function prolongSession(sessionId, tariffId, minutes) {
         return xhrGql(
-            'mutation ProlongSession($sessionId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!){' +
-            '  userReservationProlongate(params:{sessionId:$sessionId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd}){' +
+            'mutation prolongateSession($sessionId:Int!,$tariffId:Int!,$minutes:Int){' +
+            '  userReservationProlongate(params:{sessionId:$sessionId,tariffId:$tariffId,minutes:$minutes}){' +
             '    success __typename' +
             '  }' +
             '}',
-            { sessionId: sessionId, tariffId: tariffId, sessionStart: sessionStart, sessionEnd: sessionEnd }
+            { sessionId: sessionId, tariffId: tariffId, minutes: minutes }
         );
     }
 
@@ -463,14 +461,13 @@
                                     // Сначала почасовой на hourlyMin, потом продление пакетом
                                     var hourlyStart = now;
                                     var hourlyEnd   = now + plan.hourlyMin * 60000;
-                                    var packetEnd   = hourlyEnd + plan.packet.durationMin * 60000;
 
                                     return createSession(deviceId, userId, plan.minuteTariff.id, hourlyStart, hourlyEnd)
                                     .then(function (cr2) {
                                         if (cr2 && cr2.errors) throw new Error(cr2.errors[0] && cr2.errors[0].message || 'Ошибка создания почасового сеанса');
                                         var newSessionId = cr2 && cr2.data && cr2.data.userReservationCreate && cr2.data.userReservationCreate.reservationId;
                                         if (!newSessionId) throw new Error('Не получен id нового сеанса');
-                                        return prolongSession(newSessionId, plan.packet.id, hourlyEnd, packetEnd);
+                                        return prolongSession(newSessionId, plan.packet.id, plan.packet.durationMin);
                                     });
                                 } else {
                                     // Просто пакет
