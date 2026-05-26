@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.14
+// @version      3.15
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -1187,7 +1187,7 @@ function renderHistoryTab(body){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Открыта','100px'],['Смена','90px'],['Закрыта','100px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px'],['В кассе','80px']].forEach(function(c){
+    [['Открыта','115px'],['Закрыта','115px'],['В кассе','80px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -1204,36 +1204,49 @@ function renderHistoryTab(body){
 
         var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
 
+        // Строка с ником админа поверх двух колонок дат (colspan=2)
+        if(s.adminNick){
+            var trAdmin=document.createElement('tr');
+            trAdmin.style.cssText='cursor:pointer;border-bottom:none;';
+            trAdmin.addEventListener('mouseenter',function(){tr.style.background='#f7f9ff';trAdmin.style.background='#f7f9ff';});
+            trAdmin.addEventListener('mouseleave',function(){tr.style.background='';trAdmin.style.background='';});
+            trAdmin.addEventListener('click',function(){ showShiftDetail(s); });
+            var tdAN=document.createElement('td');
+            tdAN.colSpan=2;
+            tdAN.style.cssText='padding:6px 12px 0;text-align:center;border-bottom:none;';
+            var adminBadge=document.createElement('span');
+            adminBadge.style.cssText='font-size:12px;font-weight:700;color:#166534;letter-spacing:0.2px;';
+            adminBadge.textContent=s.adminNick;
+            tdAN.appendChild(adminBadge);
+            // Пустые td для остальных колонок
+            var colCount=7; // В кассе + Нал + Карта + Внес + Выем + Спис = 6, итого 8-2=6
+            for(var ci=0;ci<colCount;ci++){
+                var tdEmpty=document.createElement('td'); tdEmpty.style.borderBottom='none';
+                trAdmin.appendChild(tdEmpty);
+            }
+            trAdmin.insertBefore(tdAN, trAdmin.firstChild);
+            tbody.appendChild(trAdmin);
+        }
+
+        // Строка с датами
         // Ячейка "Открыта"
-        var tdOpen=document.createElement('td'); tdOpen.style.cssText='padding:9px 12px;white-space:nowrap;';
+        var tdOpen=document.createElement('td'); tdOpen.style.cssText='padding:3px 12px 9px;white-space:nowrap;';
         var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
         tr.appendChild(tdOpen);
 
-        // Ячейка "Смена" — ник админа по центру между датами
-        var tdAdmin=document.createElement('td'); tdAdmin.style.cssText='padding:9px 8px;text-align:center;';
-        if(s.adminNick){
-            var adminBadge=document.createElement('span');
-            adminBadge.style.cssText='display:inline-block;font-size:11px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:20px;padding:2px 9px;white-space:nowrap;';
-            adminBadge.textContent=s.adminNick;
-            tdAdmin.appendChild(adminBadge);
-        } else {
-            tdAdmin.innerHTML='<span style="color:#ddd;font-size:11px;">—</span>';
-        }
-        tr.appendChild(tdAdmin);
-
         // Ячейка "Закрыта"
-        var tdClose=document.createElement('td'); tdClose.style.cssText='padding:9px 12px;white-space:nowrap;';
+        var tdClose=document.createElement('td'); tdClose.style.cssText='padding:3px 12px 9px;white-space:nowrap;';
         var dt2=document.createElement('div'); dt2.style.cssText='font-size:12px;color:#999;'; dt2.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdClose.appendChild(dt2);
         tr.appendChild(tdClose);
 
         // Остальные колонки
         [
+            [fmtAmtAbs(total),        'font-weight:800;color:#1a1a1a;font-size:14px;'],
             [fmtAmtAbs(s.cash),       'color:#166534;font-weight:600;'],
             [fmtAmtAbs(s.card),       'color:#1d4ed8;font-weight:600;'],
             [fmtAmtAbs(s.manual),     'color:#7c3aed;font-weight:600;'],
             [fmtAmtAbs(s.withdrawal), 'color:#b45309;font-weight:600;'],
             [fmtAmtAbs(s.debit||0),   'color:#991b1b;font-weight:600;'],
-            [fmtAmtAbs(total),        'font-weight:800;color:#1a1a1a;font-size:14px;'],
         ].forEach(function(col){
             var td=document.createElement('td');
             td.style.cssText='padding:9px 12px;font-size:12px;white-space:nowrap;'+col[1]; if(col[1].indexOf('font-size:14px')!==-1) td.style.fontSize='14px';
