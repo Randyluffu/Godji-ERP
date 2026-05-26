@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.9
+// @version      5.10
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -96,7 +96,10 @@
     function toggle(card) {
         var id = getDeviceId(card), name = getPcName(card);
         if (!id || !name) return;
-        if (window._godjiSaveMapTransform) window._godjiSaveMapTransform();
+        // Сохраняем вид карты только при первом выборе (пока ещё ничего не выделено)
+        if (Object.keys(selected).length === 0 && window._godjiSaveMapTransform) {
+            window._godjiSaveMapTransform();
+        }
         if (selected[id]) {
             delete selected[id];
             setCardStyle(card, false);
@@ -502,6 +505,27 @@
         setTimeout(function() {
             if (_hlWatcher) { _hlWatcher.disconnect(); _hlWatcher = null; }
         }, 5000);
+    }
+
+    // --- Перезапуск сеансов ---
+    function restartSelected() {
+        var snapshot = {};
+        Object.keys(selected).forEach(function(k) { snapshot[k] = selected[k]; });
+        closeMenu();
+        var pcNames = Object.keys(snapshot).map(function(k) { return snapshot[k]; }).filter(Boolean);
+        if (!pcNames.length) return;
+        var count = 0;
+        pcNames.forEach(function(pcName) {
+            var sessions = window._godjiSessionsData || {};
+            if (!sessions[pcName] || !sessions[pcName].sessionId) return;
+            if (window._godjiRestartPc) {
+                window._godjiRestartPc(pcName);
+                count++;
+            }
+        });
+        if (count > 0) showToast('Перезапуск запущен для ' + count + ' ПК');
+        else showToast('Нет активных сеансов для перезапуска');
+        clearAll();
     }
 
     function openMenu(x, y) {
