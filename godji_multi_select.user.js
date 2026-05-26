@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.10
+// @version      5.11
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -507,6 +507,55 @@
         }, 5000);
     }
 
+    // Попап подтверждения — точно по структуре ERP modal
+    function showConfirm(title, text, confirmLabel, onConfirm) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+        var section = document.createElement('section');
+        section.className = 'm_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root';
+        section.setAttribute('role','dialog'); section.setAttribute('tabindex','-1');
+        section.style.cssText = 'opacity:1;transform:translateY(0px);min-width:calc(25rem * var(--mantine-scale));max-width:90vw;';
+        var header = document.createElement('header');
+        header.className = 'm_b5489c3c m_d0e2b9cd mantine-Modal-header';
+        var h2 = document.createElement('h2');
+        h2.className = 'm_615af6c9 mantine-Modal-title'; h2.textContent = title;
+        var xBtn = document.createElement('button');
+        xBtn.className = 'mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root';
+        xBtn.setAttribute('data-variant','subtle'); xBtn.setAttribute('type','button');
+        xBtn.innerHTML = '<svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:70%;height:70%;"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path></svg>';
+        xBtn.addEventListener('click', function(){ overlay.remove(); });
+        header.appendChild(h2); header.appendChild(xBtn);
+        var body = document.createElement('div');
+        body.className = 'm_5df29311 mantine-Modal-body';
+        var stack = document.createElement('div');
+        stack.className = 'm_6d731127 mantine-Stack-root';
+        stack.style.cssText = '--stack-gap:var(--mantine-spacing-lg);--stack-align:stretch;';
+        var p = document.createElement('p');
+        p.className = 'mantine-focus-auto m_b6d8b162 mantine-Text-root'; p.innerHTML = text;
+        stack.appendChild(p);
+        var flex = document.createElement('div');
+        flex.className = 'm_8bffd616 mantine-Flex-root';
+        flex.style.cssText = 'width:100%;justify-content:flex-end;align-items:center;gap:calc(0.25rem * var(--mantine-scale));margin-top:var(--mantine-spacing-lg);';
+        var okBtn = document.createElement('button');
+        okBtn.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+        okBtn.setAttribute('data-variant','filled'); okBtn.setAttribute('type','button');
+        okBtn.style.cssText = '--button-bg:var(--mantine-color-red-filled);--button-hover:var(--mantine-color-red-filled-hover);--button-color:var(--mantine-color-white);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;margin-top:calc(2rem * var(--mantine-scale));';
+        okBtn.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">'+confirmLabel+'</span></span>';
+        okBtn.addEventListener('click', function(){ overlay.remove(); onConfirm(); });
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+        cancelBtn.setAttribute('data-variant','default'); cancelBtn.setAttribute('type','button');
+        cancelBtn.style.cssText = '--button-bg:var(--mantine-color-default);--button-hover:var(--mantine-color-default-hover);--button-color:var(--mantine-color-default-color);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-default-border);margin-top:calc(2rem * var(--mantine-scale));';
+        cancelBtn.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span>';
+        cancelBtn.addEventListener('click', function(){ overlay.remove(); });
+        flex.appendChild(okBtn); flex.appendChild(cancelBtn);
+        body.appendChild(stack); body.appendChild(flex);
+        section.appendChild(header); section.appendChild(body);
+        overlay.appendChild(section);
+        overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+    }
+
     // --- Перезапуск сеансов ---
     function restartSelected() {
         var snapshot = {};
@@ -514,18 +563,25 @@
         closeMenu();
         var pcNames = Object.keys(snapshot).map(function(k) { return snapshot[k]; }).filter(Boolean);
         if (!pcNames.length) return;
-        var count = 0;
-        pcNames.forEach(function(pcName) {
-            var sessions = window._godjiSessionsData || {};
-            if (!sessions[pcName] || !sessions[pcName].sessionId) return;
-            if (window._godjiRestartPc) {
-                window._godjiRestartPc(pcName);
-                count++;
-            }
+        var sessions = window._godjiSessionsData || {};
+        // Формируем перечень ПК с ником или пометкой "нет сеанса"
+        var lines = pcNames.map(function(pc) {
+            var s = sessions[pc];
+            if (!s || !s.sessionId) return '<span style="opacity:0.5">ПК ' + pc + ' — нет активного сеанса</span>';
+            var rem = s.timeTo ? Math.max(1, Math.ceil((new Date(s.timeTo).getTime() - Date.now()) / 60000)) : 0;
+            return 'ПК <strong>' + pc + '</strong> — ' + (s.nickname || '?') + (rem ? ', ' + rem + ' мин' : '');
         });
-        if (count > 0) showToast('Перезапуск запущен для ' + count + ' ПК');
-        else showToast('Нет активных сеансов для перезапуска');
-        clearAll();
+        var txt = lines.join('<br>');
+        showConfirm('Перезапустить сеансы', txt, 'Перезапустить', function() {
+            var count = 0;
+            pcNames.forEach(function(pcName) {
+                if (!sessions[pcName] || !sessions[pcName].sessionId) return;
+                if (window._godjiRestartPc) { window._godjiRestartPc(pcName); count++; }
+            });
+            if (count > 0) showToast('Перезапуск запущен для ' + count + ' ПК');
+            else showToast('Нет активных сеансов для перезапуска');
+            clearAll();
+        });
     }
 
     function openMenu(x, y) {
@@ -652,7 +708,20 @@
             menu.appendChild(makeMenuItem('Завершить сеансы',
                 '<path d="M4 4m0 1a1 1 0 0 1 1 -1h14a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1z"></path><path d="M4 8h16"></path><path d="M8 4v4"></path><path d="M10 16l4 -4"></path><path d="M14 16l-4 -4"></path>',
                 getColor('Завершить сессию', '#b71c1c'),
-                function() { runForAll('UserReservationCancel'); },
+                function() {
+                    var snap = {}; Object.keys(selected).forEach(function(k){ snap[k]=selected[k]; });
+                    closeMenu();
+                    var pcs = Object.keys(snap).map(function(k){ return snap[k]; }).filter(Boolean);
+                    var sess = window._godjiSessionsData || {};
+                    var lines = pcs.map(function(pc){
+                        var s = sess[pc];
+                        if (!s || !s.sessionId) return '<span style="opacity:0.5">ПК '+pc+' — нет активного сеанса</span>';
+                        return 'ПК <strong>'+pc+'</strong>'+(s.nickname?' — '+s.nickname:'');
+                    });
+                    showConfirm('Завершить сеансы', lines.join('<br>'), 'Завершить', function(){
+                        runForAll('UserReservationCancel'); clearAll();
+                    });
+                },
                 getBg('Завершить сессию', 'rgba(183,28,28,0.10)'),
                 getBg('Завершить сессию', 'rgba(183,28,28,0.18)')));
             menu.appendChild(makeMenuItem('Перезапустить сеансы',
