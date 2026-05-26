@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Подсветка уборки
 // @namespace    http://tampermonkey.net/
-// @version      3.11
+// @version      3.12
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cleanup_alert.user.js
@@ -134,6 +134,7 @@
             card.style.outline = '';
             card.style.outlineOffset = '';
             card.style.boxShadow = '';
+            delete card.dataset.godjiHighlighted;
             if (card.classList.contains('gm-card')) {
                 var gmT = card.querySelector('.gm-timer');
                 if (gmT) { gmT.textContent = ''; gmT.style.color = ''; gmT.style.display = 'none'; }
@@ -185,12 +186,21 @@
             var card = findCard(pc);
             var allCards = findAllCards(pc);
             var waiting = isWaiting(card);
+            // Сбрасываем флаг если узел пересоздан React (нет outline но флаг стоит)
+            allCards.forEach(function(c) {
+                if (c.dataset.godjiHighlighted && !c.style.outline) {
+                    delete c.dataset.godjiHighlighted;
+                }
+            });
 
             // --- Все карточки на карте (и наша и оригинальная) ---
             allCards.forEach(function(c) {
+                // Не трогаем если стиль уже применён — избегаем мигания
+                if (c.dataset.godjiHighlighted) return;
                 c.style.outline = '3px solid #7c3aed';
                 c.style.outlineOffset = '0px';
                 c.style.boxShadow = '0 0 10px 2px rgba(124, 58, 237, 0.5)';
+                c.dataset.godjiHighlighted = '1';
             });
 
             // Применяем таймер ко всем карточкам
