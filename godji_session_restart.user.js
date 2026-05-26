@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.8
+// @version      5.9
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -401,6 +401,77 @@
     // -------------------------------------------------------------------------
     // Основная логика перезапуска
     // -------------------------------------------------------------------------
+    // Попап подтверждения — точно по структуре ERP modal
+    function showConfirm(title, text, confirmLabel, onConfirm) {
+        // Оверлей
+        var overlay = document.createElement('div');
+        overlay.id = 'godji-restart-confirm-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+
+        // Секция — точно как mantine-Modal-content
+        var section = document.createElement('section');
+        section.className = 'm_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root';
+        section.setAttribute('role', 'dialog');
+        section.setAttribute('tabindex', '-1');
+        section.style.cssText = 'opacity:1;transform:translateY(0px);transition:opacity 200ms ease,transform 200ms ease;min-width:calc(25rem * var(--mantine-scale));max-width:90vw;';
+
+        // Header
+        var header = document.createElement('header');
+        header.className = 'm_b5489c3c m_d0e2b9cd mantine-Modal-header';
+        var h2 = document.createElement('h2');
+        h2.className = 'm_615af6c9 mantine-Modal-title';
+        h2.textContent = title;
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root';
+        closeBtn.setAttribute('data-variant', 'subtle');
+        closeBtn.setAttribute('type', 'button');
+        closeBtn.innerHTML = '<svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:70%;height:70%;"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path></svg>';
+        closeBtn.addEventListener('click', function() { overlay.remove(); });
+        header.appendChild(h2);
+        header.appendChild(closeBtn);
+
+        // Body
+        var body = document.createElement('div');
+        body.className = 'm_5df29311 mantine-Modal-body';
+        var stack = document.createElement('div');
+        stack.className = 'm_6d731127 mantine-Stack-root';
+        stack.style.cssText = '--stack-gap:var(--mantine-spacing-lg);--stack-align:stretch;--stack-justify:flex-start;';
+        var p = document.createElement('p');
+        p.className = 'mantine-focus-auto m_b6d8b162 mantine-Text-root';
+        p.innerHTML = text;
+        stack.appendChild(p);
+        var flex = document.createElement('div');
+        flex.className = 'm_8bffd616 mantine-Flex-root';
+        flex.style.cssText = 'width:100%;justify-content:flex-end;align-items:center;gap:calc(0.25rem * var(--mantine-scale));margin-top:var(--mantine-spacing-lg);';
+        var confirmBtnEl = document.createElement('button');
+        confirmBtnEl.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+        confirmBtnEl.setAttribute('data-variant', 'filled');
+        confirmBtnEl.setAttribute('type', 'button');
+        confirmBtnEl.style.cssText = '--button-bg:var(--mantine-color-red-filled);--button-hover:var(--mantine-color-red-filled-hover);--button-color:var(--mantine-color-white);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;margin-top:calc(2rem * var(--mantine-scale));';
+        confirmBtnEl.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">' + confirmLabel + '</span></span>';
+        confirmBtnEl.addEventListener('click', function() { overlay.remove(); onConfirm(); });
+        var cancelBtnEl = document.createElement('button');
+        cancelBtnEl.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+        cancelBtnEl.setAttribute('data-variant', 'default');
+        cancelBtnEl.setAttribute('type', 'button');
+        cancelBtnEl.style.cssText = '--button-bg:var(--mantine-color-default);--button-hover:var(--mantine-color-default-hover);--button-color:var(--mantine-color-default-color);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-default-border);margin-top:calc(2rem * var(--mantine-scale));';
+        cancelBtnEl.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span>';
+        cancelBtnEl.addEventListener('click', function() { overlay.remove(); });
+        flex.appendChild(confirmBtnEl);
+        flex.appendChild(cancelBtnEl);
+        body.appendChild(stack);
+        body.appendChild(flex);
+        section.appendChild(header);
+        section.appendChild(body);
+        overlay.appendChild(section);
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(section);
+        // Вставляем через Mantine overlay механизм
+        overlay.removeChild(section);
+        document.body.appendChild(overlay);
+        overlay.appendChild(section);
+    }
+
     function doRestart(pcName) {
         var session = sessionsData[pcName];
         if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
@@ -566,7 +637,14 @@
             e.stopPropagation();
             var pc = lastContextPc;
             document.body.click();
-            setTimeout(function () { doRestart(pc); }, 50);
+            setTimeout(function () {
+                var session = sessionsData[pc] || {};
+                var remainMin = 0;
+                if (session.timeTo) remainMin = Math.max(1, Math.ceil((new Date(session.timeTo).getTime() - Date.now()) / 60000));
+                var txt = 'Перезапустить сеанс на ПК <strong>' + pc + '</strong>?';
+                if (session.nickname) txt += '<br><span style="color:var(--mantine-color-dimmed);font-size:0.85em;">' + session.nickname + (remainMin ? ', остаток ' + remainMin + ' мин' : '') + '</span>';
+                showConfirm('Перезапустить сеанс', txt, 'Перезапустить', function() { doRestart(pc); });
+            }, 50);
         });
 
         afterItem.parentNode.insertBefore(btn, afterItem.nextSibling);
