@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.8
+// @version      5.9
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -96,6 +96,7 @@
     function toggle(card) {
         var id = getDeviceId(card), name = getPcName(card);
         if (!id || !name) return;
+        if (window._godjiSaveMapTransform) window._godjiSaveMapTransform();
         if (selected[id]) {
             delete selected[id];
             setCardStyle(card, false);
@@ -138,6 +139,8 @@
         document.querySelectorAll('.DeviceItem_deviceBox__pzNUf, .gm-card').forEach(function(c) { setCardStyle(c, false); });
         document.querySelectorAll('tr.mantine-Table-tr[data-index]').forEach(function(r) { setRowStyle(r, false); });
         updateCounter();
+        // Восстанавливаем вид карты после сброса выделения
+        if (window._godjiRestoreMapTransform) window._godjiRestoreMapTransform();
     }
 
     // --- Получаем цвета из godji_menu_colors ---
@@ -252,45 +255,6 @@
         }
 
         showToast(labels[op] + ' ✓ для ' + ids.length + ' ПК');
-        clearAll();
-    }
-
-    // --- Перезапуск сеансов ---
-    async function restartSelected() {
-        closeMenu();
-        var ids = Object.keys(selected);
-        if (!ids.length) return;
-
-        showToast('Загрузка данных сессий...');
-        var sessions = window._godjiSessionsData;
-        if (!sessions || !Object.keys(sessions).length) {
-            sessions = await fetchSessionsForSelected();
-            window._godjiSessionsData = sessions;
-        }
-
-        var pcNames = ids.map(function(id) { return selected[id]; }).filter(Boolean);
-        var active  = pcNames.filter(function(n) { return sessions[n] && sessions[n].sessionId; });
-
-        if (!active.length) { showToast('Нет активных сеансов'); return; }
-
-        showToast('Перезапуск сеансов для ' + active.length + ' ПК...');
-
-        var results = { ok: 0, err: 0 };
-        for (var i = 0; i < active.length; i++) {
-            var pcName = active[i];
-            try {
-                // Вызываем doRestart из скрипта перезапуска если он доступен
-                if (window._godjiRestartPc) {
-                    await window._godjiRestartPc(pcName);
-                    results.ok++;
-                } else {
-                    results.err++;
-                }
-            } catch(e) { results.err++; }
-            if (i < active.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
-        }
-
-        showToast('Перезапуск: ' + results.ok + ' ✓' + (results.err ? ', ' + results.err + ' ✗' : ''));
         clearAll();
     }
 
@@ -449,15 +413,21 @@
         var snapshot = {};
         Object.keys(selected).forEach(function(k) { snapshot[k] = selected[k]; });
         closeMenu();
-        var pcs = {};
-        try { pcs = JSON.parse(localStorage.getItem('godji_cleanup_pcs') || '{}'); } catch(e) {}
-        var ids = Object.keys(snapshot);
         var count = 0;
-        ids.forEach(function(id) {
+        Object.keys(snapshot).forEach(function(id) {
             var name = snapshot[id];
-            if (pcs[name]) { delete pcs[name]; count++; }
+            // Вызываем полноценный clearHighlight из cleanup_alert (убирает стили, таймеры, localStorage)
+            if (window._godjiClearHighlight) {
+                window._godjiClearHighlight(name);
+                count++;
+            } else {
+                // Fallback: только localStorage
+                try {
+                    var pcs = JSON.parse(localStorage.getItem('godji_cleanup_pcs') || '{}');
+                    if (pcs[name]) { delete pcs[name]; localStorage.setItem('godji_cleanup_pcs', JSON.stringify(pcs)); count++; }
+                } catch(e) {}
+            }
         });
-        localStorage.setItem('godji_cleanup_pcs', JSON.stringify(pcs));
         if (window._godjiApplyHighlights) window._godjiApplyHighlights();
         showToast('Подсветка снята для ' + count + ' ПК');
         clearAll();
