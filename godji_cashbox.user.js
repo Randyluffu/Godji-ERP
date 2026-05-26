@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.13
+// @version      3.14
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -632,8 +632,8 @@ function renderModal(){
         // Ник админа рядом с суммой в шапке
         if(shift && shift.adminNick){
             var adminSpan=document.createElement('span');
-            adminSpan.style.cssText='font-size:11px;font-weight:600;color:rgba(0,0,0,0.35);margin-right:6px;white-space:nowrap;';
-            adminSpan.textContent=shift.adminNick+' •';
+            adminSpan.style.cssText='display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:20px;padding:2px 10px;margin-right:8px;white-space:nowrap;';
+            adminSpan.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+shift.adminNick;
             tw.appendChild(adminSpan);
         }
         // Кнопка глаза (hover-блюр вкл/выкл)
@@ -1108,13 +1108,12 @@ function renderCurrentTab(body, shift){
     dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='#bbb';dbgBtn.style.borderColor='#e0e0e0';dbgBtn.style.background='#f5f5f5';});
     dbgBtn.addEventListener('click',function(){ runCashboxDebug(); });
 
-    // Кнопка списка админов
+    // Кнопка списка админов — цветная с текстом, прижата вправо
     var admBtn=document.createElement('button');
-    admBtn.title='Список админов';
-    admBtn.style.cssText='padding:0;width:28px;height:28px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;color:#bbb;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
-    admBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
-    admBtn.addEventListener('mouseenter',function(){admBtn.style.color='#555';admBtn.style.borderColor='#bbb';admBtn.style.background='#efefef';});
-    admBtn.addEventListener('mouseleave',function(){admBtn.style.color='#bbb';admBtn.style.borderColor='#e0e0e0';admBtn.style.background='#f5f5f5';});
+    admBtn.style.cssText='margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 13px;height:32px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;cursor:pointer;color:#1d4ed8;font-size:12px;font-weight:700;font-family:inherit;transition:all 0.15s;flex-shrink:0;white-space:nowrap;';
+    admBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Список админов';
+    admBtn.addEventListener('mouseenter',function(){admBtn.style.background='#dbeafe';admBtn.style.borderColor='#93c5fd';});
+    admBtn.addEventListener('mouseleave',function(){admBtn.style.background='#eff6ff';admBtn.style.borderColor='#bfdbfe';});
     admBtn.addEventListener('click',function(){ showAdminList(); });
 
     actions.appendChild(closeBtn);
@@ -1188,7 +1187,7 @@ function renderHistoryTab(body){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
     var hr=document.createElement('tr');
-    [['Открыта','115px'],['Закрыта','115px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px'],['В кассе','80px']].forEach(function(c){
+    [['Открыта','100px'],['Смена','90px'],['Закрыта','100px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px'],['В кассе','80px']].forEach(function(c){
         var th=document.createElement('th');
         th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
         th.textContent=c[0]; hr.appendChild(th);
@@ -1205,11 +1204,22 @@ function renderHistoryTab(body){
 
         var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
 
-        // Ячейка "Открыта" — двустрочная с ником
+        // Ячейка "Открыта"
         var tdOpen=document.createElement('td'); tdOpen.style.cssText='padding:9px 12px;white-space:nowrap;';
-        if(s.adminNick){ var an=document.createElement('div'); an.style.cssText='font-size:11px;font-weight:700;color:#166534;margin-bottom:2px;'; an.textContent=s.adminNick; tdOpen.appendChild(an); }
         var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
         tr.appendChild(tdOpen);
+
+        // Ячейка "Смена" — ник админа по центру между датами
+        var tdAdmin=document.createElement('td'); tdAdmin.style.cssText='padding:9px 8px;text-align:center;';
+        if(s.adminNick){
+            var adminBadge=document.createElement('span');
+            adminBadge.style.cssText='display:inline-block;font-size:11px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:20px;padding:2px 9px;white-space:nowrap;';
+            adminBadge.textContent=s.adminNick;
+            tdAdmin.appendChild(adminBadge);
+        } else {
+            tdAdmin.innerHTML='<span style="color:#ddd;font-size:11px;">—</span>';
+        }
+        tr.appendChild(tdAdmin);
 
         // Ячейка "Закрыта"
         var tdClose=document.createElement('td'); tdClose.style.cssText='padding:9px 12px;white-space:nowrap;';
