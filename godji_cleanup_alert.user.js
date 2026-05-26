@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Подсветка уборки
 // @namespace    http://tampermonkey.net/
-// @version      3.10
+// @version      3.11
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cleanup_alert.user.js
@@ -505,6 +505,9 @@
         return null;
     }
 
+    // Экспортируем clearHighlight для использования из других скриптов (multi_select)
+    window._godjiClearHighlight = clearHighlight;
+
     // --- Снимаем подсветку при нажатии "Выключить" в меню ---
     document.addEventListener('click', function(e) {
         var menuItem = e.target.closest('[role="menuitem"]');
@@ -517,15 +520,20 @@
         }
     }, true);
 
+    var _lastMenuElCleanup = null;
     var menuObserver = new MutationObserver(function() {
         var menuEl = document.querySelector('[data-menu-dropdown="true"]');
-        if (!menuEl) return;
+        if (!menuEl || menuEl === _lastMenuElCleanup) return;
+        _lastMenuElCleanup = menuEl;
         setTimeout(function() {
-            var pc = detectPcFromMenu(menuEl);
-            if (pc) injectMenuButton(pc);
+            // Показываем кнопку только если lastContextPc подсвечен
+            if (lastContextPc) {
+                var data = loadNeedsCleanup();
+                if (data[lastContextPc]) injectMenuButton(lastContextPc);
+            }
         }, 80);
     });
-    menuObserver.observe(document.body, { childList: true, subtree: true });
+    menuObserver.observe(document.body, { childList: true, subtree: false });
 
     document.addEventListener('mouseover', function(e) {
         var row = e.target.closest('tr.mantine-Table-tr');
