@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -113,6 +113,25 @@
         var visBot  = visTop + container.clientHeight;
         if (rowTop >= visTop && rowTop + rRect.height <= visBot) return;
         container.scrollTo({ top: rowTop - container.clientHeight / 2 + rRect.height / 2, behavior: 'smooth' });
+    }
+
+    // Сохраняем текущий transform карты чтобы восстановить после сброса выделения
+    function saveMapTransform() {
+        var transformEl = document.querySelector('.react-transform-component');
+        if (transformEl) window._godjiSavedMapTransform = transformEl.style.transform;
+        var layer = document.getElementById('gm-layer');
+        if (layer) window._godjiSavedGmTransform = layer.style.transform;
+    }
+
+    function restoreMapTransform() {
+        if (window._godjiSavedMapTransform) {
+            var transformEl = document.querySelector('.react-transform-component');
+            if (transformEl) transformEl.style.transform = window._godjiSavedMapTransform;
+        }
+        if (window._godjiSavedGmTransform) {
+            var layer = document.getElementById('gm-layer');
+            if (layer) layer.style.transform = window._godjiSavedGmTransform;
+        }
     }
 
     function isCardVisible(card) {
@@ -250,5 +269,9 @@
 
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 2000);
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 5000);
+
+    // Экспортируем для multi_select — сохранение/восстановление вида карты
+    window._godjiSaveMapTransform    = saveMapTransform;
+    window._godjiRestoreMapTransform = restoreMapTransform;
 
 })();
