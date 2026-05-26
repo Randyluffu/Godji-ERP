@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      3.13
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -13,29 +13,69 @@
 'use strict';
 
 // ── Блюр сумм ─────────────────────────────────────────────
-var _valuesHidden = true; // В модале: скрыты по умолчанию
+var _valuesHidden = true;
+// _blurDisabled сохраняется до закрытия смены (в localStorage), сбрасывается при открытии новой
+var GCB_BLUR_KEY   = 'godji_cashbox_blur_off';
+var GCB_ADMINS_KEY = 'godji_cashbox_admins';
 
-function mkBlur(el){
-    el.style.filter='blur(5px)';
-    el.style.userSelect='none';
-    el.style.transition='filter 0.2s';
-    el.style.cursor='pointer';
-    el.addEventListener('mouseenter',function(){el.style.filter='none';});
-    el.addEventListener('mouseleave',function(){el.style.filter='blur(5px)';});
+function loadAdmins(){
+    try{ var a=JSON.parse(localStorage.getItem(GCB_ADMINS_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){return [];}
 }
+function saveAdmins(arr){
+    try{ localStorage.setItem(GCB_ADMINS_KEY, JSON.stringify(arr)); }catch(e){}
+}
+var _blurDisabled = (function(){ try{ return localStorage.getItem(GCB_BLUR_KEY)==='1'; }catch(e){return false;} })();
 
+// Применяет/снимает блюр на все [data-cashval] внутри container.
+// hidden=true  → блюр включён (hover снимает)
+// hidden=false → блюр снят (hover не нужен)
+// Если _blurDisabled=true — блюр не ставится совсем.
 function applyModalBlur(container, hidden){
-    // Все элементы с data-cashval в модале
+    if(!container) return;
+    var effectiveHidden = !_blurDisabled && hidden;
     container.querySelectorAll('[data-cashval]').forEach(function(el){
-        el.style.filter = hidden ? 'blur(5px)' : 'none';
-        el.style.userSelect = hidden ? 'none' : '';
+        // Не клонируем — просто обновляем стили и флаг
         el.style.transition = 'filter 0.2s';
-        if(hidden){
-            el.addEventListener('mouseenter',function(){el.style.filter='none';});
-            el.addEventListener('mouseleave',function(){if(_valuesHidden)el.style.filter='blur(5px)';});
+        if(effectiveHidden){
+            el.style.filter = 'blur(5px)';
+            el.style.userSelect = 'none';
+            el.style.cursor = 'pointer';
+            // Ставим флаг чтобы mouseenter/mouseleave читали актуальное состояние
+            el._gcbBlurred = true;
+        } else {
+            el.style.filter = 'none';
+            el.style.userSelect = '';
+            el.style.cursor = '';
+            el._gcbBlurred = false;
         }
     });
 }
+
+// Вешаем hover-обработчики один раз при создании элемента
+function attachBlurHover(el){
+    el.addEventListener('mouseenter', function(){
+        if(el._gcbBlurred) el.style.filter='none';
+    });
+    el.addEventListener('mouseleave', function(){
+        if(el._gcbBlurred) el.style.filter='blur(5px)';
+    });
+}
+
+// Синхронизирует блюр суммы на кнопке в сайдбаре
+function updateBtnBlurState(){
+    var sumEl = document.querySelector('#godji-cashbox-btn .gcb-sum');
+    if(!sumEl) return;
+    if(_blurDisabled){
+        sumEl.style.filter='none';
+        sumEl.onmouseenter=null;
+        sumEl.onmouseleave=null;
+    } else {
+        sumEl.style.filter='blur(4px)';
+        sumEl.onmouseenter=function(){sumEl.style.filter='none';};
+        sumEl.onmouseleave=function(){if(!_blurDisabled)sumEl.style.filter='blur(4px)';};
+    }
+}
+
 
 
 var STORAGE_KEY = 'godji_cashbox';
@@ -57,13 +97,20 @@ function fmtDate(ts){
 function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 
 // ── Перехват fetch через inline <script> + CustomEvent ────
+// Используем нативный fetch напрямую через XMLHttpRequest-уровень
+// чтобы избежать infinite loop при множественных fetch-обёртках
 (function injectPageScript(){
     var code = [
         '(function(){',
         '  if(window.__gcbInjected) return; window.__gcbInjected=true;',
+        '  // Сохраняем НАТИВНЫЙ fetch до любых оберток через XMLHttpRequest',
+        '  // Используем guard флаг против рекурсии',
         '  var _f = window.fetch;',
         '  window.fetch = function(url, opts){',
+        '    if(window.__gcbDepth>0) return _f.apply(this, arguments);',
+        '    window.__gcbDepth=(window.__gcbDepth||0)+1;',
         '    var p = _f.apply(this, arguments);',
+        '    window.__gcbDepth--;',
         '    if(url && typeof url==="string" && url.indexOf("hasura.godji.cloud")!==-1){',
         '      var b=""; try{b=(opts&&opts.body)||"";}catch(e){}',
         '      var hdrs={}; try{hdrs=(opts&&opts.headers)||{};}catch(e){}',
@@ -202,13 +249,15 @@ function onApi(reqBody, data){
        op.indexOf('OpenShift') !== -1 || op.indexOf('StartShift') !== -1){
         if(!loadCurrent()){
             var s2 = d.openShift || d.createShift || d.startShift || {};
-            var newShift={id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
-                         cash:0, card:0, manual:0, withdrawal:0, manualEntries:[],
-                         seenOpIds:[]};
-            saveCurrent(newShift);
-            // Инициализируем maxSeenId
-            initMaxId(newShift, function(){ saveCurrent(newShift); });
-            updateBtnBadge(); updateModalIfOpen();
+            pickAdminAndOpen(function(nick){
+                var newShift={id: s2.id||('s_'+Date.now()), openedAt:Date.now(), openedBy:'erp',
+                             adminNick: nick,
+                             cash:0, card:0, manual:0, withdrawal:0, manualEntries:[],
+                             seenOpIds:[]};
+                saveCurrent(newShift);
+                initMaxId(newShift, function(){ saveCurrent(newShift); });
+                updateBtnBadge(); updateModalIfOpen();
+            });
         }
     }
 
@@ -381,7 +430,7 @@ function showShiftOpenPopup(){
         '</div>';
     document.body.appendChild(pop);
     document.getElementById('gcb-pop-open').addEventListener('click', function(){
-        openShiftManual(); pop.remove(); updateBtnBadge(); updateModalIfOpen();
+        pickAdminAndOpen(function(nick){ openShiftManual(nick); pop.remove(); updateBtnBadge(); updateModalIfOpen(); });
     });
     document.getElementById('gcb-pop-close').addEventListener('click', function(){ pop.remove(); });
     // Автоскрытие через 30 сек
@@ -418,21 +467,34 @@ setInterval(checkShiftReminder, 30000); // проверяем каждые 30 с
 
 // ── Слушаем кнопку "Открыть смену" в ERP ─────────────────
 function watchShiftBtn(){
-    var hdr = document.querySelector('.Sidebar_header__dm6Ua');
-    if(!hdr) return;
-    hdr.querySelectorAll('button').forEach(function(b){
+    // Кнопка смены в .Shifts_shiftsPaper__9Jml_ (блок с часами), не в header
+    var paper = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(!paper) return;
+    paper.querySelectorAll('button').forEach(function(b){
         if(b._gcbShiftWatched) return;
         b._gcbShiftWatched = true;
         b.addEventListener('click', function(){
-            var txt = b.textContent.toLowerCase();
+            var txt = (b.textContent || '').toLowerCase().trim();
             if(txt.indexOf('открыт') !== -1 && txt.indexOf('смен') !== -1){
+                // Нажата "Открыть смену" — ждём 1.5 сек, затем синхронизируем кассу
                 setTimeout(function(){
                     if(!loadCurrent()){
-                        saveCurrent({id:'s_'+Date.now(), openedAt:Date.now(), openedBy:'erp',
-                                     cash:0, card:0, manual:0, withdrawal:0, manualEntries:[]});
-                        updateBtnBadge(); updateModalIfOpen();
+                        pickAdminAndOpen(function(nick){
+                            var shift = {id:'s_'+Date.now(), openedAt:Date.now(), openedBy:'erp',
+                                         adminNick: nick,
+                                         cash:0, card:0, manual:0, withdrawal:0, manualEntries:[], seenOpIds:[]};
+                            saveCurrent(shift);
+                            initMaxId(shift, function(){ saveCurrent(shift); });
+                            updateBtnBadge(); updateModalIfOpen();
+                        });
                     }
-                }, 1000);
+                }, 1500);
+            } else if(txt.indexOf('закрыт') !== -1 && txt.indexOf('смен') !== -1){
+                // Нажата "Закрыть смену"
+                setTimeout(function(){
+                    var cur = loadCurrent();
+                    if(cur) closeShift(cur, 'erp');
+                }, 2000);
             }
         });
     });
@@ -465,17 +527,61 @@ function closeShift(shift, source){
     if(shifts.length>90) shifts=shifts.slice(0,90);
     saveShifts(shifts);
     saveCurrent(null);
+    // Сбрасываем отключение скрытия при закрытии смены
+    try{ localStorage.removeItem(GCB_BLUR_KEY); }catch(ex){}
+    _blurDisabled=false;
     updateBtnBadge(); updateModalIfOpen();
 }
 
-function openShiftManual(){
+function openShiftManual(adminNick){
     if(loadCurrent()) return;
     var shift={id:'s_'+Date.now(),openedAt:Date.now(),openedBy:'manual',
+               adminNick: adminNick||'',
                cash:0,card:0,manual:0,withdrawal:0,manualEntries:[],seenOpIds:[]};
     saveCurrent(shift);
-    // Инициализируем maxSeenId чтобы не тащить историю
     initMaxId(shift, function(){ saveCurrent(shift); });
     updateBtnBadge(); updateModalIfOpen();
+}
+
+// Выбор админа перед открытием смены
+function pickAdminAndOpen(onPicked){
+    var admins = loadAdmins();
+    if(!admins.length){
+        // Нет админов — предлагаем добавить
+        var nick = prompt('Нет добавленных админов.\nВведите ник первого админа:','');
+        if(!nick||!nick.trim()) return;
+        nick = nick.trim();
+        admins.push(nick); saveAdmins(admins);
+    }
+    if(admins.length === 1){
+        onPicked(admins[0]); return;
+    }
+    // Модалка выбора
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100010;display:flex;align-items:center;justify-content:center;';
+    var box=document.createElement('div');
+    box.style.cssText='background:#fff;border-radius:12px;width:320px;padding:20px;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
+    var title=document.createElement('div');
+    title.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:14px;';
+    title.textContent='Кто открывает смену?';
+    box.appendChild(title);
+    admins.forEach(function(nick){
+        var btn=document.createElement('button');
+        btn.style.cssText='display:block;width:100%;text-align:left;padding:10px 14px;margin-bottom:6px;background:#f4f4f4;border:1px solid #e8e8e8;border-radius:8px;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;font-family:inherit;transition:background 0.1s;';
+        btn.textContent=nick;
+        btn.addEventListener('mouseenter',function(){btn.style.background='#e8f5e9';btn.style.borderColor='#bbf7d0';});
+        btn.addEventListener('mouseleave',function(){btn.style.background='#f4f4f4';btn.style.borderColor='#e8e8e8';});
+        btn.addEventListener('click',function(){ ov.remove(); onPicked(nick); });
+        box.appendChild(btn);
+    });
+    var cancelBtn=document.createElement('button');
+    cancelBtn.style.cssText='display:block;width:100%;text-align:center;padding:8px;background:none;border:none;font-size:12px;color:#aaa;cursor:pointer;font-family:inherit;margin-top:4px;';
+    cancelBtn.textContent='Отмена';
+    cancelBtn.addEventListener('click',function(){ov.remove();});
+    box.appendChild(cancelBtn);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    ov.appendChild(box); document.body.appendChild(ov);
+    document.addEventListener('keydown',function eh(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}});
 }
 
 // ── Модалка ───────────────────────────────────────────────
@@ -483,13 +589,13 @@ var _modal=null, _overlay=null, _isOpen=false, _tab='current';
 
 function buildModal(){
     _overlay=document.createElement('div');
-    _overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99997;display:none;';
+    _overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99997;display:none;pointer-events:auto;';
     _overlay.addEventListener('click',hideModal);
     document.body.appendChild(_overlay);
 
     _modal=document.createElement('div');
     _modal.id='godji-cashbox-modal';
-    _modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99998;width:640px;max-width:96vw;max-height:90vh;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.22);display:none;flex-direction:column;font-family:inherit;overflow:hidden;';
+    _modal.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99998;width:720px;max-width:96vw;max-height:90vh;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.22);display:none;flex-direction:column;font-family:inherit;overflow:hidden;';
     document.body.appendChild(_modal);
 
     document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&_isOpen) hideModal(); });
@@ -522,12 +628,19 @@ function renderModal(){
         tBadge.setAttribute('data-cashval','1');
         tBadge.style.cssText='font-size:18px;font-weight:800;color:#1a1a1a;margin-left:2px;';
         tBadge.textContent=fmtAmtAbs(total);
-        mkBlur(tBadge);
-        // Кнопка глаза рядом с итогом в шапке
+        attachBlurHover(tBadge);
+        // Ник админа рядом с суммой в шапке
+        if(shift && shift.adminNick){
+            var adminSpan=document.createElement('span');
+            adminSpan.style.cssText='font-size:11px;font-weight:600;color:rgba(0,0,0,0.35);margin-right:6px;white-space:nowrap;';
+            adminSpan.textContent=shift.adminNick+' •';
+            tw.appendChild(adminSpan);
+        }
+        // Кнопка глаза (hover-блюр вкл/выкл)
         var hdrEye=document.createElement('button');
-        hdrEye.style.cssText='background:none;border:none;cursor:pointer;color:#bbb;padding:2px 4px;display:flex;align-items:center;margin-left:4px;';
-        hdrEye.title=_valuesHidden?'Показать суммы':'Скрыть суммы';
+        hdrEye.style.cssText='background:none;border:none;cursor:pointer;color:#bbb;padding:2px 4px;display:flex;align-items:center;margin-left:4px;transition:color 0.15s;';
         function setEyeIcon(hidden){
+            hdrEye.title=hidden?'Показать суммы':'Скрыть суммы';
             hdrEye.innerHTML=hidden
                 ?'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
                 :'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -539,7 +652,43 @@ function renderModal(){
             applyModalBlur(_modal,_valuesHidden);
             setEyeIcon(_valuesHidden);
         });
-        tw.appendChild(tBadge); tw.appendChild(hdrEye);
+
+        // Кнопка "выключить блюр совсем" — текстовая, сбрасывается при переоткрытии
+        var hdrNoBlur=document.createElement('button');
+        hdrNoBlur.style.cssText='background:none;border:none;cursor:pointer;padding:2px 8px;margin-left:4px;font-size:11px;font-weight:600;border-radius:4px;transition:background 0.15s,color 0.15s;font-family:inherit;white-space:nowrap;';
+        function setNoBlurState(){
+            if(_blurDisabled){
+                hdrNoBlur.textContent='Скрытие: выкл';
+                hdrNoBlur.style.color='#166534';
+                hdrNoBlur.style.background='#dcfce7';
+                hdrNoBlur.title='Включить скрытие сумм';
+            } else {
+                hdrNoBlur.textContent='Скрытие: вкл';
+                hdrNoBlur.style.color='#888';
+                hdrNoBlur.style.background='rgba(0,0,0,0.05)';
+                hdrNoBlur.title='Выключить скрытие сумм (до новой смены)';
+            }
+        }
+        setNoBlurState();
+        hdrNoBlur.addEventListener('click',function(e){
+            e.stopPropagation();
+            _blurDisabled=!_blurDisabled;
+            try{ if(_blurDisabled) localStorage.setItem(GCB_BLUR_KEY,'1');
+                 else localStorage.removeItem(GCB_BLUR_KEY); }catch(ex){}
+            if(_blurDisabled){
+                // Выключаем скрытие — показываем всё
+                _valuesHidden=false;
+            } else {
+                // Включаем скрытие обратно — сразу блюрим
+                _valuesHidden=true;
+            }
+            applyModalBlur(_modal, _valuesHidden);
+            setEyeIcon(_valuesHidden);
+            setNoBlurState();
+            updateBtnBlurState();
+        });
+
+        tw.appendChild(tBadge); tw.appendChild(hdrEye); tw.appendChild(hdrNoBlur);
     }
     var xBtn=document.createElement('button');
     xBtn.style.cssText='background:none;border:none;color:#bbb;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0;';
@@ -555,7 +704,12 @@ function renderModal(){
         tb.style.cssText='border:none;background:none;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:#aaa;font-family:inherit;transition:all 0.15s;';
         tb.textContent=t[1];
         if(_tab===t[0]){ tb.style.color='#166534'; tb.style.borderBottomColor='#166534'; }
-        tb.addEventListener('click',function(){ _tab=t[0]; renderModal(); });
+        tb.addEventListener('click',function(){
+            _tab=t[0];
+            renderModal();
+            // Восстанавливаем состояние блюра после перерисовки
+            setTimeout(function(){ applyModalBlur(_modal, _valuesHidden); }, 10);
+        });
         tabs.appendChild(tb);
     });
     _modal.appendChild(tabs);
@@ -646,10 +800,10 @@ function showDebugPopup(status, allOps, refunds, diff){
     var ov=document.createElement('div');
     ov.id='gcb-debug-popup';
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100001;display:flex;align-items:center;justify-content:center;';
-    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    ov.addEventListener('click',function(e){ if(e.target!==ov) return; var dep=document.getElementById('gcb-deposits-box'); if(dep){dep.remove();return;} ov.remove(); });
 
     var box=document.createElement('div');
-    box.style.cssText='background:#fff;border-radius:12px;width:560px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
+    box.style.cssText='background:#fff;border-radius:12px;width:720px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);font-family:inherit;';
 
     // Шапка
     var hdr=document.createElement('div');
@@ -657,10 +811,19 @@ function showDebugPopup(status, allOps, refunds, diff){
     var ht=document.createElement('span');
     ht.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
     ht.textContent='🔍 Диагностика кассы';
+    var hdrRight=document.createElement('div');
+    hdrRight.style.cssText='display:flex;align-items:center;gap:8px;';
+
+    var depBtn=document.createElement('button');
+    depBtn.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;color:#166534;font-size:12px;font-weight:600;cursor:pointer;padding:5px 10px;font-family:inherit;display:flex;align-items:center;gap:5px;';
+    depBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Пополнения';
+    depBtn.addEventListener('click',function(){ showShiftDeposits(s); });
+
     var hc=document.createElement('button');
     hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;';
     hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
-    hdr.appendChild(ht); hdr.appendChild(hc);
+    hdrRight.appendChild(depBtn); hdrRight.appendChild(hc);
+    hdr.appendChild(ht); hdr.appendChild(hdrRight);
     box.appendChild(hdr);
 
     var body=document.createElement('div');
@@ -781,7 +944,7 @@ function renderCurrentTab(body, shift){
         openBtn.style.cssText='padding:10px 24px;background:#166534;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;';
         openBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Открыть смену вручную';
         openBtn.addEventListener('click',function(){
-            openShiftManual();
+            pickAdminAndOpen(function(nick){ openShiftManual(nick); updateBtnBadge(); updateModalIfOpen(); });
             renderModal();
         });
 
@@ -945,9 +1108,71 @@ function renderCurrentTab(body, shift){
     dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='#bbb';dbgBtn.style.borderColor='#e0e0e0';dbgBtn.style.background='#f5f5f5';});
     dbgBtn.addEventListener('click',function(){ runCashboxDebug(); });
 
+    // Кнопка списка админов
+    var admBtn=document.createElement('button');
+    admBtn.title='Список админов';
+    admBtn.style.cssText='padding:0;width:28px;height:28px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;color:#bbb;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
+    admBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+    admBtn.addEventListener('mouseenter',function(){admBtn.style.color='#555';admBtn.style.borderColor='#bbb';admBtn.style.background='#efefef';});
+    admBtn.addEventListener('mouseleave',function(){admBtn.style.color='#bbb';admBtn.style.borderColor='#e0e0e0';admBtn.style.background='#f5f5f5';});
+    admBtn.addEventListener('click',function(){ showAdminList(); });
+
     actions.appendChild(closeBtn);
     actions.appendChild(dbgBtn);
+    actions.appendChild(admBtn);
     body.appendChild(actions);
+}
+
+// ── Список админов ───────────────────────────────────────
+function showAdminList(){
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100010;display:flex;align-items:center;justify-content:center;';
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    var box=document.createElement('div');
+    box.style.cssText='background:#fff;border-radius:12px;width:320px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.25);font-family:inherit;';
+    var hdr=document.createElement('div');
+    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    var ht=document.createElement('span'); ht.style.cssText='font-size:13px;font-weight:700;color:#1a1a1a;'; ht.textContent='Список админов';
+    var hc=document.createElement('button'); hc.style.cssText='background:none;border:none;font-size:18px;cursor:pointer;color:#bbb;line-height:1;'; hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
+    hdr.appendChild(ht); hdr.appendChild(hc); box.appendChild(hdr);
+
+    function renderList(){
+        var listWrap=box.querySelector('.gcb-adm-list');
+        if(listWrap) listWrap.remove();
+        var wrap=document.createElement('div'); wrap.className='gcb-adm-list';
+        wrap.style.cssText='overflow-y:auto;flex:1;padding:10px 12px;';
+        var admins=loadAdmins();
+        if(!admins.length){
+            wrap.innerHTML='<div style="color:#ccc;text-align:center;padding:24px;font-size:13px;">Нет добавленных админов</div>';
+        } else {
+            admins.forEach(function(nick){
+                var row=document.createElement('div');
+                row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:7px;margin-bottom:4px;background:#f7f7f7;';
+                var nm=document.createElement('span'); nm.style.cssText='font-size:13px;font-weight:600;color:#1a1a1a;'; nm.textContent=nick;
+                row.appendChild(nm);
+                wrap.appendChild(row);
+            });
+        }
+        // Кнопка добавить
+        var addRow=document.createElement('div'); addRow.style.cssText='padding:6px 0 2px;';
+        var addBtn=document.createElement('button');
+        addBtn.style.cssText='width:100%;padding:9px;background:#f0fdf4;border:1px dashed #86efac;border-radius:7px;color:#166534;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:background 0.1s;';
+        addBtn.textContent='+ Добавить админа';
+        addBtn.addEventListener('click',function(){
+            var nick=prompt('Введите ник нового админа:','');
+            if(!nick||!nick.trim()) return;
+            nick=nick.trim();
+            var admins=loadAdmins();
+            if(admins.indexOf(nick)!==-1){ alert('Такой админ уже есть'); return; }
+            admins.push(nick); saveAdmins(admins);
+            renderList();
+        });
+        addRow.appendChild(addBtn); wrap.appendChild(addRow);
+        box.appendChild(wrap);
+    }
+    renderList();
+    ov.appendChild(box); document.body.appendChild(ov);
+    document.addEventListener('keydown',function eh(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}});
 }
 
 // ── Журнал смен ───────────────────────────────────────────
@@ -979,20 +1204,33 @@ function renderHistoryTab(body){
         tr.addEventListener('click',function(){ showShiftDetail(s); });
 
         var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
+
+        // Ячейка "Открыта" — двустрочная с ником
+        var tdOpen=document.createElement('td'); tdOpen.style.cssText='padding:9px 12px;white-space:nowrap;';
+        if(s.adminNick){ var an=document.createElement('div'); an.style.cssText='font-size:11px;font-weight:700;color:#166534;margin-bottom:2px;'; an.textContent=s.adminNick; tdOpen.appendChild(an); }
+        var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
+        tr.appendChild(tdOpen);
+
+        // Ячейка "Закрыта"
+        var tdClose=document.createElement('td'); tdClose.style.cssText='padding:9px 12px;white-space:nowrap;';
+        var dt2=document.createElement('div'); dt2.style.cssText='font-size:12px;color:#999;'; dt2.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdClose.appendChild(dt2);
+        tr.appendChild(tdClose);
+
+        // Остальные колонки
         [
-            [fmtDate(s.openedAt),                'color:#555;'],
-            [s.closedAt?fmtDate(s.closedAt):'—', 'color:#999;'],
-            [fmtAmtAbs(s.cash),                  'color:#166534;font-weight:600;'],
-            [fmtAmtAbs(s.card),                  'color:#1d4ed8;font-weight:600;'],
-            [fmtAmtAbs(s.manual),                'color:#7c3aed;font-weight:600;'],
-            [fmtAmtAbs(s.withdrawal),            'color:#b45309;font-weight:600;'],
-            [fmtAmtAbs(s.debit||0),              'color:#991b1b;font-weight:600;'],
-            [fmtAmtAbs(total),                   'font-weight:800;color:#1a1a1a;'],
+            [fmtAmtAbs(s.cash),       'color:#166534;font-weight:600;'],
+            [fmtAmtAbs(s.card),       'color:#1d4ed8;font-weight:600;'],
+            [fmtAmtAbs(s.manual),     'color:#7c3aed;font-weight:600;'],
+            [fmtAmtAbs(s.withdrawal), 'color:#b45309;font-weight:600;'],
+            [fmtAmtAbs(s.debit||0),   'color:#991b1b;font-weight:600;'],
+            [fmtAmtAbs(total),        'font-weight:800;color:#1a1a1a;font-size:14px;'],
         ].forEach(function(col){
             var td=document.createElement('td');
-            td.style.cssText='padding:9px 12px;font-size:12px;white-space:nowrap;'+col[1];
+            td.style.cssText='padding:9px 12px;font-size:12px;white-space:nowrap;'+col[1]; if(col[1].indexOf('font-size:14px')!==-1) td.style.fontSize='14px';
             td.textContent=col[0]; tr.appendChild(td);
         });
+        // Разделитель между сменами — заметная линия
+        tr.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;';
         tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1003,21 +1241,33 @@ function renderHistoryTab(body){
 function showShiftDetail(s){
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;';
-    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+    ov.addEventListener('click',function(e){ if(e.target!==ov) return; var dep=document.getElementById('gcb-deposits-box'); if(dep){dep.remove();return;} ov.remove(); });
     document.body.appendChild(ov);
 
     var box=document.createElement('div');
-    box.style.cssText='background:#fff;border-radius:12px;width:520px;max-width:96vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);';
+    box.style.cssText='background:#fff;border-radius:12px;width:720px;max-width:96vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.3);';
 
     var hdr=document.createElement('div');
-    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    hdr.style.cssText='padding:14px 20px 10px;border-bottom:1px solid #f0f0f0;flex-shrink:0;';
+    // Строка 1: заголовок + крестик
+    var hdrTop=document.createElement('div');
+    hdrTop.style.cssText='display:flex;align-items:center;justify-content:space-between;';
     var ht=document.createElement('span');
     ht.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
     ht.textContent='Смена: '+fmtDate(s.openedAt)+' → '+(s.closedAt?fmtDate(s.closedAt):'открыта');
     var hc=document.createElement('button');
-    hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;';
+    hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;line-height:1;';
     hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
-    hdr.appendChild(ht); hdr.appendChild(hc);
+    hdrTop.appendChild(ht); hdrTop.appendChild(hc);
+    // Строка 2: кнопка "История пополнений" по центру
+    var hdrBot=document.createElement('div');
+    hdrBot.style.cssText='display:flex;justify-content:center;margin-top:8px;';
+    var depBtn=document.createElement('button');
+    depBtn.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;color:#166534;font-size:12px;font-weight:600;cursor:pointer;padding:5px 16px;font-family:inherit;';
+    depBtn.textContent='История пополнений';
+    depBtn.addEventListener('click',function(){ showShiftDeposits(s); });
+    hdrBot.appendChild(depBtn);
+    hdr.appendChild(hdrTop); hdr.appendChild(hdrBot);
     box.appendChild(hdr);
 
     var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
@@ -1076,10 +1326,210 @@ function showShiftDetail(s){
     });
 }
 
+// ── Пополнения за смену (из журнала смен) ────────────────
+function showShiftDeposits(s){
+    if(!_authToken){ alert('Нет токена авторизации'); return; }
+
+    // Модалка пополнений — перетаскиваемая, без затемнения фона
+    var box2=document.createElement('div');
+    box2.id='gcb-deposits-box';
+    box2.style.cssText='position:fixed;top:0;left:0;z-index:100002;background:#fff;border-radius:12px;width:560px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.35);';
+    document.body.appendChild(box2);
+
+    var hdr2=document.createElement('div');
+    hdr2.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;cursor:grab;user-select:none;background:#fafafa;border-radius:12px 12px 0 0;';
+    var ht2=document.createElement('span');
+    ht2.style.cssText='font-size:14px;font-weight:700;color:#1a1a1a;';
+    ht2.textContent='Пополнения смены: '+fmtDate(s.openedAt);
+    var hc2=document.createElement('button');
+    hc2.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;line-height:1;';
+    hc2.textContent='×'; hc2.addEventListener('click',function(){ if(box2._closeOnOut) document.removeEventListener('click',box2._closeOnOut,true); box2.remove(); });
+    hdr2.appendChild(ht2); hdr2.appendChild(hc2);
+    box2.appendChild(hdr2);
+
+    // Закрытие по клику вне модалки — через 'click' с задержкой после открытия
+    // (задержка нужна чтобы сам клик открытия не закрыл сразу)
+    setTimeout(function(){
+        function closeOnOut(e){
+            if(!box2.isConnected){ document.removeEventListener('click', closeOnOut, true); return; }
+            if(!box2.contains(e.target)){
+                e.stopPropagation(); // не даём клику закрыть и overlay смены
+                box2.remove();
+                document.removeEventListener('click', closeOnOut, true);
+            }
+        }
+        document.addEventListener('click', closeOnOut, true);
+        box2._closeOnOut = closeOnOut; // сохраняем для Escape
+    }, 200);
+
+    // Перетаскивание — Pointer Events API + transform3d + rAF для максимальной плавности
+    (function(){
+        // Начальное положение
+        var initLeft = Math.round((window.innerWidth - 560) / 2);
+        var initTop  = Math.round(window.innerHeight * 0.10);
+        // Используем translate3d — GPU-слой, никаких layout reflows
+        box2.style.position='fixed';
+        box2.style.left='0';
+        box2.style.top='0';
+        box2.style.transform='translate3d('+initLeft+'px,'+initTop+'px,0)';
+        box2.style.transformOrigin='top left';
+        // willChange только во время перетаскивания — иначе вызывает размытие текста
+
+        var tx=initLeft, ty=initTop; // текущая позиция в px
+        var rafId=null;
+
+        hdr2.addEventListener('pointerdown',function(e){
+            if(e.target===hc2||e.button!==0) return;
+            e.preventDefault();
+            hdr2.setPointerCapture(e.pointerId);
+            hdr2.style.cursor='grabbing';
+            box2.style.willChange='transform';
+            var startX=e.clientX, startY=e.clientY;
+            var startTx=tx, startTy=ty;
+
+            function onMove(ev){
+                var dx=ev.clientX-startX;
+                var dy=ev.clientY-startY;
+                tx=startTx+dx; ty=startTy+dy;
+                if(rafId) cancelAnimationFrame(rafId);
+                rafId=requestAnimationFrame(function(){
+                    box2.style.transform='translate3d('+tx+'px,'+ty+'px,0)';
+                });
+            }
+            function onUp(){
+                hdr2.style.cursor='grab';
+                box2.style.willChange='auto'; // снимаем после drag — убирает размытие
+                hdr2.removeEventListener('pointermove',onMove);
+                hdr2.removeEventListener('pointerup',onUp);
+                hdr2.removeEventListener('pointercancel',onUp);
+                if(rafId){cancelAnimationFrame(rafId);rafId=null;}
+            }
+            hdr2.addEventListener('pointermove',onMove);
+            hdr2.addEventListener('pointerup',onUp);
+            hdr2.addEventListener('pointercancel',onUp);
+        });
+    })();
+
+    var body2=document.createElement('div');
+    body2.style.cssText='overflow-y:auto;flex:1;padding:16px 20px;';
+    body2.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;font-size:13px;">Загружаю...</div>';
+    box2.appendChild(body2);
+    // box2 уже добавлен в document.body выше
+
+    // Используем seenOpIds — те же id что учитывались в кассе во время смены
+    var ids = s.seenOpIds || [];
+    if(!ids.length){
+        body2.innerHTML='<div style="color:#aaa;text-align:center;padding:40px;font-size:13px;">Операций в этой смене не зафиксировано.<br><span style="font-size:11px;color:#ccc;">История фиксируется начиная с версии 3.11</span></div>';
+        return;
+    }
+
+    window.fetch('https://hasura.godji.cloud/v1/graphql',{
+        method:'POST',
+        headers:{'authorization':_authToken,'content-type':'application/json','x-hasura-role':_hasuraRole},
+        body:JSON.stringify({
+            operationName:'GCBOpsForShift',
+            query:'query GCBOpsForShift($ids:[Int!]!){wallet_operations(where:{id:{_in:$ids}},order_by:{id:asc}){id created_at amount money_type operation_type user_id user{users_user_profile{name surname login}}wallet_operation_digest{name}}}',
+            variables:{ids:ids}
+        })
+    }).then(function(r){return r.json();}).then(function(d){
+        var ops=(d.data&&d.data.wallet_operations)||[];
+        body2.innerHTML='';
+        if(!ops.length){
+            body2.innerHTML='<div style="color:#aaa;text-align:center;padding:40px;font-size:13px;">Нет данных</div>';
+            return;
+        }
+        var opTitle=document.createElement('div');
+        opTitle.style.cssText='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;';
+        opTitle.textContent='Операции смены ('+ops.length+')';
+        body2.appendChild(opTitle);
+
+        var tbl=document.createElement('table');
+        tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px;';
+        var thead=document.createElement('thead');
+        var thr=document.createElement('tr');
+        thr.style.cssText='background:#f9f9f9;';
+        [['Время','60px'],['Клиент',''],['Тип','55px'],['Сумма','70px'],['Примечание','']].forEach(function(col){
+            var th=document.createElement('th');
+            th.style.cssText='padding:6px 8px;text-align:left;color:#888;font-weight:600;font-size:10px;border-bottom:1px solid #eee;white-space:nowrap;'+(col[1]?'width:'+col[1]+';':'');
+            th.textContent=col[0]; thr.appendChild(th);
+        });
+        thead.appendChild(thr); tbl.appendChild(thead);
+
+        var tbody=document.createElement('tbody');
+        var totalCash=0, totalCard=0;
+        ops.forEach(function(op){
+            var p=op.user&&op.user.users_user_profile;
+            var nick=p?(p.login?'@'+p.login:((p.name||'')+(p.surname?' '+p.surname:'')).trim()):'';
+            var userId=op.user_id||'';
+            var digest=(op.wallet_operation_digest&&op.wallet_operation_digest.name)||'';
+            var isCash=op.money_type==='cash';
+            var ts=new Date(op.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+
+            var tr=document.createElement('tr');
+            tr.style.cssText='border-bottom:1px solid #f5f5f5;';
+
+            var tdTime=document.createElement('td'); tdTime.style.cssText='padding:6px 8px;color:#888;white-space:nowrap;'; tdTime.textContent=ts;
+            var tdNick=document.createElement('td'); tdNick.style.cssText='padding:6px 8px;max-width:140px;';
+            if(nick&&userId){
+                var lk=document.createElement('a'); lk.href='/clients/'+userId; lk.style.cssText='color:#0066aa;text-decoration:none;font-weight:600;font-size:11px;'; lk.textContent=nick;
+                lk.addEventListener('mouseenter',function(){lk.style.textDecoration='underline';}); lk.addEventListener('mouseleave',function(){lk.style.textDecoration='none';});
+                tdNick.appendChild(lk);
+            } else { tdNick.textContent='—'; tdNick.style.color='#ccc'; }
+            var tdType=document.createElement('td'); tdType.style.cssText='padding:6px 8px;white-space:nowrap;';
+            var typeBadge=document.createElement('span');
+            typeBadge.style.cssText='font-size:10px;font-weight:700;padding:2px 5px;border-radius:4px;'+(isCash?'background:#dcfce7;color:#166534;':'background:#dbeafe;color:#1d4ed8;');
+            typeBadge.textContent=isCash?'НАЛ':'КАРТА'; tdType.appendChild(typeBadge);
+            var tdAmt=document.createElement('td'); tdAmt.style.cssText='padding:6px 8px;font-weight:700;white-space:nowrap;color:#166534;'; tdAmt.textContent='+'+Math.round(op.amount)+'₽';
+            var tdNote=document.createElement('td'); tdNote.style.cssText='padding:6px 8px;color:#aaa;font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'; tdNote.textContent=digest.slice(0,40);
+
+            tr.appendChild(tdTime); tr.appendChild(tdNick); tr.appendChild(tdType); tr.appendChild(tdAmt); tr.appendChild(tdNote);
+            tbody.appendChild(tr);
+            if(isCash) totalCash+=op.amount||0; else totalCard+=op.amount||0;
+        });
+        tbl.appendChild(tbody); body2.appendChild(tbl);
+
+        var foot=document.createElement('div');
+        foot.style.cssText='padding:10px 8px;border-top:2px solid #eee;display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:13px;font-weight:700;';
+        foot.innerHTML='<span style="font-size:12px;color:#888;font-weight:400;">'+ops.length+' операций</span>'+
+            '<span><span style="color:#166534;">Нал: '+fmtAmtAbs(totalCash)+'</span>'+
+            (totalCard?' &nbsp;<span style="color:#1d4ed8;">Безнал: '+fmtAmtAbs(totalCard)+'</span>':'')+
+            ' &nbsp;<span style="color:#1a1a1a;">Итого: '+fmtAmtAbs(totalCash+totalCard)+'</span></span>';
+        body2.appendChild(foot);
+    }).catch(function(e){
+        body2.innerHTML='<div style="color:#991b1b;padding:20px;font-size:13px;">Ошибка: '+e.message+'</div>';
+    });
+
+    document.addEventListener('keydown',function eh2(e){
+        if(e.key==='Escape'){
+            if(box2._closeOnOut) document.removeEventListener('click', box2._closeOnOut, true);
+            box2.remove();
+            document.removeEventListener('keydown',eh2);
+        }
+    });
+}
+
 // ── Диагностика ───────────────────────────────────────────
 // ── Показ/скрытие модалки ────────────────────────────────
-function showModal(){ if(!_modal)buildModal(); _valuesHidden=true; renderModal(); _modal.style.display='flex'; _overlay.style.display='block'; _isOpen=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.setAttribute('data-active','true'); setTimeout(function(){applyModalBlur(_modal,true);},50); }
-function hideModal(){ if(!_modal)return; _modal.style.display='none'; _overlay.style.display='none'; _isOpen=false; _valuesHidden=true; var b=document.getElementById('godji-cashbox-btn');if(b)b.removeAttribute('data-active'); }
+function showModal(){
+    if(!_modal) buildModal();
+    _valuesHidden=true;
+    // Восстанавливаем сохранённое состояние скрытия (не сбрасываем при каждом открытии)
+    _blurDisabled = (function(){ try{ return localStorage.getItem(GCB_BLUR_KEY)==='1'; }catch(e){return false;} })();
+    renderModal();
+    _modal.style.display='flex';
+    _overlay.style.display='block';
+    _isOpen=true;
+    setTimeout(function(){
+        applyModalBlur(_modal,true);
+        updateBtnBlurState();
+    },50);
+}
+function hideModal(){
+    if(!_modal) return;
+    _modal.style.display='none';
+    _overlay.style.display='none';
+    _isOpen=false; _valuesHidden=true;
+}
 function updateModalIfOpen(){ if(_isOpen)renderModal(); }
 
 // ── Кнопка (NavLink стиль, перед divider) ────────────────
@@ -1095,81 +1545,130 @@ function updateBtnBadge(){
     if(sumEl){
         if(shift){
             var total=(shift.cash||0)+(shift.card||0)+(shift.manual||0)-(shift.withdrawal||0)-(shift.debit||0);
-            sumEl.textContent=fmtAmtAbs(total);
-            sumEl.style.color=total>0?'rgba(134,239,172,0.9)':'rgba(255,255,255,0.35)';
+            var fmt = total >= 10000 ? Math.round(total)+'₽' : fmtAmtAbs(total);
+            sumEl.textContent = fmt;
+            sumEl.style.color = 'rgba(255,255,255,0.5)';
+            if(_blurDisabled){
+                sumEl.style.filter='none';
+                sumEl.onmouseenter=null;
+                sumEl.onmouseleave=null;
+            } else {
+                sumEl.style.filter='blur(4px)';
+                sumEl.onmouseenter=function(){sumEl.style.filter='none';};
+                sumEl.onmouseleave=function(){if(!_blurDisabled)sumEl.style.filter='blur(4px)';};
+            }
         } else {
-            sumEl.textContent='Закрыта';
+            sumEl.textContent='закрыта';
             sumEl.style.color='rgba(255,255,255,0.3)';
+            sumEl.style.filter='none';
+            sumEl.onmouseenter=null; sumEl.onmouseleave=null;
         }
     }
 }
 
 function createBtn(){
-    if(document.getElementById('godji-cashbox-btn')) return;
-    var footer=document.querySelector('.Sidebar_footer__1BA98');
-    if(!footer) return;
-    var divider=footer.querySelector('.mantine-Divider-root');
-    if(!divider) return;
+    // Если строка уже вставлена — выходим
+    if(document.getElementById('godji-cashbox-row')) return;
+    var paper = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(!paper) return;
 
-    var btn=document.createElement('a');
-    btn.id='godji-cashbox-btn';
-    btn.className='mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
-    btn.href='javascript:void(0)';
-    btn.style.cssText='display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:8px 16px 8px 12px;cursor:pointer;user-select:none;font-family:inherit;box-sizing:border-box;text-decoration:none;';
+    // Ищем ERP-кнопку смены в любом месте paper
+    var erpBtn = paper.querySelector('button[data-variant="filled"]');
+    if(!erpBtn) return;
 
-    // ThemeIcon зелёный
-    var ico=document.createElement('div');
-    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
-    ico.setAttribute('data-variant','filled');
-    ico.style.cssText='width:32px;height:32px;border-radius:8px;background:#166534;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+    // Сжимаем ERP-кнопку: узкая, та же высота
+    erpBtn.style.setProperty('flex', '0 0 62px', 'important');
+    erpBtn.style.setProperty('width', '62px', 'important');
+    erpBtn.style.setProperty('min-width', '0', 'important');
+    erpBtn.style.setProperty('padding', '4px 6px', 'important');
+    erpBtn.style.setProperty('font-size', '10px', 'important');
+    erpBtn.style.setProperty('white-space', 'normal', 'important');
+    erpBtn.style.setProperty('word-break', 'break-word', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
+    erpBtn.style.setProperty('line-height', '1.2', 'important');
+    erpBtn.style.setProperty('overflow', 'visible', 'important');
+    erpBtn.removeAttribute('data-block');
 
-    // Статус-точка
-    var dot=document.createElement('span');
-    dot.className='gcb-dot';
-    dot.style.cssText='position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;border:2px solid var(--mantine-color-body,#1a1b2e);';
+    // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
+    // Оборачиваем erpBtn в flex-контейнер, добавляя нашу кнопку слева
+    var row = document.createElement('div');
+    row.id = 'godji-cashbox-row';
+    row.style.cssText = 'display:flex;align-items:stretch;gap:3px;width:100%;';
+
+    // Наша кнопка — flex:1
+    var btn = document.createElement('button');
+    btn.id = 'godji-cashbox-btn';
+    btn.type = 'button';
+    btn.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:rgba(22,101,52,0.85);border:none;border-radius:6px;padding:0 8px;height:54px;cursor:pointer;font-family:inherit;box-sizing:border-box;transition:background 0.15s;';
+    btn.addEventListener('mouseenter', function(){ btn.style.background='rgba(22,101,52,1)'; });
+    btn.addEventListener('mouseleave', function(){ btn.style.background='rgba(22,101,52,0.85)'; });
+
+    var ico = document.createElement('div');
+    ico.style.cssText = 'width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+
+    var dot = document.createElement('span');
+    dot.className = 'gcb-dot';
+    dot.style.cssText = 'position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1b2e;';
     ico.appendChild(dot);
 
-    // Текст + сумма
-    var bodyDiv=document.createElement('div');
-    bodyDiv.className='m_f07af9d2 mantine-NavLink-body';
-    var lbl=document.createElement('span');
-    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.style.cssText='font-size:14px;font-weight:600;color:var(--mantine-color-white,#fff);white-space:nowrap;';
-    lbl.textContent='Касса смены';
-    var sumEl=document.createElement('span');
-    sumEl.className='gcb-sum m_57492dcc mantine-NavLink-description';
-    sumEl.style.cssText='font-size:11px;white-space:nowrap;font-weight:500;';
-    sumEl.style.filter='blur(4px)';sumEl.style.transition='filter 0.2s';
-    sumEl.addEventListener('mouseenter',function(){sumEl.style.filter='none';});
-    sumEl.addEventListener('mouseleave',function(){sumEl.style.filter='blur(4px)';});
-    bodyDiv.appendChild(lbl); bodyDiv.appendChild(sumEl);
+    var textWrap = document.createElement('div');
+    textWrap.style.cssText = 'display:flex;flex-direction:column;min-width:0;flex:1;';
 
-    btn.appendChild(ico); btn.appendChild(bodyDiv);
-    btn.addEventListener('click',function(e){ e.stopPropagation(); if(_isOpen)hideModal(); else showModal(); });
+    var lbl = document.createElement('span');
+    lbl.style.cssText = 'font-size:13px;font-weight:700;color:#fff;white-space:nowrap;line-height:1.2;';
+    lbl.textContent = 'Касса смены';
 
-    // Вставляем ПЕРЕД divider
-    footer.insertBefore(btn, divider);
+    var sumEl = document.createElement('span');
+    sumEl.className = 'gcb-sum';
+    sumEl.style.cssText = 'font-size:11px;font-weight:600;white-space:nowrap;line-height:1.2;margin-top:2px;color:rgba(255,255,255,0.4);';
+
+    textWrap.appendChild(lbl);
+    textWrap.appendChild(sumEl);
+    btn.appendChild(ico);
+    btn.appendChild(textWrap);
+
+    btn.addEventListener('click', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if(_isOpen) hideModal(); else showModal();
+    });
+
+    // erpBtn может быть не прямым дочерним paper — вставляем через его родителя
+    var erpParent = erpBtn.parentNode;
+    if(!erpParent) return;
+    erpParent.insertBefore(row, erpBtn);
+    row.appendChild(btn);
+    row.appendChild(erpBtn);
+    // Одинаковая высота
+    erpBtn.style.setProperty('height', '54px', 'important');
+    erpBtn.style.setProperty('align-self', 'stretch', 'important');
+    erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
+    erpBtn.style.setProperty('font-size', '13px', 'important');
+
     updateBtnBadge();
 }
 
-// ── Следим за кнопкой "Открыть смену" в ERP ──────────────
 // ── MutationObserver + init ───────────────────────────────
-var _obs=new MutationObserver(function(){
-    if(!document.getElementById('godji-cashbox-btn')) createBtn();
-    watchShiftBtn();
+var _obs = new MutationObserver(function(){
+    if(!document.getElementById('godji-cashbox-row')) createBtn();
 });
 
+function initObservers(){
+    _obs.observe(document.body, {childList:true, subtree:false});
+    setTimeout(createBtn, 1500);
+    setTimeout(createBtn, 3000);
+    setTimeout(createBtn, 5000);
+}
+
+
+
+
+
 if(document.body){
-    _obs.observe(document.body,{childList:true,subtree:false});
-    setTimeout(createBtn,1200); setTimeout(createBtn,3000);
-    setTimeout(watchShiftBtn,2000);
+    initObservers();
 } else {
-    document.addEventListener('DOMContentLoaded',function(){
-        _obs.observe(document.body,{childList:true,subtree:false});
-        setTimeout(createBtn,1200);
-        setTimeout(watchShiftBtn,2000);
-    });
+    document.addEventListener('DOMContentLoaded', initObservers);
 }
 
 })();
