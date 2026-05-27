@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.9
-// @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
+// @version      1.0
+// @description  Перезапускает пакетный сеанс на почасовой с сохранением остатка времени
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_session_restart.user.js
@@ -14,62 +14,43 @@
 (function () {
     'use strict';
 
-    var BUTTON_ID = 'godji-restart-btn';
-    var API_URL   = 'https://hasura.godji.cloud/v1/graphql';
-    var CLUB_ID   = 14;
+    var BUTTON_ID   = 'godji-restart-btn';
+    var MODAL_ID    = 'godji-restart-modal';
+    var API_URL     = 'https://hasura.godji.cloud/v1/graphql';
+    var CLUB_ID     = 14;
 
-    var sessionsData  = {};
+    // Хранит данные сессий по имени ПК
+    var sessionsData = {};
     var lastContextPc = null;
-    var authToken     = null;
-    var hasuraRole    = 'club_admin';
+    var authToken = null;
+    var hasuraRole = 'club_admin';
 
-    // Определяем тип тарифа по названию.
-    // Почасовой (minute) = содержит "1 час" (ровно один час).
-    // Всё остальное — пакетный: "3 часа", "5 часов", "Ночь", "Сутки" и т.д.
-    // Дополнительно: если getBookingTariffs вернул tariffType — используем его.
-    function isPackageTariff(tariffName, tariffType) {
-        // Приоритет — поле type из API если есть
-        if (tariffType === 'packet') return true;
-        if (tariffType === 'minute') return false;
-        // Fallback по названию
+    // Признак «поминутного» тарифа — если тариф содержит одно из этих слов,
+    // он уже почасовой и бонусы начислять не нужно.
+    var HOURLY_MARKERS = ['1 час', '2 час', '3 час', '4 час', 'час', 'мин', 'минут', 'поминут'];
+
+    function isHourlyTariff(tariffName) {
         if (!tariffName) return false;
         var n = tariffName.toLowerCase();
-        // Почасовой = ровно "1 час" в начале названия
-        if (/^1\s*час/.test(n)) return false;
-        // Всё остальное — пакет
-        return true;
+        for (var i = 0; i < HOURLY_MARKERS.length; i++) {
+            if (n.indexOf(HOURLY_MARKERS[i].toLowerCase()) !== -1) return true;
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------
-    // XHR-хелпер — обходит цепочку fetch-хуков других скриптов
-    // -------------------------------------------------------------------------
-    function xhrGql(query, variables) {
-        return new Promise(function (resolve, reject) {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', API_URL, true);
-            xhr.setRequestHeader('accept', '*/*');
-            xhr.setRequestHeader('content-type', 'application/json');
-            xhr.setRequestHeader('authorization', authToken || '');
-            xhr.setRequestHeader('x-hasura-role', hasuraRole);
-            xhr.onload = function () {
-                try { resolve(JSON.parse(xhr.responseText)); }
-                catch (e) { reject(e); }
-            };
-            xhr.onerror = function () { reject(new Error('XHR error')); };
-            xhr.send(JSON.stringify({ query: query, variables: variables || {} }));
-        });
-    }
-
-    // -------------------------------------------------------------------------
-    // Fetch-хук — только для перехвата токена и триггера обновления данных
+    // Fetch-хук — перехватываем GetDashboardTable, делаем параллельный запрос
+    // за деталями сессий (sessionId, walletId, tariffId, tariffName, remainSec)
     // -------------------------------------------------------------------------
     function installFetchHook() {
-        if (window.fetch && window.fetch._godjiRestartHooked) return;
         var origFetch = window.fetch;
         if (!origFetch) return;
 
         window.fetch = function (url, opts) {
             try {
+                var body = (opts && opts.body) ? opts.body : '';
+
+                // Сохраняем заголовки авторизации
                 if (opts && opts.headers && opts.headers.authorization) {
                     authToken = opts.headers.authorization;
                     window._godjiAuthToken = authToken;
@@ -78,520 +59,491 @@
                         window._godjiHasuraRole = hasuraRole;
                     }
                 }
-                var body = (opts && opts.body) ? opts.body : '';
+
+                // Параллельный запрос при GetDashboardTable
                 if (
-                    authToken &&
+                    authToken && hasuraRole &&
                     typeof body === 'string' &&
                     body.indexOf('GetDashboardTable') !== -1 &&
                     !window._godjiRestartPending
                 ) {
                     window._godjiRestartPending = true;
                     setTimeout(function () { window._godjiRestartPending = false; }, 3000);
+
                     var vars;
                     try { vars = JSON.parse(body).variables; } catch (e) { vars = { clubId: CLUB_ID }; }
-                    fetchSessionsData(vars);
+
+                    origFetch.call(window, API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'accept': '*/*',
+                            'content-type': 'application/json',
+                            'authorization': authToken,
+                            'x-hasura-role': hasuraRole
+                        },
+                        body: JSON.stringify({
+                            operationName: 'GetDashboardDevicesForRestart',
+                            variables: vars,
+                            query: 'query GetDashboardDevicesForRestart($clubId: Int!) {' +
+                                   '  getDashboardDevices(params: {clubId: $clubId}) {' +
+                                   '    devices {' +
+                                   '      name' +
+                                   '      sessions {' +
+                                   '        id' +
+                                   '        status' +
+                                   '        remainSeconds' +
+                                   '        tariff { id name }' +
+                                   '        user { nickname wallet { id balance bonusBalance } }' +
+                                   '      }' +
+                                   '    }' +
+                                   '  }' +
+                                   '}'
+                        })
+                    })
+                    .then(function (res) { return res.json(); })
+                    .then(function (json) {
+                        window._godjiRestartPending = false;
+                        if (!json || !json.data || !json.data.getDashboardDevices) return;
+                        json.data.getDashboardDevices.devices.forEach(function (d) {
+                            if (!d.sessions || d.sessions.length === 0) {
+                                delete sessionsData[d.name];
+                                return;
+                            }
+                            var s = d.sessions[0];
+                            if (!s || !s.user || !s.user.wallet) return;
+                            sessionsData[d.name] = {
+                                sessionId:    s.id,
+                                status:       s.status,
+                                remainSec:    s.remainSeconds || 0,
+                                tariffId:     s.tariff ? s.tariff.id   : null,
+                                tariffName:   s.tariff ? s.tariff.name : '',
+                                walletId:     s.user.wallet.id,
+                                bonusBalance: s.user.wallet.bonusBalance || 0,
+                                nickname:     s.user.nickname || '',
+                                pcName:       d.name
+                            };
+                            window._godjiSessionsData = sessionsData;
+                        });
+                    })
+                    .catch(function () { window._godjiRestartPending = false; });
                 }
             } catch (e) {}
+
             return origFetch.call(this, url, opts);
         };
+
         window.fetch._godjiRestartHooked = true;
     }
 
     installFetchHook();
+    setInterval(function () {
+        if (window.fetch && !window.fetch._godjiRestartHooked) installFetchHook();
+    }, 500);
 
     // -------------------------------------------------------------------------
-    // Загрузка данных сессий (два XHR-запроса)
+    // GraphQL-хелпер
     // -------------------------------------------------------------------------
-    function fetchSessionsData(vars) {
-        xhrGql(
-            'query GetDashboardDevicesForRestart($clubId: Int!) {' +
-            '  getDashboardDevices(params: {clubId: $clubId}) {' +
-            '    devices { name sessions {' +
-            '      id status' +
-            '      tariff { id name }' +
-            '      user { nickname wallet { id } }' +
-            '    } }' +
-            '  }' +
-            '}',
-            vars
-        ).then(function (json) {
-            window._godjiRestartPending = false;
-            if (!json || !json.data || !json.data.getDashboardDevices) return;
+    function gql(query, variables) {
+        return fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'accept': '*/*',
+                'content-type': 'application/json',
+                'authorization': authToken || '',
+                'x-hasura-role': hasuraRole
+            },
+            body: JSON.stringify({ query: query, variables: variables })
+        }).then(function (r) { return r.json(); });
+    }
 
-            var devices   = json.data.getDashboardDevices.devices;
-            var activeIds = [];
-
-            devices.forEach(function (d) {
-                if (!d.sessions || d.sessions.length === 0) {
-                    delete sessionsData[d.name];
-                    return;
-                }
-                var s = d.sessions[0];
-                if (!s || !s.user || !s.user.wallet) return;
-                sessionsData[d.name] = {
-                    sessionId:  s.id,
-                    status:     s.status,
-                    tariffId:   s.tariff ? s.tariff.id   : null,
-                    tariffName: s.tariff ? s.tariff.name : '',
-                    walletId:   s.user.wallet.id,
-                    nickname:   s.user.nickname || '',
-                    pcName:     d.name,
-                    timeTo:     null
-                };
-                activeIds.push({ pc: d.name, sessionId: s.id });
+    // -------------------------------------------------------------------------
+    // Получить поминутный тариф для сессии
+    // -------------------------------------------------------------------------
+    function getHourlyTariff(sessionId) {
+        function tryFetch(mins) {
+            return gql(
+                'query availableTariffsForProlongation($minutes: Int, $sessionId: Int!) {' +
+                '  getAvailableTariffsForProlongation(params: {minutes: $minutes, sessionId: $sessionId}) {' +
+                '    tariffs { id name durationMin cost }' +
+                '  }' +
+                '}',
+                { sessionId: sessionId, minutes: mins }
+            ).then(function (r) {
+                return r.data &&
+                       r.data.getAvailableTariffsForProlongation &&
+                       r.data.getAvailableTariffsForProlongation.tariffs;
             });
-            window._godjiSessionsData = sessionsData;
+        }
 
-            if (!activeIds.length) return;
-
-            var ids = activeIds.map(function (x) { return x.sessionId; });
-            // Шаг 2: time_to из reservations
-            xhrGql(
-                'query($ids:[Int!]!) { reservations(where:{id:{_in:$ids}}) { id time_to } }',
-                { ids: ids }
-            ).then(function (json2) {
-                if (!json2 || !json2.data || !json2.data.reservations) return;
-                var timeMap = {};
-                json2.data.reservations.forEach(function (r) { timeMap[r.id] = r.time_to; });
-                activeIds.forEach(function (x) {
-                    if (sessionsData[x.pc] && timeMap[x.sessionId]) {
-                        sessionsData[x.pc].timeTo = timeMap[x.sessionId];
-                    }
-                });
-                window._godjiSessionsData = sessionsData;
-
-
-            }).catch(function () {});
-        }).catch(function () { window._godjiRestartPending = false; });
+        return tryFetch(1)
+            .then(function (t) { return (!t || !t.length) ? tryFetch(60) : t; })
+            .then(function (t) { return (!t || !t.length) ? tryFetch(30) : t; })
+            .then(function (tariffs) {
+                if (!tariffs || !tariffs.length) return null;
+                // Берём тариф с минимальной длительностью — это поминутный
+                var sorted = tariffs.slice().sort(function (a, b) { return a.durationMin - b.durationMin; });
+                var t = sorted[0];
+                return {
+                    tariffId:    t.id,
+                    tariffName:  t.name,
+                    costPerMin:  t.cost / t.durationMin
+                };
+            });
     }
 
     // -------------------------------------------------------------------------
-    // API-вызовы
+    // Начислить бонусы
     // -------------------------------------------------------------------------
-    function cancelSession(sessionId) {
-        return xhrGql(
-            'mutation($sessionId:Int!){userReservationCancel(params:{sessionId:$sessionId}){success __typename}}',
-            { sessionId: sessionId }
-        );
-    }
-
-    // Получить все доступные тарифы для ПК на заданное окно времени
-    function getBookingTariffs(deviceId, fromMs, durationMin) {
-        var from = new Date(fromMs).toISOString();
-        var to   = new Date(fromMs + durationMin * 60000).toISOString();
-        return xhrGql(
-            'query($clubId:Int!,$deviceId:Int!,$from:timestamptz!,$to:timestamptz!){' +
-            '  getBookingTariffs(params:{clubId:$clubId,deviceId:$deviceId,timeline:{from:$from,to:$to}}){' +
-            '    tariffs{id name type durationMin cost sessionEnd}' +
+    function depositBonus(walletId, amount, comment) {
+        return gql(
+            'mutation DepositBalanceWithBonus($amount: Float!, $walletId: Int!, $comment: String) {' +
+            '  walletDepositWithBonus(params: {amount: $amount, walletId: $walletId, description: $comment}) {' +
+            '    operationId __typename' +
             '  }' +
             '}',
-            { clubId: CLUB_ID, deviceId: deviceId, from: from, to: to }
-        ).then(function (r) {
-            return r && r.data && r.data.getBookingTariffs && r.data.getBookingTariffs.tariffs || [];
-        });
-    }
-
-    function getLastOpId(walletId) {
-        return xhrGql(
-            'query($wid:Int!){wallet_operations(where:{wallet_id:{_eq:$wid}},order_by:{id:desc},limit:1){id}}',
-            { wid: walletId }
-        ).then(function (r) {
-            var ops = r && r.data && r.data.wallet_operations;
-            return (ops && ops.length) ? ops[0].id : 0;
-        });
-    }
-
-    function depositBonus(walletId, amount, comment) {
-        return xhrGql(
-            'mutation($amount:Float!,$walletId:Int!,$comment:String){walletDepositWithBonus(params:{amount:$amount,walletId:$walletId,description:$comment}){operationId __typename}}',
             { amount: amount, walletId: walletId, comment: comment }
         );
     }
 
-    function createSession(deviceId, userId, tariffId, fromMs, toMs) {
-        var sessionStart = new Date(fromMs).toISOString();
-        var sessionEnd   = new Date(toMs).toISOString();
-        var vars = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
-                     sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
-        var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
-                '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
-                '    reservationId __typename' +
-                '  }' +
-                '}';
-        return xhrGql(q, vars).then(function (r) {
-            if (r && r.errors) {
-                var vars2 = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
-                              sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
-                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
-            }
-            return r;
-        });
-    }
-
-    // Ждём пока сеанс станет активным (session_acting)
-    function waitForSessionActive(sessionId) {
-        return new Promise(function (resolve, reject) {
-            var attempts = 0;
-            var timer = setInterval(function () {
-                attempts++;
-                if (attempts > 20) {
-                    clearInterval(timer);
-                    reject(new Error('Сеанс не активировался за 60 секунд'));
-                    return;
-                }
-                xhrGql(
-                    'query($id:Int!){reservations(where:{id:{_eq:$id}}){id status}}',
-                    { id: sessionId }
-                ).then(function (r) {
-                    var res = r && r.data && r.data.reservations && r.data.reservations[0];
-                    if (res && res.status === 'session_acting') {
-                        clearInterval(timer);
-                        resolve();
-                    }
-                }).catch(function () {});
-            }, 3000);
-        });
-    }
-
-    function prolongSession(sessionId, tariffId, minutes) {
-        // Для пакетных тарифов minutes не передаём — API сам знает длительность пакета
-        var vars = { sessionId: sessionId, tariffId: tariffId };
-        if (minutes !== null && minutes !== undefined) vars.minutes = minutes;
-        return xhrGql(
-            'mutation prolongateSession($sessionId:Int!,$tariffId:Int!,$minutes:Int){' +
-            '  userReservationProlongate(params:{sessionId:$sessionId,tariffId:$tariffId,minutes:$minutes}){' +
-            '    success __typename' +
+    // -------------------------------------------------------------------------
+    // Списать бонусы
+    // -------------------------------------------------------------------------
+    function withdrawBonus(walletId, amount, comment) {
+        return gql(
+            'mutation WithdrawBonus($amount: Float!, $walletId: Int!, $comment: String) {' +
+            '  walletWithdrawWithBonus(params: {amount: $amount, walletId: $walletId, description: $comment}) {' +
+            '    operationId __typename' +
             '  }' +
             '}',
-            vars
+            { amount: amount, walletId: walletId, comment: comment }
         );
     }
 
-    function getDeviceAndUser(pcName, walletId) {
-        return xhrGql(
-            'query($clubId:Int!,$name:String!){club_devices(where:{club_id:{_eq:$clubId},name:{_eq:$name}}){id}}',
-            { clubId: CLUB_ID, name: pcName }
+    // -------------------------------------------------------------------------
+    // Продлить сеанс (= посадить на почасовой)
+    // -------------------------------------------------------------------------
+    function prolongSession(sessionId, tariffId, minutes) {
+        return gql(
+            'mutation prolongateSession($sessionId: Int!, $tariffId: Int!, $minutes: Int) {' +
+            '  userReservationProlongate(params: {sessionId: $sessionId, tariffId: $tariffId, minutes: $minutes}) {' +
+            '    success __typename' +
+            '  }' +
+            '}',
+            { sessionId: sessionId, tariffId: tariffId, minutes: minutes }
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Запросить текущий бонусный баланс кошелька
+    // -------------------------------------------------------------------------
+    function getBonusBalance(walletId) {
+        return gql(
+            'query GetWalletBalance($walletId: Int!) {' +
+            '  wallets_by_pk(id: $walletId) { bonusBalance }' +
+            '}',
+            { walletId: walletId }
         ).then(function (r) {
-            if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
-                throw new Error('Не удалось получить deviceId ПК ' + pcName);
-            }
-            var deviceId = r.data.club_devices[0].id;
-            return xhrGql(
-                'query($wid:Int!){wallets_by_pk(id:$wid){user_id}}',
-                { wid: walletId }
-            ).then(function (r2) {
-                if (!r2 || !r2.data || !r2.data.wallets_by_pk || !r2.data.wallets_by_pk.user_id) {
-                    throw new Error('Не удалось получить userId клиента');
-                }
-                return { deviceId: deviceId, userId: r2.data.wallets_by_pk.user_id };
-            });
+            return r.data && r.data.wallets_by_pk ? r.data.wallets_by_pk.bonusBalance : null;
         });
     }
 
-    // Ждём возврата бонусов от ERP (для почасового тарифа)
-    function waitForBonusReturn(walletId, oldSessionId, lastOpIdBefore) {
-        return new Promise(function (resolve, reject) {
-            var attempts = 0;
-            var timer = setInterval(function () {
-                attempts++;
-                if (attempts > 40) {
+    // -------------------------------------------------------------------------
+    // Мониторинг возврата бонусов после завершения пакетного сеанса
+    // Опрашиваем баланс каждые 3 секунды в течение 3 минут.
+    // Если баланс вырос — списываем разницу.
+    // -------------------------------------------------------------------------
+    function watchForBonusReturn(walletId, balanceBefore, label) {
+        var attempts = 0;
+        var maxAttempts = 60; // 3 минуты
+        var intervalMs = 3000;
+
+        var timer = setInterval(function () {
+            attempts++;
+            if (attempts > maxAttempts) {
+                clearInterval(timer);
+                return;
+            }
+
+            getBonusBalance(walletId).then(function (balanceNow) {
+                if (balanceNow === null) return;
+                var diff = Math.round((balanceNow - balanceBefore) * 100) / 100;
+                if (diff > 0) {
                     clearInterval(timer);
-                    reject(new Error('ERP не вернул бонусы в течение 2 минут'));
-                    return;
+                    var comment = 'Вернулся остаток времени с пакета' + (label ? ' (' + label + ')' : '');
+                    withdrawBonus(walletId, diff, comment).catch(function () {});
                 }
-                xhrGql(
-                    'query($wid:Int!,$afterId:Int!){' +
-                    '  wallet_operations(where:{wallet_id:{_eq:$wid},id:{_gt:$afterId},amount_type:{_eq:"bonus"},operation_type:{_eq:"deposit"}},order_by:{id:desc},limit:5){' +
-                    '    id amount wallet_operation_digest{name reservation_id}' +
-                    '  }' +
-                    '}',
-                    { wid: walletId, afterId: lastOpIdBefore }
-                ).then(function (r) {
-                    var ops = r && r.data && r.data.wallet_operations;
-                    if (!ops || !ops.length) return;
-                    ops.forEach(function (op) {
-                        var d = op.wallet_operation_digest;
-                        if (d && d.name === 'Возврат бонусов' && d.reservation_id === oldSessionId) {
-                            clearInterval(timer);
-                            resolve(op.amount);
-                        }
-                    });
-                }).catch(function () {});
-            }, 3000);
-        });
+            }).catch(function () {});
+        }, intervalMs);
     }
 
     // -------------------------------------------------------------------------
-    // Подбор комбинации тарифов для пакетного перезапуска
-    //
-    // Задача: набрать ровно remainMin минут, итоговый тип — пакетный.
-    // Стратегия: берём наибольший пакет ≤ remainMin, остаток добираем почасовым СНАЧАЛА.
-    // Пример: remainMin=252, пакеты [180, 300] → берём 180, hourlyMin=72
-    //   → сначала почасовой 72 мин, потом пакет 3ч. Итого 252 мин, тип пакетный.
-    //
-    // Стоимость почасового добора берётся отдельным запросом getBookingTariffs
-    // на окно [now, now+hourlyMin] — API сам учтёт смену прайса внутри окна.
+    // Модальное окно
     // -------------------------------------------------------------------------
-    function buildPackagePlan(tariffs, remainMin) {
-        var packetTariffs = tariffs.filter(function (t) { return t.type === 'packet'; });
-        var minuteTariff  = tariffs.filter(function (t) { return t.type === 'minute'; })[0];
-
-        if (!packetTariffs.length) return null;
-
-        // Сортируем пакеты по длительности по убыванию
-        packetTariffs.sort(function (a, b) { return b.durationMin - a.durationMin; });
-
-        // Ищем наибольший пакет ≤ remainMin
-        var bestPacket = null;
-        for (var i = 0; i < packetTariffs.length; i++) {
-            if (packetTariffs[i].durationMin <= remainMin) {
-                bestPacket = packetTariffs[i];
-                break;
-            }
+    function showModal(pcName) {
+        var session = sessionsData[pcName];
+        if (!session) {
+            alert('Нет данных о сессии для ПК ' + pcName + '. Подождите обновления таблицы.');
+            return;
+        }
+        if (!session.walletId) {
+            alert('Не удалось получить walletId клиента.');
+            return;
         }
 
-        if (!bestPacket) {
-            // Все пакеты больше remainMin — берём наименьший пакет, hourlyMin=0
-            packetTariffs.sort(function (a, b) { return a.durationMin - b.durationMin; });
-            bestPacket = packetTariffs[0];
-        }
+        var remainMin = Math.ceil(session.remainSec / 60);
+        var alreadyHourly = isHourlyTariff(session.tariffName);
 
-        var hourlyMin = remainMin - bestPacket.durationMin;
+        // Удаляем старый модал
+        closeModal();
 
-        return {
-            packet:      bestPacket,
-            minuteTariff: hourlyMin > 0 ? minuteTariff : null,
-            hourlyMin:   Math.max(0, hourlyMin)
-            // totalCost считается после отдельного запроса стоимости почасового добора
-        };
-    }
+        // Оверлей
+        var overlay = document.createElement('div');
+        overlay.id = MODAL_ID + '-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99997;background:rgba(0,0,0,0.55);';
+        overlay.addEventListener('click', closeModal);
+        document.body.appendChild(overlay);
 
-    // -------------------------------------------------------------------------
-    // Уведомление
-    // -------------------------------------------------------------------------
-    function notify(msg, type) {
-        var el = document.createElement('div');
-        var colors = { ok: '#2e7d32', err: '#b71c1c', info: '#1a1a2e' };
-        el.style.cssText = [
-            'position:fixed;bottom:24px;right:24px;z-index:99999;',
-            'background:' + (colors[type] || colors.info) + ';',
-            'color:#fff;font-family:inherit;font-size:13px;font-weight:500;',
-            'padding:12px 18px;border-radius:8px;max-width:360px;line-height:1.5;',
-            'box-shadow:0 4px 16px rgba(0,0,0,0.4);',
-            'border:1px solid rgba(255,255,255,0.1);',
-            'animation:godjiNotifyIn 0.2s ease;'
+        // Модал
+        var modal = document.createElement('div');
+        modal.id = MODAL_ID;
+        modal.style.cssText = [
+            'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);',
+            'z-index:99998;width:440px;max-width:95vw;',
+            'background:#1a1a2e;border-radius:12px;',
+            'box-shadow:0 8px 32px rgba(0,0,0,0.45);',
+            'font-family:inherit;overflow:hidden;',
+            'border:1px solid rgba(255,255,255,0.08);',
+            'animation:godjiRestartSlide 0.18s ease;'
         ].join('');
-        el.textContent = msg;
+        modal.addEventListener('click', function (e) { e.stopPropagation(); });
 
+        // Анимация
         if (!document.getElementById('godji-restart-style')) {
             var sty = document.createElement('style');
             sty.id = 'godji-restart-style';
-            sty.textContent = '@keyframes godjiNotifyIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}';
+            sty.textContent = '@keyframes godjiRestartSlide{from{opacity:0;transform:translate(-50%,-46%)}to{opacity:1;transform:translate(-50%,-50%)}}';
             document.head.appendChild(sty);
         }
 
-        document.body.appendChild(el);
-        setTimeout(function () {
-            el.style.transition = 'opacity 0.3s';
-            el.style.opacity = '0';
-            setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
-        }, type === 'err' ? 5000 : 3000);
-    }
+        // Шапка
+        var header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0;';
 
-    // -------------------------------------------------------------------------
-    // Основная логика перезапуска
-    // -------------------------------------------------------------------------
-    // Попап подтверждения — точно по структуре ERP modal
-    function showConfirm(title, text, confirmLabel, onConfirm) {
-        // Оверлей
-        var overlay = document.createElement('div');
-        overlay.id = 'godji-restart-confirm-overlay';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+        var titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex;align-items:center;gap:10px;';
 
-        // Секция — точно как mantine-Modal-content
-        var section = document.createElement('section');
-        section.className = 'm_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root';
-        section.setAttribute('role', 'dialog');
-        section.setAttribute('tabindex', '-1');
-        section.style.cssText = 'opacity:1;transform:translateY(0px);transition:opacity 200ms ease,transform 200ms ease;min-width:calc(25rem * var(--mantine-scale));max-width:90vw;';
+        var titleIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        titleIcon.setAttribute('width', '20'); titleIcon.setAttribute('height', '20');
+        titleIcon.setAttribute('viewBox', '0 0 24 24'); titleIcon.setAttribute('fill', 'none');
+        titleIcon.setAttribute('stroke', '#cc0001'); titleIcon.setAttribute('stroke-width', '2');
+        titleIcon.setAttribute('stroke-linecap', 'round'); titleIcon.setAttribute('stroke-linejoin', 'round');
+        titleIcon.innerHTML = '<path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/>';
 
-        // Header
-        var header = document.createElement('header');
-        header.className = 'm_b5489c3c m_d0e2b9cd mantine-Modal-header';
-        var h2 = document.createElement('h2');
-        h2.className = 'm_615af6c9 mantine-Modal-title';
-        h2.textContent = title;
+        var titleText = document.createElement('div');
+        titleText.style.cssText = 'font-size:17px;font-weight:600;color:#fff;';
+        titleText.textContent = 'Перезапуск сеанса — ПК ' + pcName;
+
+        titleWrap.appendChild(titleIcon);
+        titleWrap.appendChild(titleText);
+
         var closeBtn = document.createElement('button');
-        closeBtn.className = 'mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root';
-        closeBtn.setAttribute('data-variant', 'subtle');
-        closeBtn.setAttribute('type', 'button');
-        closeBtn.innerHTML = '<svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:70%;height:70%;"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path></svg>';
-        closeBtn.addEventListener('click', function() { overlay.remove(); });
-        header.appendChild(h2);
+        closeBtn.style.cssText = 'background:none;border:none;color:rgba(255,255,255,0.4);font-size:22px;cursor:pointer;padding:0;line-height:1;transition:color 0.15s;';
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('mouseenter', function () { closeBtn.style.color = '#fff'; });
+        closeBtn.addEventListener('mouseleave', function () { closeBtn.style.color = 'rgba(255,255,255,0.4)'; });
+        closeBtn.addEventListener('click', closeModal);
+
+        header.appendChild(titleWrap);
         header.appendChild(closeBtn);
 
-        // Body
+        // Инфо-строка
+        var infoBar = document.createElement('div');
+        infoBar.style.cssText = 'margin:12px 24px 0;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:8px;display:flex;gap:18px;flex-wrap:wrap;';
+
+        function infoItem(label, value) {
+            var wrap = document.createElement('div');
+            var lbl = document.createElement('span');
+            lbl.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:2px;';
+            lbl.textContent = label;
+            var val = document.createElement('span');
+            val.style.cssText = 'font-size:13px;font-weight:600;color:#fff;';
+            val.textContent = value;
+            wrap.appendChild(lbl);
+            wrap.appendChild(val);
+            return wrap;
+        }
+
+        infoBar.appendChild(infoItem('Клиент', session.nickname || '—'));
+        infoBar.appendChild(infoItem('Тариф', session.tariffName || '—'));
+        infoBar.appendChild(infoItem('Остаток', remainMin + ' мин'));
+
+        // Тело
         var body = document.createElement('div');
-        body.className = 'm_5df29311 mantine-Modal-body';
-        var stack = document.createElement('div');
-        stack.className = 'm_6d731127 mantine-Stack-root';
-        stack.style.cssText = '--stack-gap:var(--mantine-spacing-lg);--stack-align:stretch;--stack-justify:flex-start;';
-        var p = document.createElement('p');
-        p.className = 'mantine-focus-auto m_b6d8b162 mantine-Text-root';
-        p.innerHTML = text;
-        stack.appendChild(p);
-        var flex = document.createElement('div');
-        flex.className = 'm_8bffd616 mantine-Flex-root';
-        flex.style.cssText = 'width:100%;justify-content:flex-end;align-items:center;gap:calc(0.25rem * var(--mantine-scale));margin-top:var(--mantine-spacing-lg);';
-        var confirmBtnEl = document.createElement('button');
-        confirmBtnEl.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
-        confirmBtnEl.setAttribute('data-variant', 'filled');
-        confirmBtnEl.setAttribute('type', 'button');
-        confirmBtnEl.style.cssText = '--button-bg:var(--mantine-color-red-filled);--button-hover:var(--mantine-color-red-filled-hover);--button-color:var(--mantine-color-white);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;margin-top:calc(2rem * var(--mantine-scale));';
-        confirmBtnEl.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">' + confirmLabel + '</span></span>';
-        confirmBtnEl.addEventListener('click', function() { overlay.remove(); onConfirm(); });
-        var cancelBtnEl = document.createElement('button');
-        cancelBtnEl.className = 'mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
-        cancelBtnEl.setAttribute('data-variant', 'default');
-        cancelBtnEl.setAttribute('type', 'button');
-        cancelBtnEl.style.cssText = '--button-bg:var(--mantine-color-default);--button-hover:var(--mantine-color-default-hover);--button-color:var(--mantine-color-default-color);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-default-border);margin-top:calc(2rem * var(--mantine-scale));';
-        cancelBtnEl.innerHTML = '<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span>';
-        cancelBtnEl.addEventListener('click', function() { overlay.remove(); });
-        flex.appendChild(confirmBtnEl);
-        flex.appendChild(cancelBtnEl);
-        body.appendChild(stack);
-        body.appendChild(flex);
-        section.appendChild(header);
-        section.appendChild(body);
-        overlay.appendChild(section);
-        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-        document.body.appendChild(section);
-        // Вставляем через Mantine overlay механизм
-        overlay.removeChild(section);
-        document.body.appendChild(overlay);
-        overlay.appendChild(section);
+        body.style.cssText = 'padding:16px 24px 24px;';
+
+        // Блок статуса/расчёта
+        var statusBlock = document.createElement('div');
+        statusBlock.style.cssText = 'padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;min-height:44px;display:flex;align-items:center;';
+
+        var statusText = document.createElement('span');
+        statusText.style.cssText = 'font-size:13px;color:rgba(255,255,255,0.5);';
+
+        if (alreadyHourly) {
+            statusText.innerHTML = 'Клиент уже на <strong style="color:#fff;">почасовом тарифе</strong> — бонусы начислять не нужно. Остаток вернётся автоматически при завершении.';
+        } else {
+            statusText.textContent = 'Рассчитываем стоимость…';
+        }
+        statusBlock.appendChild(statusText);
+
+        // Кнопки
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:10px;margin-top:16px;';
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.style.cssText = 'flex:1;padding:11px;background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background 0.15s;';
+        cancelBtn.textContent = 'Отмена';
+        cancelBtn.addEventListener('mouseenter', function () { cancelBtn.style.background = 'rgba(255,255,255,0.12)'; });
+        cancelBtn.addEventListener('mouseleave', function () { cancelBtn.style.background = 'rgba(255,255,255,0.07)'; });
+        cancelBtn.addEventListener('click', closeModal);
+
+        var confirmBtn = document.createElement('button');
+        confirmBtn.style.cssText = 'flex:2;padding:11px;background:#e0e0e0;color:#999;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:not-allowed;font-family:inherit;transition:background 0.2s,color 0.2s;';
+        confirmBtn.textContent = 'Перезапустить';
+        confirmBtn.disabled = true;
+
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(confirmBtn);
+
+        body.appendChild(statusBlock);
+        body.appendChild(btnRow);
+
+        modal.appendChild(header);
+        modal.appendChild(infoBar);
+        modal.appendChild(body);
+        document.body.appendChild(modal);
+
+        // -----------------------------------------------------------------
+        // Логика: уже почасовой — только продлить без начисления бонусов
+        // -----------------------------------------------------------------
+        if (alreadyHourly) {
+            // Разблокируем кнопку сразу
+            confirmBtn.disabled = false;
+            confirmBtn.style.background = '#cc0001';
+            confirmBtn.style.color = '#fff';
+            confirmBtn.style.cursor = 'pointer';
+
+            confirmBtn.addEventListener('click', function () {
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Выполняем…';
+                confirmBtn.style.opacity = '0.8';
+
+                getHourlyTariff(session.sessionId).then(function (tariffInfo) {
+                    if (!tariffInfo) throw new Error('Не удалось получить поминутный тариф');
+                    return prolongSession(session.sessionId, tariffInfo.tariffId, remainMin);
+                }).then(function (res) {
+                    var ok = res && res.data && res.data.userReservationProlongate && res.data.userReservationProlongate.success;
+                    if (!ok) throw new Error('Продление не прошло');
+                    confirmBtn.textContent = 'Готово!';
+                    confirmBtn.style.background = '#2e7d32';
+                    setTimeout(closeModal, 1200);
+                }).catch(function (err) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.style.background = '#cc0001';
+                    confirmBtn.style.color = '#fff';
+                    confirmBtn.style.opacity = '1';
+                    confirmBtn.textContent = 'Перезапустить';
+                    statusText.textContent = 'Ошибка: ' + (err.message || 'попробуйте ещё раз');
+                    statusText.style.color = '#cc0001';
+                });
+            });
+
+            return; // дальше не идём
+        }
+
+        // -----------------------------------------------------------------
+        // Логика: пакетный тариф — считаем стоимость, начисляем, продлеваем
+        // -----------------------------------------------------------------
+        var calcData = null; // { tariffId, tariffName, costPerMin, bonusCost }
+
+        getHourlyTariff(session.sessionId).then(function (tariffInfo) {
+            if (!tariffInfo) {
+                statusText.textContent = 'Не удалось получить поминутный тариф';
+                statusText.style.color = '#cc0001';
+                return;
+            }
+
+            calcData = tariffInfo;
+            var bonusCost = Math.round(tariffInfo.costPerMin * remainMin * 100) / 100;
+            calcData.bonusCost = bonusCost;
+
+            statusText.innerHTML =
+                'Будет начислено <strong style="color:#fff;">' + bonusCost + ' бонусов</strong> ' +
+                'и добавлено <strong style="color:#fff;">' + remainMin + ' мин</strong> ' +
+                '<span style="color:rgba(255,255,255,0.35);font-size:11px;">(' + tariffInfo.tariffName.trim() + ')</span>';
+            statusText.style.color = 'rgba(255,255,255,0.75)';
+
+            confirmBtn.disabled = false;
+            confirmBtn.style.background = '#cc0001';
+            confirmBtn.style.color = '#fff';
+            confirmBtn.style.cursor = 'pointer';
+        }).catch(function () {
+            statusText.textContent = 'Ошибка при расчёте тарифа';
+            statusText.style.color = '#cc0001';
+        });
+
+        confirmBtn.addEventListener('click', function () {
+            if (!calcData) return;
+
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Выполняем…';
+            confirmBtn.style.opacity = '0.8';
+
+            var bonusCost   = calcData.bonusCost;
+            var walletId    = session.walletId;
+            var comment     = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
+
+            // 1. Сохраняем бонусный баланс ДО начисления — нужен для отслеживания возврата
+            var balanceBefore = session.bonusBalance;
+
+            // 2. Начисляем бонусы
+            depositBonus(walletId, bonusCost, comment)
+                .then(function () {
+                    // 3. Продлеваем сеанс
+                    return prolongSession(session.sessionId, calcData.tariffId, remainMin);
+                })
+                .then(function (res) {
+                    var ok = res && res.data && res.data.userReservationProlongate && res.data.userReservationProlongate.success;
+                    if (!ok) throw new Error('Продление не прошло');
+
+                    confirmBtn.textContent = 'Готово!';
+                    confirmBtn.style.background = '#2e7d32';
+                    confirmBtn.style.opacity = '1';
+
+                    // 4. Запускаем мониторинг возврата бонусов с пакетного тарифа.
+                    // balanceAfterDeposit = balanceBefore + bonusCost — именно от этой базы считаем прирост.
+                    var balanceAfterDeposit = Math.round((balanceBefore + bonusCost) * 100) / 100;
+                    var remainLabel = remainMin + ' мин, ' + (session.tariffName || '');
+                    watchForBonusReturn(walletId, balanceAfterDeposit, remainLabel);
+
+                    setTimeout(closeModal, 1200);
+                })
+                .catch(function (err) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.style.background = '#cc0001';
+                    confirmBtn.style.color = '#fff';
+                    confirmBtn.style.opacity = '1';
+                    confirmBtn.textContent = 'Перезапустить';
+                    statusText.textContent = 'Ошибка: ' + (err.message || 'попробуйте ещё раз');
+                    statusText.style.color = '#cc0001';
+                });
+        });
     }
 
-    function doRestart(pcName) {
-        var session = sessionsData[pcName];
-        if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
-        if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
-        if (!session.timeTo)   { notify('Нет данных об остатке времени. Подождите обновления.', 'err'); return; }
-
-        var msLeft       = new Date(session.timeTo).getTime() - Date.now();
-        var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
-        var walletId     = session.walletId;
-        var oldSessionId = session.sessionId;
-        var wasPackage = isPackageTariff(session.tariffName, session.tariffType);
-
-        notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
-
-        Promise.all([
-            getLastOpId(walletId),
-            getDeviceAndUser(pcName, walletId)
-        ])
-        .then(function (res0) {
-            var lastOpId = res0[0];
-            var devInfo  = res0[1];
-            var deviceId = devInfo.deviceId;
-            var userId   = devInfo.userId;
-
-            // Получаем тарифы для нужного окна времени
-            return getBookingTariffs(deviceId, Date.now(), remainMin)
-            .then(function (tariffs) {
-                if (!tariffs || !tariffs.length) throw new Error('Нет доступных тарифов для ПК ' + pcName);
-
-                var minuteTariff = tariffs.filter(function (t) { return t.type === 'minute'; })[0];
-                if (!minuteTariff) throw new Error('Поминутный тариф недоступен');
-
-                // Уточняем тип тарифа по актуальным данным из API
-                var currentTariff = tariffs.filter(function (t) { return t.id === session.tariffId; })[0];
-                if (currentTariff) {
-                    wasPackage = currentTariff.type === 'packet';
-                }
-
-                // Завершаем текущий сеанс
-                return cancelSession(oldSessionId)
-                .then(function (cr) {
-                    if (!cr || !cr.data || !cr.data.userReservationCancel || !cr.data.userReservationCancel.success) {
-                        throw new Error('Не удалось завершить сеанс');
-                    }
-
-                    if (!wasPackage) {
-                        // -------------------------------------------------------
-                        // ПОЧАСОВОЙ → ПОЧАСОВОЙ
-                        // Ждём возврата бонусов от ERP, затем сажаем на почасовой
-                        // -------------------------------------------------------
-                        return waitForBonusReturn(walletId, oldSessionId, lastOpId)
-                        .then(function () {
-                            var now = Date.now();
-                            return createSession(deviceId, userId, minuteTariff.id, now, now + remainMin * 60000);
-                        });
-
-                    } else {
-                        // -------------------------------------------------------
-                        // ПАКЕТНЫЙ → ПАКЕТНЫЙ
-                        // Подбираем комбинацию, начисляем бонусы, сажаем
-                        // -------------------------------------------------------
-                        var plan = buildPackagePlan(tariffs, remainMin);
-                        if (!plan) throw new Error('Не найден подходящий пакетный тариф для ' + remainMin + ' мин');
-
-                        // Получаем точную стоимость почасового добора отдельным запросом
-                        var hourlyPricePromise;
-                        if (plan.hourlyMin > 0) {
-                            hourlyPricePromise = getBookingTariffs(deviceId, Date.now(), plan.hourlyMin)
-                            .then(function (t2) {
-                                var mt = t2.filter(function (t) { return t.type === 'minute'; })[0];
-                                return mt ? mt.cost : 0;
-                            });
-                        } else {
-                            hourlyPricePromise = Promise.resolve(0);
-                        }
-
-                        return hourlyPricePromise.then(function (hourlyCost) {
-                            var totalCost = Math.round((plan.packet.cost + hourlyCost) * 100) / 100;
-                            var comment   = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
-
-                            return depositBonus(walletId, totalCost, comment)
-                            .then(function () {
-                                var now = Date.now();
-
-                                if (plan.hourlyMin > 0) {
-                                    // Сначала почасовой на hourlyMin, потом продление пакетом
-                                    var hourlyStart = now;
-                                    var hourlyEnd   = now + plan.hourlyMin * 60000;
-
-                                    return createSession(deviceId, userId, plan.minuteTariff.id, hourlyStart, hourlyEnd)
-                                    .then(function (cr2) {
-                                        if (cr2 && cr2.errors) throw new Error(cr2.errors[0] && cr2.errors[0].message || 'Ошибка создания почасового сеанса');
-                                        var newSessionId = cr2 && cr2.data && cr2.data.userReservationCreate && cr2.data.userReservationCreate.reservationId;
-                                        if (!newSessionId) throw new Error('Не получен id нового сеанса');
-                                        // Ждём активации сеанса перед продлением
-                                        return waitForSessionActive(newSessionId)
-                                        .then(function () {
-                                            return prolongSession(newSessionId, plan.packet.id, null);
-                                        });
-                                    });
-                                } else {
-                                    // Просто пакет
-                                    var pEnd = now + plan.packet.durationMin * 60000;
-                                    return createSession(deviceId, userId, plan.packet.id, now, pEnd);
-                                }
-                            });
-                        });
-                    }
-                });
-            })
-            .then(function (finalRes) {
-                if (finalRes && finalRes.errors) {
-                    throw new Error(finalRes.errors[0] && finalRes.errors[0].message ? finalRes.errors[0].message : JSON.stringify(finalRes.errors));
-                }
-                notify('ПК ' + pcName + ': сеанс перезапущен на ' + remainMin + ' мин', 'ok');
-            });
-        })
-        .catch(function (err) {
-            notify('ПК ' + pcName + ': ошибка — ' + (err.message || err), 'err');
-        });
+    function closeModal() {
+        var m = document.getElementById(MODAL_ID);
+        var o = document.getElementById(MODAL_ID + '-overlay');
+        if (m) m.remove();
+        if (o) o.remove();
     }
 
     // -------------------------------------------------------------------------
@@ -606,10 +558,14 @@
         var menuEl = document.querySelector('[data-menu-dropdown="true"]');
         if (!menuEl || !pcName) return;
 
+        // Уже есть в этом меню
         var existing = document.getElementById(BUTTON_ID);
         if (existing && menuEl.contains(existing)) return;
+
         removeMenuButton();
 
+        // Кнопка видна только если есть активная сессия.
+        // Признак активности — наличие «Пополнить бонусами» в меню (аналогично free_time).
         var items = menuEl.querySelectorAll('[role="menuitem"]');
         var afterItem = null;
         for (var i = 0; i < items.length; i++) {
@@ -619,7 +575,7 @@
                 break;
             }
         }
-        if (!afterItem) return;
+        if (!afterItem) return; // Нет активной сессии
 
         var btn = document.createElement('button');
         btn.id = BUTTON_ID;
@@ -630,58 +586,70 @@
         btn.setAttribute('data-menu-item', 'true');
         btn.setAttribute('data-mantine-stop-propagation', 'true');
         btn.style.cssText = 'color:rgb(204,0,1);background-color:rgba(204,0,1,0.07);--menu-item-color:rgb(204,0,1);--menu-item-hover:rgba(204,0,1,0.12);';
-        btn.innerHTML = '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left"><div style="align-items:center;justify-content:center;width:calc(1.25rem * var(--mantine-scale));display:flex;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="stroke:rgb(204,0,1);"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></div></div><div class="m_5476e0d3 mantine-Menu-itemLabel">Перезапустить сеанс</div>';
+        btn.innerHTML =
+            '<div class="m_8b75e504 mantine-Menu-itemSection" data-position="left">' +
+            '<div style="align-items:center;justify-content:center;width:calc(1.25rem * var(--mantine-scale));display:flex;">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/>' +
+            '<path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/>' +
+            '<path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/>' +
+            '</svg></div></div>' +
+            '<div class="m_5476e0d3 mantine-Menu-itemLabel">Перезапустить сеанс</div>';
 
         btn.addEventListener('mousedown', function (e) {
             e.preventDefault();
             e.stopPropagation();
-            var pc = lastContextPc;
-            document.body.click();
-            setTimeout(function () {
-                var session = sessionsData[pc] || {};
-                var remainMin = 0;
-                if (session.timeTo) remainMin = Math.max(1, Math.ceil((new Date(session.timeTo).getTime() - Date.now()) / 60000));
-                var txt = 'Перезапустить сеанс на ПК <strong>' + pc + '</strong>?';
-                if (session.nickname) txt += '<br><span style="color:var(--mantine-color-dimmed);font-size:0.85em;">' + session.nickname + (remainMin ? ', остаток ' + remainMin + ' мин' : '') + '</span>';
-                showConfirm('Перезапустить сеанс', txt, 'Перезапустить', function() { doRestart(pc); });
-            }, 50);
+            document.body.click(); // закрываем меню
+            setTimeout(function () { showModal(pcName); }, 50);
         });
 
         afterItem.parentNode.insertBefore(btn, afterItem.nextSibling);
     }
 
     // -------------------------------------------------------------------------
-    // Отслеживаем ПК под курсором
+    // Отслеживаем, на какой ПК навели / открыли меню
     // -------------------------------------------------------------------------
     document.addEventListener('mouseover', function (e) {
         var row = e.target.closest('tr.mantine-Table-tr');
         if (row) {
             var nc = row.querySelector('td[data-index="0"]') ||
                      row.querySelector('td[style*="col-deviceName-size"]');
-            if (nc) { lastContextPc = nc.textContent.trim(); window._godjiLastContextPc = lastContextPc; }
+            if (nc) {
+                lastContextPc = nc.textContent.trim();
+                window._godjiLastContextPc = lastContextPc;
+            }
             return;
         }
         var card = e.target.closest('.DeviceItem_deviceBox__pzNUf');
         if (card) {
             var ne = card.querySelector('.DeviceItem_deviceName__yC1tT');
-            if (ne) { lastContextPc = ne.textContent.trim(); window._godjiLastContextPc = lastContextPc; }
+            if (ne) {
+                lastContextPc = ne.textContent.trim();
+                window._godjiLastContextPc = lastContextPc;
+            }
         }
     });
 
     // -------------------------------------------------------------------------
-    // MutationObserver для меню — subtree:false
+    // MutationObserver для меню (subtree:false — только прямые дети body)
     // -------------------------------------------------------------------------
     var _menuInjectTimer = null;
     var _lastMenuEl = null;
 
     var menuObserver = new MutationObserver(function () {
         var menuEl = document.querySelector('[data-menu-dropdown="true"]');
-        if (!menuEl) { _lastMenuEl = null; return; }
+
+        if (!menuEl) {
+            _lastMenuEl = null;
+            return;
+        }
 
         if (menuEl === _lastMenuEl) {
             if (!document.getElementById(BUTTON_ID) && lastContextPc) {
                 clearTimeout(_menuInjectTimer);
-                _menuInjectTimer = setTimeout(function () { injectMenuButton(lastContextPc); }, 50);
+                _menuInjectTimer = setTimeout(function () {
+                    injectMenuButton(lastContextPc);
+                }, 50);
             }
             return;
         }
@@ -694,16 +662,5 @@
     });
 
     menuObserver.observe(document.body, { childList: true, subtree: false });
-
-    // Экспортируем doRestart для использования из других скриптов (multi_select)
-    window._godjiRestartPc = function(pcName) {
-        return new Promise(function(resolve) {
-            // Перехватываем notify чтобы получить результат
-            var origNotify = window._godjiRestartNotify;
-            doRestart(pcName);
-            // Ждём завершения — даём 90 сек
-            setTimeout(resolve, 90000);
-        });
-    };
 
 })();
