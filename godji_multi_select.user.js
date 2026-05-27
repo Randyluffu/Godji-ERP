@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.11
+// @version      5.12
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -96,10 +96,6 @@
     function toggle(card) {
         var id = getDeviceId(card), name = getPcName(card);
         if (!id || !name) return;
-        // Сохраняем вид карты только при первом выборе (пока ещё ничего не выделено)
-        if (Object.keys(selected).length === 0 && window._godjiSaveMapTransform) {
-            window._godjiSaveMapTransform();
-        }
         if (selected[id]) {
             delete selected[id];
             setCardStyle(card, false);
@@ -139,6 +135,7 @@
 
     function clearAll() {
         Object.keys(selected).forEach(function(k) { delete selected[k]; });
+        window._godjiSelected = selected; // обновляем экспорт
         document.querySelectorAll('.DeviceItem_deviceBox__pzNUf, .gm-card').forEach(function(c) { setCardStyle(c, false); });
         document.querySelectorAll('tr.mantine-Table-tr[data-index]').forEach(function(r) { setRowStyle(r, false); });
         updateCounter();
@@ -849,6 +846,8 @@
     }
 
     function updateCounter() {
+        // Экспортируем selected для map_sync
+        window._godjiSelected = selected;
         var el = document.getElementById('godji-multi-counter');
         if (!el) return;
         var count = selectedCount();
