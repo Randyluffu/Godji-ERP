@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.15
+// @version      3.16
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -632,7 +632,7 @@ function renderModal(){
         // Ник админа рядом с суммой в шапке
         if(shift && shift.adminNick){
             var adminSpan=document.createElement('span');
-            adminSpan.style.cssText='display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:20px;padding:2px 10px;margin-right:8px;white-space:nowrap;';
+            adminSpan.style.cssText='display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 10px;margin-right:8px;white-space:nowrap;';
             adminSpan.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+shift.adminNick;
             tw.appendChild(adminSpan);
         }
@@ -1176,88 +1176,142 @@ function showAdminList(){
 
 // ── Журнал смен ───────────────────────────────────────────
 function renderHistoryTab(body){
-    var shifts=loadShifts();
-    if(!shifts.length){
+    var allShifts=loadShifts();
+    if(!allShifts.length){
         body.innerHTML='<div style="text-align:center;color:#ccc;padding:60px;font-size:14px;">Нет завершённых смен</div>';
         return;
     }
 
+    // Фильтры
+    var _fAdmin='', _fFrom='', _fTill='';
+
+    // Контейнер фильтров
+    var filterBar=document.createElement('div');
+    filterBar.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9f9f9;border-bottom:1px solid #eee;flex-shrink:0;flex-wrap:wrap;';
+    body.appendChild(filterBar);
+
+    function applyFilters(){
+        var shifts=allShifts.filter(function(s){
+            if(_fAdmin && s.adminNick!==_fAdmin) return false;
+            if(_fFrom && s.openedAt < new Date(_fFrom).getTime()) return false;
+            if(_fTill && s.openedAt > new Date(_fTill).getTime()+86399999) return false;
+            return true;
+        });
+        rebuildTable(shifts);
+    }
+
+    // Фильтр по админу
+    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1)adminNicks.push(s.adminNick); });
+    var adminSel=document.createElement('select');
+    adminSel.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#555;font-family:inherit;cursor:pointer;';
+    var optAll=document.createElement('option'); optAll.value=''; optAll.textContent='Все админы'; adminSel.appendChild(optAll);
+    adminNicks.forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; adminSel.appendChild(o); });
+    adminSel.addEventListener('change',function(){ _fAdmin=adminSel.value; applyFilters(); });
+    filterBar.appendChild(adminSel);
+
+    // Фильтр по дате открытия
+    var fromLabel=document.createElement('span'); fromLabel.style.cssText='font-size:11px;color:#888;'; fromLabel.textContent='с';
+    var fromInput=document.createElement('input'); fromInput.type='date';
+    fromInput.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;font-family:inherit;color:#555;';
+    fromInput.addEventListener('change',function(){ _fFrom=fromInput.value; applyFilters(); });
+    var tillLabel=document.createElement('span'); tillLabel.style.cssText='font-size:11px;color:#888;'; tillLabel.textContent='по';
+    var tillInput=document.createElement('input'); tillInput.type='date';
+    tillInput.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;font-family:inherit;color:#555;';
+    tillInput.addEventListener('change',function(){ _fTill=tillInput.value; applyFilters(); });
+    var resetBtn=document.createElement('button');
+    resetBtn.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;margin-left:auto;';
+    resetBtn.textContent='Сбросить';
+    resetBtn.addEventListener('click',function(){ _fAdmin=''; _fFrom=''; _fTill=''; adminSel.value=''; fromInput.value=''; tillInput.value=''; applyFilters(); });
+    filterBar.appendChild(fromLabel); filterBar.appendChild(fromInput);
+    filterBar.appendChild(tillLabel); filterBar.appendChild(tillInput);
+    filterBar.appendChild(resetBtn);
+
+    // Таблица
+    var tableWrap=document.createElement('div');
+    tableWrap.style.cssText='overflow:auto;flex:1;';
+    body.appendChild(tableWrap);
+
     var table=document.createElement('table');
     table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;';
+
+    // Thead — colSpan колонка "Админ" поверх Открыта+Закрыта
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
+
+    // Строка 1: "Админ" colspan=2, остальные rowspan=2 (или просто одна строка)
+    // Делаем одну строку — добавляем "Админ ▾" как кнопку-фильтр в ячейку colspan=2
     var hr=document.createElement('tr');
-    [['Открыта','115px'],['Закрыта','115px'],['В кассе','80px'],['Нал.','75px'],['Карта','75px'],['Внес.','70px'],['Выем.','70px'],['Спис.','70px']].forEach(function(c){
+    var COLS=[['Открыта','110px'],['Закрыта','110px'],['В кассе','80px'],['Нал.','70px'],['Карта','70px'],['Внес.','65px'],['Выем.','65px'],['Спис.','65px']];
+    COLS.forEach(function(c,i){
         var th=document.createElement('th');
-        th.style.cssText='padding:9px 12px;text-align:left;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
-        th.textContent=c[0]; hr.appendChild(th);
+        th.style.cssText='padding:9px 10px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
+        th.textContent=c[0];
+        hr.appendChild(th);
     });
     thead.appendChild(hr); table.appendChild(thead);
+    tableWrap.appendChild(table);
 
     var tbody=document.createElement('tbody');
-    shifts.forEach(function(s){
-        var tr=document.createElement('tr');
-        tr.style.cssText='border-bottom:1px solid #f5f5f5;cursor:pointer;';
-        tr.addEventListener('mouseenter',function(){tr.style.background='#f7f9ff';});
-        tr.addEventListener('mouseleave',function(){tr.style.background='';});
-        tr.addEventListener('click',function(){ showShiftDetail(s); });
-
-        var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
-
-        // Строка с ником админа поверх двух колонок дат (colspan=2)
-        if(s.adminNick){
-            var trAdmin=document.createElement('tr');
-            trAdmin.style.cssText='cursor:pointer;border-bottom:none;';
-            trAdmin.addEventListener('mouseenter',function(){tr.style.background='#f7f9ff';trAdmin.style.background='#f7f9ff';});
-            trAdmin.addEventListener('mouseleave',function(){tr.style.background='';trAdmin.style.background='';});
-            trAdmin.addEventListener('click',function(){ showShiftDetail(s); });
-            var tdAN=document.createElement('td');
-            tdAN.colSpan=2;
-            tdAN.style.cssText='padding:6px 12px 0;text-align:center;border-bottom:none;';
-            var adminBadge=document.createElement('span');
-            adminBadge.style.cssText='font-size:12px;font-weight:700;color:#166534;letter-spacing:0.2px;';
-            adminBadge.textContent=s.adminNick;
-            tdAN.appendChild(adminBadge);
-            // Пустые td для остальных колонок
-            var colCount=7; // В кассе + Нал + Карта + Внес + Выем + Спис = 6, итого 8-2=6
-            for(var ci=0;ci<colCount;ci++){
-                var tdEmpty=document.createElement('td'); tdEmpty.style.borderBottom='none';
-                trAdmin.appendChild(tdEmpty);
-            }
-            trAdmin.insertBefore(tdAN, trAdmin.firstChild);
-            tbody.appendChild(trAdmin);
-        }
-
-        // Строка с датами
-        // Ячейка "Открыта"
-        var tdOpen=document.createElement('td'); tdOpen.style.cssText='padding:3px 12px 9px;white-space:nowrap;';
-        var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
-        tr.appendChild(tdOpen);
-
-        // Ячейка "Закрыта"
-        var tdClose=document.createElement('td'); tdClose.style.cssText='padding:3px 12px 9px;white-space:nowrap;';
-        var dt2=document.createElement('div'); dt2.style.cssText='font-size:12px;color:#999;'; dt2.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdClose.appendChild(dt2);
-        tr.appendChild(tdClose);
-
-        // Остальные колонки
-        [
-            [fmtAmtAbs(total),        'font-weight:800;color:#1a1a1a;font-size:14px;'],
-            [fmtAmtAbs(s.cash),       'color:#166534;font-weight:600;'],
-            [fmtAmtAbs(s.card),       'color:#1d4ed8;font-weight:600;'],
-            [fmtAmtAbs(s.manual),     'color:#7c3aed;font-weight:600;'],
-            [fmtAmtAbs(s.withdrawal), 'color:#b45309;font-weight:600;'],
-            [fmtAmtAbs(s.debit||0),   'color:#991b1b;font-weight:600;'],
-        ].forEach(function(col){
-            var td=document.createElement('td');
-            td.style.cssText='padding:9px 12px;font-size:12px;white-space:nowrap;'+col[1]; if(col[1].indexOf('font-size:14px')!==-1) td.style.fontSize='14px';
-            td.textContent=col[0]; tr.appendChild(td);
-        });
-        // Разделитель между сменами — заметная линия
-        tr.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;';
-        tbody.appendChild(tr);
-    });
     table.appendChild(tbody);
-    body.appendChild(table);
+
+    function rebuildTable(shifts){
+        tbody.innerHTML='';
+        if(!shifts.length){
+            var emptyRow=document.createElement('tr');
+            var emptyTd=document.createElement('td');
+            emptyTd.colSpan=8; emptyTd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;';
+            emptyTd.textContent='Нет смен по выбранным фильтрам';
+            emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow); return;
+        }
+        shifts.forEach(function(s){
+            var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
+            var hoverOn=function(){ trAdmin&&(trAdmin.style.background='#f0f6ff'); trData.style.background='#f0f6ff'; };
+            var hoverOff=function(){ trAdmin&&(trAdmin.style.background=''); trData.style.background=''; };
+            var trAdmin=null;
+
+            // Строка-шапка смены: ник (colspan 8), единая с основной строкой
+            if(s.adminNick){
+                trAdmin=document.createElement('tr');
+                trAdmin.style.cssText='cursor:pointer;border-bottom:none;background:#fff;';
+                trAdmin.addEventListener('mouseenter',hoverOn); trAdmin.addEventListener('mouseleave',hoverOff);
+                trAdmin.addEventListener('click',function(){showShiftDetail(s);});
+                var tdAN=document.createElement('td');
+                tdAN.colSpan=8;
+                tdAN.style.cssText='padding:7px 10px 2px;text-align:center;border-bottom:none;';
+                var badge=document.createElement('span');
+                badge.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:1px 10px;display:inline-block;';
+                badge.textContent=s.adminNick;
+                tdAN.appendChild(badge); trAdmin.appendChild(tdAN);
+                tbody.appendChild(trAdmin);
+            }
+
+            // Основная строка данных
+            var trData=document.createElement('tr');
+            trData.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;background:#fff;';
+            trData.addEventListener('mouseenter',hoverOn); trData.addEventListener('mouseleave',hoverOff);
+            trData.addEventListener('click',function(){showShiftDetail(s);});
+
+            var PT='padding:4px 10px 8px;text-align:center;font-size:12px;white-space:nowrap;';
+            var PTT=(s.adminNick?'padding:4px 10px 8px;':'padding:9px 10px;')+'text-align:center;font-size:12px;white-space:nowrap;';
+
+            [[fmtDate(s.openedAt),'color:#555;'],
+             [s.closedAt?fmtDate(s.closedAt):'—','color:#999;'],
+             [fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
+             [fmtAmtAbs(s.cash),'color:#166534;font-weight:600;'],
+             [fmtAmtAbs(s.card),'color:#1d4ed8;font-weight:600;'],
+             [fmtAmtAbs(s.manual),'color:#7c3aed;font-weight:600;'],
+             [fmtAmtAbs(s.withdrawal),'color:#b45309;font-weight:600;'],
+             [fmtAmtAbs(s.debit||0),'color:#991b1b;font-weight:600;'],
+            ].forEach(function(col){
+                var td=document.createElement('td');
+                td.style.cssText=PTT+col[1];
+                td.textContent=col[0]; trData.appendChild(td);
+            });
+            tbody.appendChild(trData);
+        });
+    }
+
+    applyFilters();
 }
 
 // ── Детальная карточка смены ──────────────────────────────
@@ -1281,6 +1335,13 @@ function showShiftDetail(s){
     var hc=document.createElement('button');
     hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;line-height:1;';
     hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
+    // Ник админа рядом с крестиком
+    if(s.adminNick){
+        var sdAdmin=document.createElement('span');
+        sdAdmin.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 9px;margin-right:6px;white-space:nowrap;';
+        sdAdmin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+s.adminNick;
+        hdrTop.insertBefore(sdAdmin, hc);
+    }
     hdrTop.appendChild(ht); hdrTop.appendChild(hc);
     // Строка 2: кнопка "История пополнений" по центру
     var hdrBot=document.createElement('div');
