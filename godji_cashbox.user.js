@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.18
+// @version      3.19
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -589,7 +589,7 @@ var _modal=null, _overlay=null, _isOpen=false, _tab='current';
 
 function buildModal(){
     _overlay=document.createElement('div');
-    _overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99997;display:none;pointer-events:auto;';
+    _overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99997;display:none;pointer-events:auto;overscroll-behavior:contain;';
     _overlay.addEventListener('click',hideModal);
     document.body.appendChild(_overlay);
 
@@ -715,7 +715,7 @@ function renderModal(){
     _modal.appendChild(tabs);
 
     var body=document.createElement('div');
-    body.style.cssText='overflow-y:auto;flex:1;min-height:0;';
+    body.style.cssText='overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0;';
     _modal.appendChild(body);
 
     if(_tab==='current') renderCurrentTab(body, shift);
@@ -1184,177 +1184,318 @@ function renderHistoryTab(body){
         return;
     }
 
-    // Фильтры
-    var _fAdmin='', _fFrom='', _fTill='';
+    var _fAdmin='', _fFrom=null, _fTill=null, _sortOpen=0, _sortClose=0, _sortTotal=0;
+    // _sortX: 0=off, 1=desc, 2=asc
 
-    // Фильтры встроены в thead таблицы
+    var adminNicks=[];
+    allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
+
+    // ── Шапка с кнопкой "Сбросить фильтры" ──
+    var topBar=document.createElement('div');
+    topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:6px 12px 0;flex-shrink:0;';
+    var rstBtn=document.createElement('button');
+    rstBtn.textContent='Сбросить фильтры';
+    rstBtn.style.cssText='font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;transition:background 0.1s;';
+    rstBtn.addEventListener('mouseenter',function(){rstBtn.style.background='#f5f5f5';});
+    rstBtn.addEventListener('mouseleave',function(){rstBtn.style.background='#fff';});
+    rstBtn.addEventListener('click',function(){
+        _fAdmin=''; _fFrom=null; _fTill=null; _sortOpen=0; _sortClose=0; _sortTotal=0;
+        updateThLabels(); applyFilters();
+    });
+    topBar.appendChild(rstBtn);
+    body.appendChild(topBar);
+
+    // ── Таблица ──
+    var tableWrap=document.createElement('div');
+    tableWrap.style.cssText='overflow:auto;flex:1;overscroll-behavior:contain;';
+    body.appendChild(tableWrap);
+
+    var table=document.createElement('table');
+    table.style.cssText='width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;';
+    tableWrap.appendChild(table);
+
+    // ── Thead ──
+    var thead=document.createElement('thead');
+    thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:2;';
+    table.appendChild(thead);
+
+    var ICON_N='\u25be', ICON_D='\u25bc', ICON_A='\u25b2';
+    var THS='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;overflow:hidden;';
+
+    var hr=document.createElement('tr');
+    var thEls={};
+
+    // Mini calendar dropdown
+    function makeCalendarDropdown(onSelect){
+        var now=new Date();
+        var viewY=now.getFullYear(), viewM=now.getMonth();
+        var dropdown=document.createElement('div');
+        dropdown.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.14);z-index:30;padding:10px;min-width:220px;font-family:inherit;';
+        dropdown.addEventListener('click',function(e){e.stopPropagation();});
+
+        // Ручной ввод
+        var inputRow=document.createElement('div'); inputRow.style.cssText='display:flex;gap:4px;margin-bottom:8px;';
+        var manualIn=document.createElement('input'); manualIn.type='text'; manualIn.placeholder='ДД.ММ.ГГГГ';
+        manualIn.style.cssText='flex:1;font-size:11px;padding:4px 7px;border:1px solid #ddd;border-radius:5px;font-family:inherit;';
+        var manualOk=document.createElement('button'); manualOk.textContent='OK';
+        manualOk.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #86efac;border-radius:5px;background:#f0fdf4;color:#166534;cursor:pointer;font-family:inherit;font-weight:600;';
+        manualOk.addEventListener('click',function(){
+            var parts=manualIn.value.split('.');
+            if(parts.length===3){
+                var d=new Date(+parts[2],+parts[1]-1,+parts[0]);
+                if(!isNaN(d.getTime())){ onSelect(d); dropdown.remove(); return; }
+            }
+            manualIn.style.borderColor='#f87171';
+        });
+        inputRow.appendChild(manualIn); inputRow.appendChild(manualOk);
+        dropdown.appendChild(inputRow);
+
+        function buildCal(){
+            var old=dropdown.querySelector('.gcb-cal'); if(old) old.remove();
+            var cal=document.createElement('div'); cal.className='gcb-cal';
+            // Nav
+            var nav=document.createElement('div'); nav.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+            var prev=document.createElement('button'); prev.textContent='◀'; prev.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#555;padding:2px 6px;';
+            var next=document.createElement('button'); next.textContent='▶'; next.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#555;padding:2px 6px;';
+            var lbl=document.createElement('span'); lbl.style.cssText='font-size:12px;font-weight:700;color:#333;';
+            var MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+            lbl.textContent=MONTHS[viewM]+' '+viewY;
+            prev.addEventListener('click',function(){ viewM--; if(viewM<0){viewM=11;viewY--;} buildCal(); });
+            next.addEventListener('click',function(){ viewM++; if(viewM>11){viewM=0;viewY++;} buildCal(); });
+            nav.appendChild(prev); nav.appendChild(lbl); nav.appendChild(next); cal.appendChild(nav);
+            // Days header
+            var dHdr=document.createElement('div'); dHdr.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-bottom:2px;';
+            ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(function(d){
+                var c=document.createElement('div'); c.style.cssText='font-size:9px;text-align:center;color:#bbb;font-weight:600;'; c.textContent=d; dHdr.appendChild(c);
+            });
+            cal.appendChild(dHdr);
+            // Days grid
+            var grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;';
+            var first=new Date(viewY,viewM,1).getDay(); // 0=Sun
+            var offset=(first===0)?6:first-1;
+            var days=new Date(viewY,viewM+1,0).getDate();
+            for(var i=0;i<offset;i++){ var empty=document.createElement('div'); grid.appendChild(empty); }
+            for(var day=1;day<=days;day++){
+                (function(d){
+                    var cell=document.createElement('div');
+                    cell.style.cssText='font-size:11px;text-align:center;padding:3px 2px;border-radius:5px;cursor:pointer;color:#333;transition:background 0.1s;';
+                    cell.textContent=d;
+                    cell.addEventListener('mouseenter',function(){cell.style.background='#eff6ff';cell.style.color='#1d4ed8';});
+                    cell.addEventListener('mouseleave',function(){cell.style.background='';cell.style.color='#333';});
+                    cell.addEventListener('click',function(){
+                        onSelect(new Date(viewY,viewM,d));
+                        dropdown.remove();
+                    });
+                    grid.appendChild(cell);
+                })(day);
+            }
+            cal.appendChild(grid); dropdown.appendChild(cal);
+        }
+        buildCal();
+        return dropdown;
+    }
+
+    function makeFilterTh(label, sortVar, onSortChange, onDateSelect, dateVal){
+        var th=document.createElement('th');
+        th.style.cssText=THS+'cursor:pointer;position:relative;width:110px;';
+        function getIcon(v){ return v===0?ICON_N:v===1?ICON_D:ICON_A; }
+        function render(){
+            var dateStr=dateVal()?(' <span style="font-size:9px;color:#1d4ed8;">'+dateVal().toLocaleDateString('ru-RU')+'</span>'):'';
+            th.innerHTML=label+' <span style="font-size:9px;opacity:0.7;">'+getIcon(sortVar())+'</span>'+dateStr;
+        }
+        render();
+        var calDrop=null;
+        th.addEventListener('click',function(e){
+            e.stopPropagation();
+            if(calDrop){ calDrop.remove(); calDrop=null; return; }
+            // Первый клик = цикл сортировки, второй (если уже открыт) = закрыть
+            // Правый клик или shift-клик = открыть календарь
+            if(e.shiftKey||e.altKey){
+                // Открыть календарь
+                calDrop=makeCalendarDropdown(function(date){
+                    onDateSelect(date); render(); applyFilters();
+                });
+                th.appendChild(calDrop);
+                setTimeout(function(){
+                    document.addEventListener('click',function cl(){
+                        if(calDrop)calDrop.remove(); calDrop=null;
+                        document.removeEventListener('click',cl);
+                    });
+                },10);
+            } else {
+                onSortChange(); render(); applyFilters();
+            }
+        });
+        // Двойной клик = открыть календарь
+        th.addEventListener('dblclick',function(e){
+            e.stopPropagation();
+            if(calDrop){ calDrop.remove(); calDrop=null; return; }
+            calDrop=makeCalendarDropdown(function(date){
+                onDateSelect(date); render(); applyFilters();
+            });
+            th.appendChild(calDrop);
+            setTimeout(function(){
+                document.addEventListener('click',function cl(){
+                    if(calDrop)calDrop.remove(); calDrop=null;
+                    document.removeEventListener('click',cl);
+                });
+            },10);
+        });
+        return {th:th, render:render};
+    }
+
+    function updateThLabels(){
+        thEls.open&&thEls.open.render();
+        thEls.close&&thEls.close.render();
+        thEls.total&&thEls.total.render();
+        // Admin th
+        if(thEls.admin){
+            thEls.admin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';
+        }
+    }
+
+    // Build thead row
+    thEls.open = makeFilterTh('Открыта',
+        function(){return _sortOpen;},
+        function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;},
+        function(d){_fFrom=d;},
+        function(){return _fFrom;}
+    );
+    hr.appendChild(thEls.open.th);
+
+    // Админ ▾
+    var thAdmin=document.createElement('th'); thAdmin.style.cssText=THS+'cursor:pointer;position:relative;width:80px;';
+    thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';
+    thEls.admin=thAdmin;
+    var admDrop=null;
+    thAdmin.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(admDrop){admDrop.remove();admDrop=null;return;}
+        admDrop=document.createElement('div');
+        admDrop.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:30;min-width:110px;padding:4px 0;font-family:inherit;';
+        admDrop.addEventListener('click',function(e2){e2.stopPropagation();});
+        function makeAdmOpt(label,val){
+            var o=document.createElement('div');
+            o.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(_fAdmin===val?'#1d4ed8':'#333')+';font-weight:'+(_fAdmin===val?'700':'400')+';';
+            o.textContent=label;
+            o.addEventListener('mouseenter',function(){o.style.background='#f0f6ff';});
+            o.addEventListener('mouseleave',function(){o.style.background='';});
+            o.addEventListener('click',function(){_fAdmin=val;thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';admDrop.remove();admDrop=null;applyFilters();});
+            return o;
+        }
+        admDrop.appendChild(makeAdmOpt('Все',''));
+        adminNicks.forEach(function(n){admDrop.appendChild(makeAdmOpt(n,n));});
+        thAdmin.appendChild(admDrop);
+        setTimeout(function(){document.addEventListener('click',function cl(){if(admDrop)admDrop.remove();admDrop=null;document.removeEventListener('click',cl);});},10);
+    });
+    hr.appendChild(thAdmin);
+
+    thEls.close = makeFilterTh('Закрыта',
+        function(){return _sortClose;},
+        function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;},
+        function(d){_fTill=d;},
+        function(){return _fTill;}
+    );
+    hr.appendChild(thEls.close.th);
+
+    // В кассе ▾
+    var thTotal=document.createElement('th'); thTotal.style.cssText=THS+'cursor:pointer;position:relative;width:78px;';
+    function renderTotalTh(){ thTotal.innerHTML='В кассе <span style="font-size:9px;opacity:0.7;">'+(_sortTotal===0?ICON_N:_sortTotal===1?ICON_D:ICON_A)+'</span>'; }
+    renderTotalTh(); thEls.total={render:renderTotalTh};
+    thTotal.addEventListener('click',function(){_sortTotal=(_sortTotal+1)%3;_sortOpen=0;_sortClose=0;renderTotalTh();applyFilters();});
+    hr.appendChild(thTotal);
+
+    ['Нал.','Карта','Внес.','Выем.','Спис.'].forEach(function(n){
+        var th=document.createElement('th'); th.style.cssText=THS+'width:64px;'; th.textContent=n; hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+
+    // ── tbody ──
+    var tbody=document.createElement('tbody');
+    table.appendChild(tbody);
 
     function applyFilters(){
         var shifts=allShifts.filter(function(s){
             if(_fAdmin && s.adminNick!==_fAdmin) return false;
-            if(_fFrom && s.openedAt < new Date(_fFrom).getTime()) return false;
-            if(_fTill && s.openedAt > new Date(_fTill).getTime()+86399999) return false;
+            if(_fFrom){
+                var from=new Date(_fFrom); from.setHours(0,0,0,0);
+                if(s.openedAt < from.getTime()) return false;
+            }
+            if(_fTill){
+                var till=new Date(_fTill); till.setHours(23,59,59,999);
+                if(s.openedAt > till.getTime()) return false;
+            }
             return true;
         });
-        if(_sortDir===1) shifts.sort(function(a,b){ var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0); var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0); return tb-ta; });
-        else if(_sortDir===2) shifts.sort(function(a,b){ var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0); var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0); return ta-tb; });
-        rebuildTable(shifts);
+        if(_sortOpen===1) shifts.sort(function(a,b){return b.openedAt-a.openedAt;});
+        else if(_sortOpen===2) shifts.sort(function(a,b){return a.openedAt-b.openedAt;});
+        else if(_sortClose===1) shifts.sort(function(a,b){return (b.closedAt||0)-(a.closedAt||0);});
+        else if(_sortClose===2) shifts.sort(function(a,b){return (a.closedAt||0)-(b.closedAt||0);});
+        else if(_sortTotal===1) shifts.sort(function(a,b){
+            var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0);
+            var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0);
+            return tb-ta;
+        });
+        else if(_sortTotal===2) shifts.sort(function(a,b){
+            var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0);
+            var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0);
+            return ta-tb;
+        });
+        rebuildRows(shifts);
     }
 
-
-
-    // Таблица
-    var tableWrap=document.createElement('div');
-    tableWrap.style.cssText='overflow:auto;flex:1;';
-    body.appendChild(tableWrap);
-
-    var table=document.createElement('table');
-    table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;';
-
-        // Thead: Открыта | Админ▾ | Закрыта | В кассе▾ | Нал. | Карта | Внес. | Выем. | Спис.
-    var thead=document.createElement('thead');
-    thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:2;';
-
-    var _sortDir=0; // 0=original 1=desc 2=asc
-
-    var hr=document.createElement('tr');
-    var THStyle='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;';
-
-    // Открыта (ник внутри строки)
-    var thOpen=document.createElement('th'); thOpen.style.cssText=THStyle+'width:110px;text-align:left;'; thOpen.textContent='Открыта'; hr.appendChild(thOpen);
-
-    // Админ ▾ — выпадающий фильтр (отдельная колонка в шапке, но данные — в Открыта)
-    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1)adminNicks.push(s.adminNick); });
-    var thAdmin=document.createElement('th'); thAdmin.style.cssText=THStyle+'width:88px;cursor:pointer;position:relative;';
-    thAdmin.innerHTML='Админ <span style="font-size:9px;opacity:0.7;">\u25be</span>';
-    var adminDropdown=null;
-    thAdmin.addEventListener('click',function(e){
-        e.stopPropagation();
-        if(adminDropdown){ adminDropdown.remove(); adminDropdown=null; return; }
-        adminDropdown=document.createElement('div');
-        adminDropdown.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:20;min-width:120px;padding:4px 0;font-family:inherit;';
-        function makeOpt(label, val){
-            var opt=document.createElement('div');
-            var active=_fAdmin===val;
-            opt.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(active?'#1d4ed8':'#333')+';font-weight:'+(active?'700':'400')+';';
-            opt.textContent=label;
-            opt.addEventListener('mouseenter',function(){opt.style.background='#f0f6ff';});
-            opt.addEventListener('mouseleave',function(){opt.style.background='';});
-            opt.addEventListener('click',function(e2){
-                e2.stopPropagation();
-                _fAdmin=val;
-                thAdmin.innerHTML=(val||'Админ')+' <span style="font-size:9px;opacity:0.7;">\u25be</span>';
-                adminDropdown.remove(); adminDropdown=null;
-                applyFilters();
-            });
-            return opt;
-        }
-        adminDropdown.appendChild(makeOpt('Все','')); 
-        adminNicks.forEach(function(n){ adminDropdown.appendChild(makeOpt(n,n)); });
-        thAdmin.appendChild(adminDropdown);
-        setTimeout(function(){ document.addEventListener('click',function cl(){ if(adminDropdown)adminDropdown.remove(); adminDropdown=null; document.removeEventListener('click',cl); }); },10);
-    });
-    hr.appendChild(thAdmin);
-
-    // Закрыта
-    var thClose=document.createElement('th'); thClose.style.cssText=THStyle+'width:105px;'; thClose.textContent='Закрыта'; hr.appendChild(thClose);
-
-    // В кассе ▾ — сортировка
-    var thTotal=document.createElement('th'); thTotal.style.cssText=THStyle+'width:78px;cursor:pointer;';
-    var SORT_ICONS=['\u25be','\u25bc','\u25b2'];
-    function updateTotalTh(){ thTotal.innerHTML='В кассе <span style="font-size:9px;opacity:0.7;">'+SORT_ICONS[_sortDir]+'</span>'; }
-    updateTotalTh();
-    thTotal.addEventListener('click',function(){ _sortDir=(_sortDir+1)%3; updateTotalTh(); applyFilters(); });
-    hr.appendChild(thTotal);
-
-    ['Нал.','Карта','Внес.','Выем.','Спис.'].forEach(function(n){
-        var th=document.createElement('th'); th.style.cssText=THStyle+'width:64px;'; th.textContent=n; hr.appendChild(th);
-    });
-    thead.appendChild(hr);
-
-    // Строка фильтров по дате
-    var dateRow=document.createElement('tr'); dateRow.style.cssText='background:#f5f5f5;';
-    var dateTd=document.createElement('td'); dateTd.colSpan=9; dateTd.style.cssText='padding:5px 10px;border-bottom:1px solid #eee;';
-    var fromIn=document.createElement('input'); fromIn.type='date'; fromIn.style.cssText='font-size:11px;padding:3px 5px;border:1px solid #ddd;border-radius:4px;margin:0 4px;';
-    var sep=document.createElement('span'); sep.style.cssText='font-size:10px;color:#aaa;margin:0 2px;'; sep.textContent='—';
-    var tillIn=document.createElement('input'); tillIn.type='date'; tillIn.style.cssText='font-size:11px;padding:3px 5px;border:1px solid #ddd;border-radius:4px;margin:0 4px;';
-    var rstBtn=document.createElement('button'); rstBtn.style.cssText='font-size:10px;padding:3px 8px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#888;cursor:pointer;font-family:inherit;margin-left:6px;';
-    rstBtn.textContent='Сбросить всё';
-    fromIn.addEventListener('change',function(){ _fFrom=fromIn.value; applyFilters(); });
-    tillIn.addEventListener('change',function(){ _fTill=tillIn.value; applyFilters(); });
-    rstBtn.addEventListener('click',function(){ _fAdmin=''; _fFrom=''; _fTill=''; _sortDir=0; fromIn.value=''; tillIn.value=''; thAdmin.innerHTML='Админ <span style="font-size:9px;opacity:0.7;">\u25be</span>'; updateTotalTh(); applyFilters(); });
-    var dlbl=document.createElement('span'); dlbl.style.cssText='font-size:10px;color:#aaa;margin-right:2px;'; dlbl.textContent='Период:';
-    dateTd.appendChild(dlbl); dateTd.appendChild(fromIn); dateTd.appendChild(sep); dateTd.appendChild(tillIn); dateTd.appendChild(rstBtn);
-    dateRow.appendChild(dateTd); thead.appendChild(dateRow);
-
-    table.appendChild(thead);
-    tableWrap.appendChild(table);
-
-    var tbody=document.createElement('tbody');
-    table.appendChild(tbody);
-
-    function rebuildTable(shifts){
+    function rebuildRows(shifts){
         tbody.innerHTML='';
         if(!shifts.length){
-            var emptyRow=document.createElement('tr');
-            var emptyTd=document.createElement('td');
-            emptyTd.colSpan=9; emptyTd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;';
-            emptyTd.textContent='Нет смен по выбранным фильтрам';
-            emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow); return;
+            var empty=document.createElement('tr');
+            var etd=document.createElement('td'); etd.colSpan=9; etd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;'; etd.textContent='Нет смен по выбранным фильтрам';
+            empty.appendChild(etd); tbody.appendChild(empty); return;
         }
         shifts.forEach(function(s){
             var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
-            var hoverOn=function(){ trAdmin&&(trAdmin.style.background='#f0f6ff'); trData.style.background='#f0f6ff'; };
-            var hoverOff=function(){ trAdmin&&(trAdmin.style.background=''); trData.style.background=''; };
-            var trAdmin=null;
+            var tr=document.createElement('tr');
+            tr.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;background:#fff;transition:background 0.1s;';
+            tr.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';});
+            tr.addEventListener('mouseleave',function(){tr.style.background='#fff';});
+            tr.addEventListener('click',function(){showShiftDetail(s);});
 
-            // Строка-шапка смены: ник (colspan 8), единая с основной строкой
-            // Одна строка — td для Открыта имеет rowspan=2 если есть ник,
-            // иначе обычная строка. Используем две строки только визуально через padding.
-            // Строка данных
-            var trData=document.createElement('tr');
-            trData.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;background:#fff;';
-            trData.addEventListener('mouseenter',hoverOn); trData.addEventListener('mouseleave',hoverOff);
-            trData.addEventListener('click',function(){showShiftDetail(s);});
+            var P='padding:8px 8px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;';
 
-            var P9='padding:9px 8px;text-align:center;font-size:12px;white-space:nowrap;vertical-align:middle;';
-
-            // Колонка "Открыта" — двустрочная: ник сверху, дата снизу
-            var tdOpen=document.createElement('td');
-            tdOpen.style.cssText=P9+'text-align:left;';
+            // Открыта — двустрочная с ником в стиле бейджа
+            var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:left;';
             if(s.adminNick){
-                var nickEl=document.createElement('div');
-                nickEl.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;white-space:nowrap;margin-bottom:2px;';
-                nickEl.textContent=s.adminNick;
-                tdOpen.appendChild(nickEl);
+                var nb=document.createElement('div');
+                nb.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:1px 8px;margin-bottom:3px;';
+                nb.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+s.adminNick;
+                tdO.appendChild(nb);
             }
-            var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;white-space:nowrap;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
-            trData.appendChild(tdOpen);
+            var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
+            tr.appendChild(tdO);
 
-            // Колонка "Закрыта"
-            var tdClose=document.createElement('td'); tdClose.style.cssText=P9;
-            var dt2=document.createElement('div'); dt2.style.cssText='font-size:12px;color:#999;white-space:nowrap;'; dt2.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdClose.appendChild(dt2);
-            trData.appendChild(tdClose);
+            // Админ — пустая (ник уже в "Открыта")
+            var tdA=document.createElement('td'); tdA.style.cssText=P; tr.appendChild(tdA);
 
-            // Остальные колонки
-            [
-             [fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
+            // Закрыта
+            var tdC=document.createElement('td'); tdC.style.cssText=P;
+            tdC.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdC.style.color=s.closedAt?'#555':'#ccc'; tr.appendChild(tdC);
+
+            // Данные
+            [[fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
              [fmtAmtAbs(s.cash),'color:#166534;font-weight:600;'],
              [fmtAmtAbs(s.card),'color:#1d4ed8;font-weight:600;'],
              [fmtAmtAbs(s.manual),'color:#7c3aed;font-weight:600;'],
              [fmtAmtAbs(s.withdrawal),'color:#b45309;font-weight:600;'],
              [fmtAmtAbs(s.debit||0),'color:#991b1b;font-weight:600;'],
             ].forEach(function(col){
-                var td=document.createElement('td');
-                td.style.cssText=P9+col[1];
-                td.textContent=col[0]; trData.appendChild(td);
+                var td=document.createElement('td'); td.style.cssText=P+col[1]; td.textContent=col[0]; tr.appendChild(td);
             });
-            tbody.appendChild(trData);
+            tbody.appendChild(tr);
         });
     }
 
     applyFilters();
 }
+
 
 // ── Детальная карточка смены ──────────────────────────────
 function showShiftDetail(s){
@@ -1422,7 +1563,7 @@ function showShiftDetail(s){
     box.appendChild(grid);
     box.appendChild(grid2);
     var tw=document.createElement('div');
-    tw.style.cssText='overflow-y:auto;flex:1;min-height:0;padding:12px 20px;';
+    tw.style.cssText='overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0;padding:12px 20px;';
     var entries=s.manualEntries||[];
     if(entries.length){
         var lt=document.createElement('div');
@@ -1704,109 +1845,4 @@ function createBtn(){
 
     // Сжимаем ERP-кнопку: узкая, та же высота
     erpBtn.style.setProperty('flex', '0 0 68px', 'important');
-    erpBtn.style.setProperty('width', '68px', 'important');
-    erpBtn.style.setProperty('min-width', '0', 'important');
-    erpBtn.style.setProperty('padding', '4px 6px', 'important');
-    erpBtn.style.setProperty('font-size', '10px', 'important');
-    erpBtn.style.setProperty('white-space', 'normal', 'important');
-    erpBtn.style.setProperty('word-break', 'break-word', 'important');
-    erpBtn.style.setProperty('text-align', 'center', 'important');
-    erpBtn.style.setProperty('line-height', '1.3', 'important');
-    erpBtn.style.setProperty('overflow', 'visible', 'important');
-    erpBtn.style.setProperty('display', 'flex', 'important');
-    erpBtn.style.setProperty('align-items', 'center', 'important');
-    erpBtn.style.setProperty('justify-content', 'center', 'important');
-    erpBtn.removeAttribute('data-block');
-    // Mantine вкладывает текст в span — форсируем перенос
-    setTimeout(function(){
-        var inner=erpBtn.querySelector('[class*="Button-label"],[class*="Button-inner"]');
-        if(inner){ inner.style.setProperty('white-space','normal','important'); inner.style.setProperty('text-align','center','important'); inner.style.setProperty('line-height','1.3','important'); }
-    }, 300);
-
-    // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
-    // Оборачиваем erpBtn в flex-контейнер, добавляя нашу кнопку слева
-    var row = document.createElement('div');
-    row.id = 'godji-cashbox-row';
-    row.style.cssText = 'display:flex;align-items:stretch;gap:3px;width:100%;';
-
-    // Наша кнопка — flex:1
-    var btn = document.createElement('button');
-    btn.id = 'godji-cashbox-btn';
-    btn.type = 'button';
-    btn.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:rgba(22,101,52,0.85);border:none;border-radius:6px;padding:0 8px;height:54px;cursor:pointer;font-family:inherit;box-sizing:border-box;transition:background 0.15s;';
-    btn.addEventListener('mouseenter', function(){ btn.style.background='rgba(22,101,52,1)'; });
-    btn.addEventListener('mouseleave', function(){ btn.style.background='rgba(22,101,52,0.85)'; });
-
-    var ico = document.createElement('div');
-    ico.style.cssText = 'width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
-    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
-
-    var dot = document.createElement('span');
-    dot.className = 'gcb-dot';
-    dot.style.cssText = 'position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1b2e;';
-    ico.appendChild(dot);
-
-    var textWrap = document.createElement('div');
-    textWrap.style.cssText = 'display:flex;flex-direction:column;min-width:0;flex:1;';
-
-    var lbl = document.createElement('span');
-    lbl.style.cssText = 'font-size:13px;font-weight:700;color:#fff;white-space:nowrap;line-height:1.2;';
-    lbl.textContent = 'Касса смены';
-
-    var sumEl = document.createElement('span');
-    sumEl.className = 'gcb-sum';
-    sumEl.style.cssText = 'font-size:11px;font-weight:600;white-space:nowrap;line-height:1.2;margin-top:2px;color:rgba(255,255,255,0.4);';
-
-    textWrap.appendChild(lbl);
-    textWrap.appendChild(sumEl);
-    btn.appendChild(ico);
-    btn.appendChild(textWrap);
-
-    btn.addEventListener('click', function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        if(_isOpen) hideModal(); else showModal();
-    });
-
-    // erpBtn может быть не прямым дочерним paper — вставляем через его родителя
-    var erpParent = erpBtn.parentNode;
-    if(!erpParent) return;
-    erpParent.insertBefore(row, erpBtn);
-    row.appendChild(btn);
-    row.appendChild(erpBtn);
-    // Одинаковая высота
-    erpBtn.style.setProperty('height', '54px', 'important');
-    erpBtn.style.setProperty('align-self', 'stretch', 'important');
-    erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
-    erpBtn.style.setProperty('font-size', '9.5px', 'important');
-    erpBtn.style.setProperty('line-height', '1.3', 'important');
-    erpBtn.style.setProperty('display', 'flex', 'important');
-    erpBtn.style.setProperty('align-items', 'center', 'important');
-    erpBtn.style.setProperty('justify-content', 'center', 'important');
-
-    updateBtnBadge();
-}
-
-// ── MutationObserver + init ───────────────────────────────
-var _obs = new MutationObserver(function(){
-    if(!document.getElementById('godji-cashbox-row')) createBtn();
-});
-
-function initObservers(){
-    _obs.observe(document.body, {childList:true, subtree:false});
-    setTimeout(createBtn, 1500);
-    setTimeout(createBtn, 3000);
-    setTimeout(createBtn, 5000);
-}
-
-
-
-
-
-if(document.body){
-    initObservers();
-} else {
-    document.addEventListener('DOMContentLoaded', initObservers);
-}
-
-})();
+    erpBtn.style.setProperty('w
