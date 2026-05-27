@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.16
+// @version      3.17
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -982,6 +982,7 @@ function renderCurrentTab(body, shift){
         val.setAttribute('data-cashval','1');
         val.style.cssText='font-size:22px;font-weight:800;color:#1a1a1a;';
         val.textContent=value;
+        attachBlurHover(val);
         c.appendChild(top); c.appendChild(val);
         return c;
     }
@@ -1017,6 +1018,7 @@ function renderCurrentTab(body, shift){
     var infoR=document.createElement('div');
     infoR.style.cssText='font-size:15px;font-weight:800;color:#1a1a1a;';
     infoR.setAttribute('data-cashval','1');
+    attachBlurHover(infoR);
     infoR.textContent='В кассе: '+fmtAmtAbs(total);
     infoRow.appendChild(infoL); infoRow.appendChild(infoR);
     body.appendChild(infoRow);
@@ -1185,10 +1187,7 @@ function renderHistoryTab(body){
     // Фильтры
     var _fAdmin='', _fFrom='', _fTill='';
 
-    // Контейнер фильтров
-    var filterBar=document.createElement('div');
-    filterBar.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9f9f9;border-bottom:1px solid #eee;flex-shrink:0;flex-wrap:wrap;';
-    body.appendChild(filterBar);
+    // Фильтры встроены в thead таблицы
 
     function applyFilters(){
         var shifts=allShifts.filter(function(s){
@@ -1197,34 +1196,12 @@ function renderHistoryTab(body){
             if(_fTill && s.openedAt > new Date(_fTill).getTime()+86399999) return false;
             return true;
         });
+        if(_sortDir===1) shifts.sort(function(a,b){ var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0); var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0); return tb-ta; });
+        else if(_sortDir===2) shifts.sort(function(a,b){ var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0); var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0); return ta-tb; });
         rebuildTable(shifts);
     }
 
-    // Фильтр по админу
-    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1)adminNicks.push(s.adminNick); });
-    var adminSel=document.createElement('select');
-    adminSel.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#555;font-family:inherit;cursor:pointer;';
-    var optAll=document.createElement('option'); optAll.value=''; optAll.textContent='Все админы'; adminSel.appendChild(optAll);
-    adminNicks.forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; adminSel.appendChild(o); });
-    adminSel.addEventListener('change',function(){ _fAdmin=adminSel.value; applyFilters(); });
-    filterBar.appendChild(adminSel);
 
-    // Фильтр по дате открытия
-    var fromLabel=document.createElement('span'); fromLabel.style.cssText='font-size:11px;color:#888;'; fromLabel.textContent='с';
-    var fromInput=document.createElement('input'); fromInput.type='date';
-    fromInput.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;font-family:inherit;color:#555;';
-    fromInput.addEventListener('change',function(){ _fFrom=fromInput.value; applyFilters(); });
-    var tillLabel=document.createElement('span'); tillLabel.style.cssText='font-size:11px;color:#888;'; tillLabel.textContent='по';
-    var tillInput=document.createElement('input'); tillInput.type='date';
-    tillInput.style.cssText='font-size:11px;padding:4px 6px;border:1px solid #ddd;border-radius:5px;font-family:inherit;color:#555;';
-    tillInput.addEventListener('change',function(){ _fTill=tillInput.value; applyFilters(); });
-    var resetBtn=document.createElement('button');
-    resetBtn.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;margin-left:auto;';
-    resetBtn.textContent='Сбросить';
-    resetBtn.addEventListener('click',function(){ _fAdmin=''; _fFrom=''; _fTill=''; adminSel.value=''; fromInput.value=''; tillInput.value=''; applyFilters(); });
-    filterBar.appendChild(fromLabel); filterBar.appendChild(fromInput);
-    filterBar.appendChild(tillLabel); filterBar.appendChild(tillInput);
-    filterBar.appendChild(resetBtn);
 
     // Таблица
     var tableWrap=document.createElement('div');
@@ -1234,21 +1211,83 @@ function renderHistoryTab(body){
     var table=document.createElement('table');
     table.style.cssText='width:100%;border-collapse:collapse;font-size:13px;';
 
-    // Thead — colSpan колонка "Админ" поверх Открыта+Закрыта
+        // Thead: Открыта | Админ▾ | Закрыта | В кассе▾ | Нал. | Карта | Внес. | Выем. | Спис.
     var thead=document.createElement('thead');
-    thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:1;';
+    thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:2;';
 
-    // Строка 1: "Админ" colspan=2, остальные rowspan=2 (или просто одна строка)
-    // Делаем одну строку — добавляем "Админ ▾" как кнопку-фильтр в ячейку colspan=2
+    var _sortDir=0; // 0=original 1=desc 2=asc
+
     var hr=document.createElement('tr');
-    var COLS=[['Открыта','110px'],['Закрыта','110px'],['В кассе','80px'],['Нал.','70px'],['Карта','70px'],['Внес.','65px'],['Выем.','65px'],['Спис.','65px']];
-    COLS.forEach(function(c,i){
-        var th=document.createElement('th');
-        th.style.cssText='padding:9px 10px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;width:'+c[1]+';text-transform:uppercase;letter-spacing:0.3px;';
-        th.textContent=c[0];
-        hr.appendChild(th);
+    var THStyle='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;';
+
+    // Открыта
+    var thOpen=document.createElement('th'); thOpen.style.cssText=THStyle+'width:105px;'; thOpen.textContent='Открыта'; hr.appendChild(thOpen);
+
+    // Админ ▾ — выпадающий фильтр
+    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1)adminNicks.push(s.adminNick); });
+    var thAdmin=document.createElement('th'); thAdmin.style.cssText=THStyle+'width:88px;cursor:pointer;position:relative;';
+    thAdmin.innerHTML='Админ <span style="font-size:9px;opacity:0.7;">\u25be</span>';
+    var adminDropdown=null;
+    thAdmin.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(adminDropdown){ adminDropdown.remove(); adminDropdown=null; return; }
+        adminDropdown=document.createElement('div');
+        adminDropdown.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:20;min-width:120px;padding:4px 0;font-family:inherit;';
+        function makeOpt(label, val){
+            var opt=document.createElement('div');
+            var active=_fAdmin===val;
+            opt.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(active?'#1d4ed8':'#333')+';font-weight:'+(active?'700':'400')+';';
+            opt.textContent=label;
+            opt.addEventListener('mouseenter',function(){opt.style.background='#f0f6ff';});
+            opt.addEventListener('mouseleave',function(){opt.style.background='';});
+            opt.addEventListener('click',function(e2){
+                e2.stopPropagation();
+                _fAdmin=val;
+                thAdmin.innerHTML=(val||'Админ')+' <span style="font-size:9px;opacity:0.7;">\u25be</span>';
+                adminDropdown.remove(); adminDropdown=null;
+                applyFilters();
+            });
+            return opt;
+        }
+        adminDropdown.appendChild(makeOpt('Все','')); 
+        adminNicks.forEach(function(n){ adminDropdown.appendChild(makeOpt(n,n)); });
+        thAdmin.appendChild(adminDropdown);
+        setTimeout(function(){ document.addEventListener('click',function cl(){ if(adminDropdown)adminDropdown.remove(); adminDropdown=null; document.removeEventListener('click',cl); }); },10);
     });
-    thead.appendChild(hr); table.appendChild(thead);
+    hr.appendChild(thAdmin);
+
+    // Закрыта
+    var thClose=document.createElement('th'); thClose.style.cssText=THStyle+'width:105px;'; thClose.textContent='Закрыта'; hr.appendChild(thClose);
+
+    // В кассе ▾ — сортировка
+    var thTotal=document.createElement('th'); thTotal.style.cssText=THStyle+'width:78px;cursor:pointer;';
+    var SORT_ICONS=['\u25be','\u25bc','\u25b2'];
+    function updateTotalTh(){ thTotal.innerHTML='В кассе <span style="font-size:9px;opacity:0.7;">'+SORT_ICONS[_sortDir]+'</span>'; }
+    updateTotalTh();
+    thTotal.addEventListener('click',function(){ _sortDir=(_sortDir+1)%3; updateTotalTh(); applyFilters(); });
+    hr.appendChild(thTotal);
+
+    ['Нал.','Карта','Внес.','Выем.','Спис.'].forEach(function(n){
+        var th=document.createElement('th'); th.style.cssText=THStyle+'width:64px;'; th.textContent=n; hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+
+    // Строка фильтров по дате
+    var dateRow=document.createElement('tr'); dateRow.style.cssText='background:#f5f5f5;';
+    var dateTd=document.createElement('td'); dateTd.colSpan=9; dateTd.style.cssText='padding:5px 10px;border-bottom:1px solid #eee;';
+    var fromIn=document.createElement('input'); fromIn.type='date'; fromIn.style.cssText='font-size:11px;padding:3px 5px;border:1px solid #ddd;border-radius:4px;margin:0 4px;';
+    var sep=document.createElement('span'); sep.style.cssText='font-size:10px;color:#aaa;margin:0 2px;'; sep.textContent='—';
+    var tillIn=document.createElement('input'); tillIn.type='date'; tillIn.style.cssText='font-size:11px;padding:3px 5px;border:1px solid #ddd;border-radius:4px;margin:0 4px;';
+    var rstBtn=document.createElement('button'); rstBtn.style.cssText='font-size:10px;padding:3px 8px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#888;cursor:pointer;font-family:inherit;margin-left:6px;';
+    rstBtn.textContent='Сбросить всё';
+    fromIn.addEventListener('change',function(){ _fFrom=fromIn.value; applyFilters(); });
+    tillIn.addEventListener('change',function(){ _fTill=tillIn.value; applyFilters(); });
+    rstBtn.addEventListener('click',function(){ _fAdmin=''; _fFrom=''; _fTill=''; _sortDir=0; fromIn.value=''; tillIn.value=''; thAdmin.innerHTML='Админ <span style="font-size:9px;opacity:0.7;">\u25be</span>'; updateTotalTh(); applyFilters(); });
+    var dlbl=document.createElement('span'); dlbl.style.cssText='font-size:10px;color:#aaa;margin-right:2px;'; dlbl.textContent='Период:';
+    dateTd.appendChild(dlbl); dateTd.appendChild(fromIn); dateTd.appendChild(sep); dateTd.appendChild(tillIn); dateTd.appendChild(rstBtn);
+    dateRow.appendChild(dateTd); thead.appendChild(dateRow);
+
+    table.appendChild(thead);
     tableWrap.appendChild(table);
 
     var tbody=document.createElement('tbody');
@@ -1259,7 +1298,7 @@ function renderHistoryTab(body){
         if(!shifts.length){
             var emptyRow=document.createElement('tr');
             var emptyTd=document.createElement('td');
-            emptyTd.colSpan=8; emptyTd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;';
+            emptyTd.colSpan=9; emptyTd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;';
             emptyTd.textContent='Нет смен по выбранным фильтрам';
             emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow); return;
         }
@@ -1276,7 +1315,7 @@ function renderHistoryTab(body){
                 trAdmin.addEventListener('mouseenter',hoverOn); trAdmin.addEventListener('mouseleave',hoverOff);
                 trAdmin.addEventListener('click',function(){showShiftDetail(s);});
                 var tdAN=document.createElement('td');
-                tdAN.colSpan=8;
+                tdAN.colSpan=9;
                 tdAN.style.cssText='padding:7px 10px 2px;text-align:center;border-bottom:none;';
                 var badge=document.createElement('span');
                 badge.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:1px 10px;display:inline-block;';
@@ -1295,6 +1334,7 @@ function renderHistoryTab(body){
             var PTT=(s.adminNick?'padding:4px 10px 8px;':'padding:9px 10px;')+'text-align:center;font-size:12px;white-space:nowrap;';
 
             [[fmtDate(s.openedAt),'color:#555;'],
+             ['',''],  // Колонка "Админ" — пустая в строке данных (ник в trAdmin выше)
              [s.closedAt?fmtDate(s.closedAt):'—','color:#999;'],
              [fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
              [fmtAmtAbs(s.cash),'color:#166534;font-weight:600;'],
@@ -1728,7 +1768,8 @@ function createBtn(){
     erpBtn.style.setProperty('height', '54px', 'important');
     erpBtn.style.setProperty('align-self', 'stretch', 'important');
     erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
-    erpBtn.style.setProperty('font-size', '13px', 'important');
+    erpBtn.style.setProperty('font-size', '10px', 'important');
+    erpBtn.style.setProperty('line-height', '1.25', 'important');
 
     updateBtnBadge();
 }
