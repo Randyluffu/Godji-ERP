@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.17
+// @version      3.18
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -1220,10 +1220,10 @@ function renderHistoryTab(body){
     var hr=document.createElement('tr');
     var THStyle='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;';
 
-    // Открыта
-    var thOpen=document.createElement('th'); thOpen.style.cssText=THStyle+'width:105px;'; thOpen.textContent='Открыта'; hr.appendChild(thOpen);
+    // Открыта (ник внутри строки)
+    var thOpen=document.createElement('th'); thOpen.style.cssText=THStyle+'width:110px;text-align:left;'; thOpen.textContent='Открыта'; hr.appendChild(thOpen);
 
-    // Админ ▾ — выпадающий фильтр
+    // Админ ▾ — выпадающий фильтр (отдельная колонка в шапке, но данные — в Открыта)
     var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1)adminNicks.push(s.adminNick); });
     var thAdmin=document.createElement('th'); thAdmin.style.cssText=THStyle+'width:88px;cursor:pointer;position:relative;';
     thAdmin.innerHTML='Админ <span style="font-size:9px;opacity:0.7;">\u25be</span>';
@@ -1309,33 +1309,35 @@ function renderHistoryTab(body){
             var trAdmin=null;
 
             // Строка-шапка смены: ник (colspan 8), единая с основной строкой
-            if(s.adminNick){
-                trAdmin=document.createElement('tr');
-                trAdmin.style.cssText='cursor:pointer;border-bottom:none;background:#fff;';
-                trAdmin.addEventListener('mouseenter',hoverOn); trAdmin.addEventListener('mouseleave',hoverOff);
-                trAdmin.addEventListener('click',function(){showShiftDetail(s);});
-                var tdAN=document.createElement('td');
-                tdAN.colSpan=9;
-                tdAN.style.cssText='padding:7px 10px 2px;text-align:center;border-bottom:none;';
-                var badge=document.createElement('span');
-                badge.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:1px 10px;display:inline-block;';
-                badge.textContent=s.adminNick;
-                tdAN.appendChild(badge); trAdmin.appendChild(tdAN);
-                tbody.appendChild(trAdmin);
-            }
-
-            // Основная строка данных
+            // Одна строка — td для Открыта имеет rowspan=2 если есть ник,
+            // иначе обычная строка. Используем две строки только визуально через padding.
+            // Строка данных
             var trData=document.createElement('tr');
             trData.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;background:#fff;';
             trData.addEventListener('mouseenter',hoverOn); trData.addEventListener('mouseleave',hoverOff);
             trData.addEventListener('click',function(){showShiftDetail(s);});
 
-            var PT='padding:4px 10px 8px;text-align:center;font-size:12px;white-space:nowrap;';
-            var PTT=(s.adminNick?'padding:4px 10px 8px;':'padding:9px 10px;')+'text-align:center;font-size:12px;white-space:nowrap;';
+            var P9='padding:9px 8px;text-align:center;font-size:12px;white-space:nowrap;vertical-align:middle;';
 
-            [[fmtDate(s.openedAt),'color:#555;'],
-             ['',''],  // Колонка "Админ" — пустая в строке данных (ник в trAdmin выше)
-             [s.closedAt?fmtDate(s.closedAt):'—','color:#999;'],
+            // Колонка "Открыта" — двустрочная: ник сверху, дата снизу
+            var tdOpen=document.createElement('td');
+            tdOpen.style.cssText=P9+'text-align:left;';
+            if(s.adminNick){
+                var nickEl=document.createElement('div');
+                nickEl.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;white-space:nowrap;margin-bottom:2px;';
+                nickEl.textContent=s.adminNick;
+                tdOpen.appendChild(nickEl);
+            }
+            var dt1=document.createElement('div'); dt1.style.cssText='font-size:12px;color:#555;white-space:nowrap;'; dt1.textContent=fmtDate(s.openedAt); tdOpen.appendChild(dt1);
+            trData.appendChild(tdOpen);
+
+            // Колонка "Закрыта"
+            var tdClose=document.createElement('td'); tdClose.style.cssText=P9;
+            var dt2=document.createElement('div'); dt2.style.cssText='font-size:12px;color:#999;white-space:nowrap;'; dt2.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdClose.appendChild(dt2);
+            trData.appendChild(tdClose);
+
+            // Остальные колонки
+            [
              [fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
              [fmtAmtAbs(s.cash),'color:#166534;font-weight:600;'],
              [fmtAmtAbs(s.card),'color:#1d4ed8;font-weight:600;'],
@@ -1344,7 +1346,7 @@ function renderHistoryTab(body){
              [fmtAmtAbs(s.debit||0),'color:#991b1b;font-weight:600;'],
             ].forEach(function(col){
                 var td=document.createElement('td');
-                td.style.cssText=PTT+col[1];
+                td.style.cssText=P9+col[1];
                 td.textContent=col[0]; trData.appendChild(td);
             });
             tbody.appendChild(trData);
@@ -1701,17 +1703,25 @@ function createBtn(){
     if(!erpBtn) return;
 
     // Сжимаем ERP-кнопку: узкая, та же высота
-    erpBtn.style.setProperty('flex', '0 0 62px', 'important');
-    erpBtn.style.setProperty('width', '62px', 'important');
+    erpBtn.style.setProperty('flex', '0 0 68px', 'important');
+    erpBtn.style.setProperty('width', '68px', 'important');
     erpBtn.style.setProperty('min-width', '0', 'important');
     erpBtn.style.setProperty('padding', '4px 6px', 'important');
     erpBtn.style.setProperty('font-size', '10px', 'important');
     erpBtn.style.setProperty('white-space', 'normal', 'important');
     erpBtn.style.setProperty('word-break', 'break-word', 'important');
     erpBtn.style.setProperty('text-align', 'center', 'important');
-    erpBtn.style.setProperty('line-height', '1.2', 'important');
+    erpBtn.style.setProperty('line-height', '1.3', 'important');
     erpBtn.style.setProperty('overflow', 'visible', 'important');
+    erpBtn.style.setProperty('display', 'flex', 'important');
+    erpBtn.style.setProperty('align-items', 'center', 'important');
+    erpBtn.style.setProperty('justify-content', 'center', 'important');
     erpBtn.removeAttribute('data-block');
+    // Mantine вкладывает текст в span — форсируем перенос
+    setTimeout(function(){
+        var inner=erpBtn.querySelector('[class*="Button-label"],[class*="Button-inner"]');
+        if(inner){ inner.style.setProperty('white-space','normal','important'); inner.style.setProperty('text-align','center','important'); inner.style.setProperty('line-height','1.3','important'); }
+    }, 300);
 
     // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
     // Оборачиваем erpBtn в flex-контейнер, добавляя нашу кнопку слева
@@ -1768,8 +1778,11 @@ function createBtn(){
     erpBtn.style.setProperty('height', '54px', 'important');
     erpBtn.style.setProperty('align-self', 'stretch', 'important');
     erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
-    erpBtn.style.setProperty('font-size', '10px', 'important');
-    erpBtn.style.setProperty('line-height', '1.25', 'important');
+    erpBtn.style.setProperty('font-size', '9.5px', 'important');
+    erpBtn.style.setProperty('line-height', '1.3', 'important');
+    erpBtn.style.setProperty('display', 'flex', 'important');
+    erpBtn.style.setProperty('align-items', 'center', 'important');
+    erpBtn.style.setProperty('justify-content', 'center', 'important');
 
     updateBtnBadge();
 }
