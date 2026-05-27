@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.9
+// @version      3.10
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -115,28 +115,37 @@
         container.scrollTo({ top: rowTop - container.clientHeight / 2 + rRect.height / 2, behavior: 'smooth' });
     }
 
-    // Сохраняем transform карты после того как скроллToCard отработал (последнее приближение)
-    // Восстанавливаем его при clearAll чтобы вид остался на последнем выбранном ПК
-    function saveMapTransform() {
-        // Вызывается при ПЕРВОМ toggle — запоминаем состояние ДО начала выбора
+    // Блокируем изменение transform карты от ERP пока активен мультивыбор
+    function installTransformGuard() {
         var transformEl = document.querySelector('.react-transform-component');
-        if (transformEl) window._godjiSavedMapTransform = transformEl.style.transform;
-        var layer = document.getElementById('gm-layer');
-        if (layer) window._godjiSavedGmTransform = layer.style.transform;
+        if (!transformEl || transformEl._godjiGuarded) return;
+        transformEl._godjiGuarded = true;
+        var _val = transformEl.style.transform;
+        Object.defineProperty(transformEl.style, 'transform', {
+            get: function() { return _val; },
+            set: function(v) {
+                if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0 && !window._godjiAllowTransform) return;
+                _val = v;
+            },
+            configurable: true
+        });
     }
 
+    function saveMapTransform() {
+        var t = document.querySelector('.react-transform-component');
+        if (t) window._godjiSavedMapTransform = t.style.transform;
+        var l = document.getElementById('gm-layer');
+        if (l) window._godjiSavedGmTransform = l.style.transform;
+    }
 
     function restoreMapTransform() {
-        if (window._godjiSavedMapTransform) {
-            var transformEl = document.querySelector('.react-transform-component');
-            if (transformEl) transformEl.style.transform = window._godjiSavedMapTransform;
-        }
-        if (window._godjiSavedGmTransform) {
-            var layer = document.getElementById('gm-layer');
-            if (layer) layer.style.transform = window._godjiSavedGmTransform;
-        }
+        window._godjiAllowTransform = true;
+        var t = document.querySelector('.react-transform-component');
+        if (t && window._godjiSavedMapTransform) t.style.transform = window._godjiSavedMapTransform;
+        var l = document.getElementById('gm-layer');
+        if (l && window._godjiSavedGmTransform) l.style.transform = window._godjiSavedGmTransform;
+        window._godjiAllowTransform = false;
     }
-
     function isCardVisible(card) {
         // Проверяем видна ли карточка во вьюпорте без скролла
         var rect = card.getBoundingClientRect();
@@ -173,8 +182,9 @@
                 var wr  = wrapperEl.getBoundingClientRect();
                 var vw  = Math.min(wrapperEl.clientWidth,  window.innerWidth  - Math.max(0, wr.left));
                 var vh  = Math.min(wrapperEl.clientHeight, window.innerHeight - Math.max(0, wr.top));
+                window._godjiAllowTransform = true;
                 transformEl.style.transform = 'translate(' + (vw/2 - cx2*sc2) + 'px,' + (vh/2 - cy2*sc2) + 'px) scale(' + sc2 + ')';
-                // Сохраняем позицию если мультивыбор активен — это будет финальная позиция
+                window._godjiAllowTransform = false;
                 if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) {
                     window._godjiSavedMapTransform = transformEl.style.transform;
                 }
@@ -280,8 +290,13 @@
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 2000);
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 5000);
 
+    // Устанавливаем защиту transform при загрузке карты
+    setTimeout(installTransformGuard, 2000);
+    setTimeout(installTransformGuard, 5000);
+
     // Экспортируем для multi_select — сохранение/восстановление вида карты
     window._godjiSaveMapTransform    = saveMapTransform;
     window._godjiRestoreMapTransform = restoreMapTransform;
+    window._godjiInstallTransformGuard = installTransformGuard;
 
 })();
