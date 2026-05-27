@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.8
+// @version      3.9
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -125,15 +125,6 @@
         if (layer) window._godjiSavedGmTransform = layer.style.transform;
     }
 
-    function saveMapTransformAfterScroll() {
-        // Вызывается после scrollToCard — запоминаем текущее (приближённое) состояние
-        setTimeout(function() {
-            var transformEl = document.querySelector('.react-transform-component');
-            if (transformEl) window._godjiSavedMapTransform = transformEl.style.transform;
-            var layer = document.getElementById('gm-layer');
-            if (layer) window._godjiSavedGmTransform = layer.style.transform;
-        }, 350); // ждём завершения анимации scrollToCard
-    }
 
     function restoreMapTransform() {
         if (window._godjiSavedMapTransform) {
@@ -166,7 +157,9 @@
             var cy = parseFloat(card.style.top)  + 21;
             var sc = 1.4;
             layer.style.transform = 'translate(' + (wrap.clientWidth/2 - cx*sc) + 'px,' + (wrap.clientHeight/2 - cy*sc) + 'px) scale(' + sc + ')';
-            if (window._godjiSaveMapTransformAfterScroll) window._godjiSaveMapTransformAfterScroll();
+            if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) {
+                window._godjiSavedGmTransform = layer.style.transform;
+            }
             return;
         }
         var transformEl = document.querySelector('.react-transform-component');
@@ -181,7 +174,10 @@
                 var vw  = Math.min(wrapperEl.clientWidth,  window.innerWidth  - Math.max(0, wr.left));
                 var vh  = Math.min(wrapperEl.clientHeight, window.innerHeight - Math.max(0, wr.top));
                 transformEl.style.transform = 'translate(' + (vw/2 - cx2*sc2) + 'px,' + (vh/2 - cy2*sc2) + 'px) scale(' + sc2 + ')';
-                if (window._godjiSaveMapTransformAfterScroll) window._godjiSaveMapTransformAfterScroll();
+                // Сохраняем позицию если мультивыбор активен — это будет финальная позиция
+                if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) {
+                    window._godjiSavedMapTransform = transformEl.style.transform;
+                }
                 return;
             }
         }
@@ -285,8 +281,7 @@
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 5000);
 
     // Экспортируем для multi_select — сохранение/восстановление вида карты
-    window._godjiSaveMapTransform            = saveMapTransform;
-    window._godjiSaveMapTransformAfterScroll = saveMapTransformAfterScroll;
-    window._godjiRestoreMapTransform         = restoreMapTransform;
+    window._godjiSaveMapTransform    = saveMapTransform;
+    window._godjiRestoreMapTransform = restoreMapTransform;
 
 })();
