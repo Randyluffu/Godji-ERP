@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      3.3
+// @version      3.4
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
+// @match        https://godji.cloud/*
+// @match        https://*.godji.cloud/*
 // @include      https://godji.cloud/clients/*
 // @include      https://*.godji.cloud/clients/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_client_notes.user.js
@@ -38,6 +40,14 @@
         } else {
             localStorage.setItem(storageKey(clientId), JSON.stringify(data));
         }
+    }
+
+    // Работаем и на странице клиента, и внутри iframe модалки поиска
+    function getContext() {
+        // Сначала пробуем текущий документ
+        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z');
+        if (h2) return { doc: document, h2: h2, inIframe: false };
+        return null;
     }
 
     function injectNote() {
@@ -336,8 +346,40 @@
         function repositionNote() {
             var r = h2.getBoundingClientRect();
             if (r.width === 0 && r.height === 0) return;
-            noteBlock.style.top = Math.round(r.top + (r.height - 40) / 2) + 'px';
-            noteBlock.style.left = Math.round(r.left+200) + 'px';
+
+            // Левая граница — правый край h2 (заголовок "Клиент @...")
+            var leftBound = Math.round(r.right + 12);
+
+            // Правая граница — левый край кнопки "Бронирование" в сайдбаре
+            var bookingsEl = document.querySelector('a[href="/bookings"].LinksGroup_navLink__qvSOI');
+            var rightBound = bookingsEl
+                ? Math.round(bookingsEl.getBoundingClientRect().left - 10)
+                : Math.round(window.innerWidth * 0.65);
+
+            // Верхняя граница — низ breadcrumbs + отступ
+            var breadcrumb = document.querySelector('.mantine-Breadcrumbs-root');
+            var topBound = breadcrumb
+                ? Math.round(breadcrumb.getBoundingClientRect().bottom + 6)
+                : 60;
+
+            // Нижняя граница — верх табов (Покупки, Бронирования и т.д.)
+            var tabs = document.querySelector('.mantine-Tabs-list');
+            var bottomBound = tabs
+                ? Math.round(tabs.getBoundingClientRect().top - 6)
+                : Math.round(window.innerHeight * 0.4);
+
+            // Вертикаль: центрируем по h2, но не выходим за границы
+            var noteH = noteBlock.offsetHeight || 40;
+            var topPos = Math.round(r.top + (r.height - noteH) / 2);
+            topPos = Math.max(topBound, Math.min(topPos, bottomBound - noteH));
+
+            noteBlock.style.top  = topPos + 'px';
+            noteBlock.style.left = leftBound + 'px';
+
+            // Ограничиваем ширину редактора
+            var maxW = Math.max(80, rightBound - leftBound - 180); // 180 = иконка + тулбар
+            editor.style.maxWidth = maxW + 'px';
+            editor.style.width    = Math.min(700, maxW) + 'px';
         }
         repositionNote();
 
@@ -353,15 +395,28 @@
                 _mutRemove.disconnect();
             }
         });
-        _mutRemove.observe(document.body, {childList: true, subtree: true});
+        _mutRemove.observe(document.body, {childList: true, subtree: false});
+    }
+
+    // Следим за URL — при смене вкладки без перезагрузки убираем заметку
+    var _lastNoteUrl = window.location.href;
+    function checkUrlChange() {
+        var cur = window.location.href;
+        if (cur !== _lastNoteUrl) {
+            _lastNoteUrl = cur;
+            var note = document.getElementById('godji-client-note');
+            if (note) note.remove();
+            // Пробуем заново если всё ещё на странице клиента
+            setTimeout(injectNote, 400);
+        }
     }
 
     var observer = new MutationObserver(function(mutations) {
+        checkUrlChange();
         for (var i = 0; i < mutations.length; i++) {
             if (mutations[i].addedNodes.length > 0) {
                 clearTimeout(window._godjiNoteTimer);
                 window._godjiNoteTimer = setTimeout(function() {
-                    // Если заметка пропала — вставить снова
                     if (!document.getElementById('godji-client-note')) {
                         injectNote();
                     }
@@ -371,8 +426,7 @@
         }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
-    // Несколько попыток на случай медленной загрузки
+    observer.observe(document.body, { childList: true, subtree: false });
     setTimeout(injectNote, 1000);
     setTimeout(injectNote, 2500);
     setTimeout(injectNote, 5000);
