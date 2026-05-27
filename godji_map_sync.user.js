@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Синхронизация карты и таблицы
 // @namespace    http://tampermonkey.net/
-// @version      3.10
+// @version      3.11
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_map_sync.user.js
@@ -115,22 +115,6 @@
         container.scrollTo({ top: rowTop - container.clientHeight / 2 + rRect.height / 2, behavior: 'smooth' });
     }
 
-    // Блокируем изменение transform карты от ERP пока активен мультивыбор
-    function installTransformGuard() {
-        var transformEl = document.querySelector('.react-transform-component');
-        if (!transformEl || transformEl._godjiGuarded) return;
-        transformEl._godjiGuarded = true;
-        var _val = transformEl.style.transform;
-        Object.defineProperty(transformEl.style, 'transform', {
-            get: function() { return _val; },
-            set: function(v) {
-                if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0 && !window._godjiAllowTransform) return;
-                _val = v;
-            },
-            configurable: true
-        });
-    }
-
     function saveMapTransform() {
         var t = document.querySelector('.react-transform-component');
         if (t) window._godjiSavedMapTransform = t.style.transform;
@@ -139,12 +123,39 @@
     }
 
     function restoreMapTransform() {
-        window._godjiAllowTransform = true;
         var t = document.querySelector('.react-transform-component');
         if (t && window._godjiSavedMapTransform) t.style.transform = window._godjiSavedMapTransform;
         var l = document.getElementById('gm-layer');
         if (l && window._godjiSavedGmTransform) l.style.transform = window._godjiSavedGmTransform;
-        window._godjiAllowTransform = false;
+    }
+
+    // Наблюдаем за изменениями transform — если мультивыбор активен и ERP сбросил карту,
+    // восстанавливаем сохранённое значение через 50мс
+    function watchTransform() {
+        var t = document.querySelector('.react-transform-component');
+        if (!t) return;
+        var obs = new MutationObserver(function() {
+            if (
+                window._godjiSelected &&
+                Object.keys(window._godjiSelected).length > 0 &&
+                window._godjiSavedMapTransform &&
+                t.style.transform !== window._godjiSavedMapTransform
+            ) {
+                setTimeout(function() {
+                    // Проверяем ещё раз — вдруг это был наш собственный scrollToCard
+                    if (
+                        window._godjiSelected &&
+                        Object.keys(window._godjiSelected).length > 0 &&
+                        window._godjiSavedMapTransform &&
+                        t.style.transform !== window._godjiSavedMapTransform
+                    ) {
+                        t.style.transform = window._godjiSavedMapTransform;
+                    }
+                }, 80);
+            }
+        });
+        obs.observe(t, { attributes: true, attributeFilter: ['style'] });
+        window._godjiTransformObs = obs;
     }
     function isCardVisible(card) {
         // Проверяем видна ли карточка во вьюпорте без скролла
@@ -182,9 +193,8 @@
                 var wr  = wrapperEl.getBoundingClientRect();
                 var vw  = Math.min(wrapperEl.clientWidth,  window.innerWidth  - Math.max(0, wr.left));
                 var vh  = Math.min(wrapperEl.clientHeight, window.innerHeight - Math.max(0, wr.top));
-                window._godjiAllowTransform = true;
                 transformEl.style.transform = 'translate(' + (vw/2 - cx2*sc2) + 'px,' + (vh/2 - cy2*sc2) + 'px) scale(' + sc2 + ')';
-                window._godjiAllowTransform = false;
+                // Обновляем сохранённый transform — это наш скролл, не ERP
                 if (window._godjiSelected && Object.keys(window._godjiSelected).length > 0) {
                     window._godjiSavedMapTransform = transformEl.style.transform;
                 }
@@ -290,13 +300,14 @@
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 2000);
     setTimeout(function() { attachOrigCards(); attachTableDelegate(); }, 5000);
 
-    // Устанавливаем защиту transform при загрузке карты
-    setTimeout(installTransformGuard, 2000);
-    setTimeout(installTransformGuard, 5000);
+    // Запускаем наблюдение за transform карты
+    setTimeout(watchTransform, 2000);
+    setTimeout(function() {
+        if (!window._godjiTransformObs) watchTransform();
+    }, 5000);
 
-    // Экспортируем для multi_select — сохранение/восстановление вида карты
+    // Экспортируем для multi_select
     window._godjiSaveMapTransform    = saveMapTransform;
     window._godjiRestoreMapTransform = restoreMapTransform;
-    window._godjiInstallTransformGuard = installTransformGuard;
 
 })();
