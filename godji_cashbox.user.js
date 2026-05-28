@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.22
+// @version      3.23
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -11,7 +11,7 @@
 // ==/UserScript==
 (function(){
 
-// ── SVG иконки ────────────────────────────────────────────
+// ── SVG иконки
 var SVG = {
     cashbox: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>',
     cashboxWh: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>',
@@ -30,7 +30,7 @@ var SVG = {
     debit: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1-3.5 3.5h-1a3.5 3.5 0 0 1-3.5-3.5a1.5 1.5 0 0 1 1.5-1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1-4-4v-1a8 8 0 0 1 14-5.5"/><line x1="16" y1="19" x2="22" y2="19"/></svg>'
 };
 
-// ── Универсальные хелперы UI ──────────────────────────────
+// ── Универсальные хелперы UI
 function mkBtn(style, html, onClick){
     var b=document.createElement('button'); b.type='button';
     b.style.cssText=style; if(html) b.innerHTML=html;
@@ -57,9 +57,7 @@ function mkAdminBadge(nick, iconSize){
     return b;
 }
 
-'use strict';
-
-// ── Блюр сумм ─────────────────────────────────────────────
+// ── Блюр сумм
 var _valuesHidden = true;
 // _blurDisabled сохраняется до закрытия смены (в localStorage), сбрасывается при открытии новой
 var GCB_BLUR_KEY   = 'godji_cashbox_blur_off';
@@ -123,8 +121,6 @@ function updateBtnBlurState(){
     }
 }
 
-
-
 var STORAGE_KEY = 'godji_cashbox';
 var SHIFTS_KEY  = 'godji_shifts';
 
@@ -181,7 +177,7 @@ function fmtAmtAbs(n){ return Math.round(n||0)+' ₽'; }
 var _authToken = null;
 var _hasuraRole = 'club_admin';
 
-// ── Синхронизация между вкладками ────────────────────────
+// ── Синхронизация между вкладками
 // Когда в другой вкладке изменяется localStorage — сразу обновляем UI
 window.addEventListener('storage', function(e){
     if(e.key === STORAGE_KEY || e.key === SHIFTS_KEY){
@@ -190,10 +186,10 @@ window.addEventListener('storage', function(e){
     }
 });
 
-// ── Мьютекс для processWalletOps ─────────────────────────
+// ── Мьютекс для processWalletOps
 var _processing = false;
 
-// ── Детектор аномалий ─────────────────────────────────────
+// ── Детектор аномалий
 // Логика: дубль = та же сумма + тот же тип в течение 15 сек.
 // 15 сек — потому что за это время два разных клиента вряд ли
 // пополнят одинаково, а баг ERP обычно создаёт дубль мгновенно.
@@ -249,7 +245,7 @@ document.addEventListener('__gcb__', function(e){
     }catch(err){}
 });
 
-// ── Слушаем списания от godji_wallet_debit ────────────────
+// ── Слушаем списания от godji_wallet_debit
 document.addEventListener('__godji_debit__', function(e){
     try{
         var d = e.detail;
@@ -270,7 +266,7 @@ document.addEventListener('__godji_debit__', function(e){
     }catch(err){}
 });
 
-// ── Обработка ответов API ─────────────────────────────────
+// ── Обработка ответов API
 function onApi(reqBody, data){
     if(!data || !data.data) return;
     var d = data.data;
@@ -315,7 +311,7 @@ function onApi(reqBody, data){
     }
 }
 
-// ── Запрос новых операций ─────────────────────────────────
+// ── Запрос новых операций
 // Запрос по ID — надёжнее чем по времени (нет пропусков)
 var GQL_OPS = 'query GCBOps($sinceId:Int!,$clubId:Int!){wallet_operations(where:{id:{_gt:$sinceId},club_id:{_eq:$clubId},operation_type:{_eq:"deposit"},amount_type:{_eq:"money"}},order_by:{id:asc},limit:100){id money_type amount created_at wallet_operation_digest{name}}}';
 
@@ -512,7 +508,7 @@ function stopBtnPulse(){
 
 setInterval(checkShiftReminder, 30000); // проверяем каждые 30 сек
 
-// ── Слушаем кнопку "Открыть смену" в ERP ─────────────────
+// ── Слушаем кнопку "Открыть смену" в ERP
 function watchShiftBtn(){
     // Кнопка смены в .Shifts_shiftsPaper__9Jml_ (блок с часами), не в header
     var paper = document.querySelector('.Shifts_shiftsPaper__9Jml_');
@@ -547,8 +543,7 @@ function watchShiftBtn(){
     });
 }
 
-
-// ── Ручное внесение / выемка ──────────────────────────────
+// ── Ручное внесение / выемка
 function addManual(amount, comment){
     var shift=loadCurrent(); if(!shift) return;
     amount=parseFloat(amount)||0; if(!amount) return;
@@ -631,7 +626,7 @@ function pickAdminAndOpen(onPicked){
     document.addEventListener('keydown',function eh(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}});
 }
 
-// ── Модалка ───────────────────────────────────────────────
+// ── Модалка
 var _modal=null, _overlay=null, _isOpen=false, _tab='current';
 
 function buildModal(){
@@ -767,8 +762,7 @@ function renderModal(){
     else renderHistoryTab(body);
 }
 
-
-// ── Диагностика кассы ─────────────────────────────────────
+// ── Диагностика кассы
 function runCashboxDebug(){
     var shift = loadCurrent();
     if(!shift){ alert('Смена не открыта'); return; }
@@ -965,7 +959,7 @@ function showDebugPopup(status, allOps, refunds, diff){
     document.addEventListener('keydown',function eh(e){ if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);} });
 }
 
-// ── Текущая смена ─────────────────────────────────────────
+// ── Текущая смена
 function renderCurrentTab(body, shift){
     if(!shift){
         var empty=document.createElement('div');
@@ -1165,7 +1159,7 @@ function renderCurrentTab(body, shift){
     body.appendChild(actions);
 }
 
-// ── Список админов ───────────────────────────────────────
+// ── Список админов
 function showAdminList(){
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100010;display:flex;align-items:center;justify-content:center;';
@@ -1217,7 +1211,7 @@ function showAdminList(){
     document.addEventListener('keydown',function eh(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',eh);}});
 }
 
-// ── Журнал смен ───────────────────────────────────────────
+// ── Журнал смен
 function renderHistoryTab(body){
     var allShifts=loadShifts();
     if(!allShifts.length){
@@ -1378,33 +1372,22 @@ function renderHistoryTab(body){
 
             var P='padding:8px 7px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;';
 
-            // Если есть ник — строка-шапка с colspan=2 над датами
+            // Колонки Открыта + Админ
             if(s.adminNick){
-                var trN=document.createElement('tr');
-                trN.style.cssText='cursor:pointer;background:#fff;border-bottom:none;';
-                trN.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';trN.style.background='#f0f6ff';});
-                trN.addEventListener('mouseleave',function(){tr.style.background='#fff';trN.style.background='#fff';});
-                trN.addEventListener('click',function(){showShiftDetail(s);});
-                var tdN=document.createElement('td'); tdN.colSpan=2;
-                tdN.style.cssText='padding:6px 7px 1px;text-align:center;border-bottom:none;';
+                // Ячейка colspan=2: ник сверху, дата снизу — всё в одной ячейке
+                var tdO=document.createElement('td'); tdO.colSpan=2;
+                tdO.style.cssText=P+'text-align:center;';
                 var nb=mkAdminBadge(s.adminNick,'10');
-                nb.style.cssText+=';pointer-events:none;';
-                tdN.appendChild(nb);
-                // Пустые td для остальных 7 колонок
-                for(var ci=0;ci<7;ci++){var etd=document.createElement('td');etd.style.borderBottom='none';trN.appendChild(etd);}
-                trN.insertBefore(tdN,trN.firstChild);
-                tbody.appendChild(trN);
-                // Уменьшаем верхний отступ основной строки
-                tr.style.borderTop='none';
+                nb.style.cssText+=';pointer-events:none;display:block;margin:0 auto 2px;';
+                tdO.appendChild(nb);
+                var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
+                tr.appendChild(tdO);
+            } else {
+                var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:center;';
+                var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
+                tr.appendChild(tdO);
+                tr.appendChild(document.createElement('td'));
             }
-
-            // Открыта — только дата (ник в строке выше)
-            var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:center;';
-            var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
-            tr.appendChild(tdO);
-
-            // Пустая колонка Админ
-            tr.appendChild(document.createElement('td'));
 
             // Закрыта
             var tdC=document.createElement('td'); tdC.style.cssText=P+'color:'+(s.closedAt?'#555':'#ccc')+';';
@@ -1427,8 +1410,7 @@ function renderHistoryTab(body){
     applyAndRender();
 }
 
-
-// ── Детальная карточка смены ──────────────────────────────
+// ── Детальная карточка смены
 function showShiftDetail(s){
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;';
@@ -1524,7 +1506,7 @@ function showShiftDetail(s){
     });
 }
 
-// ── Пополнения за смену (из журнала смен) ────────────────
+// ── Пополнения за смену (из журнала смен)
 function showShiftDeposits(s){
     if(!_authToken){ alert('Нет токена авторизации'); return; }
 
@@ -1706,8 +1688,8 @@ function showShiftDeposits(s){
     });
 }
 
-// ── Диагностика ───────────────────────────────────────────
-// ── Показ/скрытие модалки ────────────────────────────────
+// ── Диагностика
+// ── Показ/скрытие модалки
 function showModal(){
     if(!_modal) buildModal();
     _valuesHidden=true;
@@ -1730,7 +1712,7 @@ function hideModal(){
 }
 function updateModalIfOpen(){ if(_isOpen)renderModal(); }
 
-// ── Кнопка (NavLink стиль, перед divider) ────────────────
+// ── Кнопка (NavLink стиль, перед divider)
 function updateBtnBadge(){
     var btn=document.getElementById('godji-cashbox-btn');
     if(!btn) return;
@@ -1871,7 +1853,7 @@ function createBtn(){
     updateBtnBadge();
 }
 
-// ── MutationObserver + init ───────────────────────────────
+// ── MutationObserver + init
 var _obs = new MutationObserver(function(){
     if(!document.getElementById('godji-cashbox-row')) createBtn();
 });
@@ -1882,10 +1864,6 @@ function initObservers(){
     setTimeout(createBtn, 3000);
     setTimeout(createBtn, 5000);
 }
-
-
-
-
 
 if(document.body){
     initObservers();
