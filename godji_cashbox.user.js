@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.19
+// @version      3.20
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -10,6 +10,53 @@
 // @run-at       document-start
 // ==/UserScript==
 (function(){
+
+// ── SVG иконки ────────────────────────────────────────────
+var SVG = {
+    cashbox: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>',
+    cashboxWh: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>',
+    cashboxRed: SVG.cashboxRed,
+    user: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    userSm: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    users: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    eyeOff: SVG.eyeOff,
+    eyeOn: SVG.eyeOn,
+    info: SVG.info,
+    deposits: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>',
+    cashSm: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>',
+    cardSm: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    out: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+    debit: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1-3.5 3.5h-1a3.5 3.5 0 0 1-3.5-3.5a1.5 1.5 0 0 1 1.5-1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1-4-4v-1a8 8 0 0 1 14-5.5"/><line x1="16" y1="19" x2="22" y2="19"/></svg>'
+};
+
+// ── Универсальные хелперы UI ──────────────────────────────
+function mkBtn(style, html, onClick){
+    var b=document.createElement('button'); b.type='button';
+    b.style.cssText=style; if(html) b.innerHTML=html;
+    if(onClick) b.addEventListener('click', onClick);
+    return b;
+}
+function mkDiv(style, html){
+    var d=document.createElement('div');
+    d.style.cssText=style; if(html) d.innerHTML=html;
+    return d;
+}
+function mkSpan(style, text){
+    var s=document.createElement('span');
+    s.style.cssText=style; if(text) s.textContent=text;
+    return s;
+}
+// Бейдж админа — единый стиль
+function mkAdminBadge(nick, iconSize){
+    var sz=iconSize||'12';
+    var b=document.createElement('span');
+    b.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 9px;white-space:nowrap;';
+    b.style.pointerEvents='none';
+    b.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+nick;
+    return b;
+}
+
 'use strict';
 
 // ── Блюр сумм ─────────────────────────────────────────────
@@ -612,7 +659,7 @@ function renderModal(){
     var tw=document.createElement('div'); tw.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
     var tIco=document.createElement('div');
     tIco.style.cssText='width:32px;height:32px;border-radius:8px;background:#166534;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
-    tIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+    tIco.innerHTML=SVG.cashboxWh;
     var tTxt=document.createElement('span');
     tTxt.style.cssText='font-size:15px;font-weight:700;color:#1a1a1a;';
     tTxt.textContent='Касса смены';
@@ -631,10 +678,8 @@ function renderModal(){
         attachBlurHover(tBadge);
         // Ник админа рядом с суммой в шапке
         if(shift && shift.adminNick){
-            var adminSpan=document.createElement('span');
-            adminSpan.style.cssText='display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 10px;margin-right:8px;white-space:nowrap;';
-            adminSpan.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+shift.adminNick;
-            tw.appendChild(adminSpan);
+            var adminSpan=mkAdminBadge(shift.adminNick,'12');
+            adminSpan.style.marginRight='8px'; tw.appendChild(adminSpan);
         }
         // Кнопка глаза (hover-блюр вкл/выкл)
         var hdrEye=document.createElement('button');
@@ -642,8 +687,8 @@ function renderModal(){
         function setEyeIcon(hidden){
             hdrEye.title=hidden?'Показать суммы':'Скрыть суммы';
             hdrEye.innerHTML=hidden
-                ?'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
-                :'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+                ?SVG.eyeOff
+                :SVG.eyeOn;
         }
         setEyeIcon(_valuesHidden);
         hdrEye.addEventListener('click',function(e){
@@ -816,7 +861,7 @@ function showDebugPopup(status, allOps, refunds, diff){
 
     var depBtn=document.createElement('button');
     depBtn.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;color:#166534;font-size:12px;font-weight:600;cursor:pointer;padding:5px 10px;font-family:inherit;display:flex;align-items:center;gap:5px;';
-    depBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Пополнения';
+    depBtn.innerHTML=SVG.deposits+'История пополнений';
     depBtn.addEventListener('click',function(){ showShiftDeposits(s); });
 
     var hc=document.createElement('button');
@@ -929,7 +974,7 @@ function renderCurrentTab(body, shift){
         // Иконка
         var eIco=document.createElement('div');
         eIco.style.cssText='width:56px;height:56px;border-radius:14px;background:#fee2e2;display:flex;align-items:center;justify-content:center;';
-        eIco.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+        eIco.innerHTML=SVG.cashboxRed;
 
         var eTxt=document.createElement('div');
         eTxt.style.cssText='text-align:center;';
@@ -988,11 +1033,7 @@ function renderCurrentTab(body, shift){
     }
 
     var ICO={
-        cash:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>',
-        card:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
-        plus:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-        out:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
-        debit:'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5a3.5 3.5 0 0 1-3.5 3.5h-1a3.5 3.5 0 0 1-3.5-3.5a1.5 1.5 0 0 1 1.5-1.5"/><path d="M12.5 21h-4.5a4 4 0 0 1-4-4v-1a8 8 0 0 1 14-5.5"/><line x1="16" y1="19" x2="22" y2="19"/></svg>',
+        cash:SVG.cashSm, card:SVG.cardSm, plus:SVG.plus, out:SVG.out, debit:SVG.debit,
     };
 
     // Карточки — 3 колонки в первом ряду, потом остальные
@@ -1105,7 +1146,7 @@ function renderCurrentTab(body, shift){
     dbgBtn.title='Диагностика кассы';
     // Кнопка в светлой модалке — делаем видимой но ненавязчивой
     dbgBtn.style.cssText='padding:0;width:28px;height:28px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;color:#bbb;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;';
-    dbgBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+    dbgBtn.innerHTML=SVG.info;
     dbgBtn.addEventListener('mouseenter',function(){dbgBtn.style.color='#555';dbgBtn.style.borderColor='#bbb';dbgBtn.style.background='#efefef';});
     dbgBtn.addEventListener('mouseleave',function(){dbgBtn.style.color='#bbb';dbgBtn.style.borderColor='#e0e0e0';dbgBtn.style.background='#f5f5f5';});
     dbgBtn.addEventListener('click',function(){ runCashboxDebug(); });
@@ -1113,7 +1154,7 @@ function renderCurrentTab(body, shift){
     // Кнопка списка админов — цветная с текстом, прижата вправо
     var admBtn=document.createElement('button');
     admBtn.style.cssText='margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 13px;height:32px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;cursor:pointer;color:#1d4ed8;font-size:12px;font-weight:700;font-family:inherit;transition:all 0.15s;flex-shrink:0;white-space:nowrap;';
-    admBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Список админов';
+    admBtn.innerHTML=SVG.users+'Список админов';
     admBtn.addEventListener('mouseenter',function(){admBtn.style.background='#dbeafe';admBtn.style.borderColor='#93c5fd';});
     admBtn.addEventListener('mouseleave',function(){admBtn.style.background='#eff6ff';admBtn.style.borderColor='#bfdbfe';});
     admBtn.addEventListener('click',function(){ showAdminList(); });
@@ -1184,30 +1225,29 @@ function renderHistoryTab(body){
         return;
     }
 
-    var _fAdmin='', _fFrom=null, _fTill=null, _sortOpen=0, _sortClose=0, _sortTotal=0;
-    // _sortX: 0=off, 1=desc, 2=asc
-
+    var PAGE=50, _page=0;
+    var _fAdmin='', _sortOpen=0, _sortClose=0, _sortTotal=0;
     var adminNicks=[];
     allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
+    var _filtered=allShifts.slice();
 
-    // ── Шапка с кнопкой "Сбросить фильтры" ──
+    // ── Кнопка сброса ──
     var topBar=document.createElement('div');
-    topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:6px 12px 0;flex-shrink:0;';
+    topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:6px 14px 0;flex-shrink:0;';
     var rstBtn=document.createElement('button');
     rstBtn.textContent='Сбросить фильтры';
-    rstBtn.style.cssText='font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;transition:background 0.1s;';
-    rstBtn.addEventListener('mouseenter',function(){rstBtn.style.background='#f5f5f5';});
-    rstBtn.addEventListener('mouseleave',function(){rstBtn.style.background='#fff';});
+    rstBtn.style.cssText='font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;';
     rstBtn.addEventListener('click',function(){
-        _fAdmin=''; _fFrom=null; _fTill=null; _sortOpen=0; _sortClose=0; _sortTotal=0;
-        updateThLabels(); applyFilters();
+        _fAdmin=''; _sortOpen=0; _sortClose=0; _sortTotal=0; _page=0;
+        if(thEls.adminDrop){ thEls.adminDrop.remove(); thEls.adminDrop=null; }
+        updateThLabels(); applyAndRender();
     });
     topBar.appendChild(rstBtn);
     body.appendChild(topBar);
 
     // ── Таблица ──
     var tableWrap=document.createElement('div');
-    tableWrap.style.cssText='overflow:auto;flex:1;overscroll-behavior:contain;';
+    tableWrap.style.cssText='overflow:auto;flex:1;overscroll-behavior:contain;min-height:0;';
     body.appendChild(tableWrap);
 
     var table=document.createElement('table');
@@ -1218,268 +1258,143 @@ function renderHistoryTab(body){
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:2;';
     table.appendChild(thead);
-
-    var ICON_N='\u25be', ICON_D='\u25bc', ICON_A='\u25b2';
-    var THS='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;overflow:hidden;';
-
     var hr=document.createElement('tr');
+    var THS='padding:9px 8px;text-align:center;color:#888;font-weight:600;font-size:11px;border-bottom:2px solid #eee;white-space:nowrap;text-transform:uppercase;letter-spacing:0.3px;user-select:none;';
+    var ICON_N='\u25be', ICON_D='\u25bc', ICON_A='\u25b2';
     var thEls={};
 
-    // Mini calendar dropdown
-    function makeCalendarDropdown(onSelect){
-        var now=new Date();
-        var viewY=now.getFullYear(), viewM=now.getMonth();
-        var dropdown=document.createElement('div');
-        dropdown.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.14);z-index:30;padding:10px;min-width:220px;font-family:inherit;';
-        dropdown.addEventListener('click',function(e){e.stopPropagation();});
-
-        // Ручной ввод
-        var inputRow=document.createElement('div'); inputRow.style.cssText='display:flex;gap:4px;margin-bottom:8px;';
-        var manualIn=document.createElement('input'); manualIn.type='text'; manualIn.placeholder='ДД.ММ.ГГГГ';
-        manualIn.style.cssText='flex:1;font-size:11px;padding:4px 7px;border:1px solid #ddd;border-radius:5px;font-family:inherit;';
-        var manualOk=document.createElement('button'); manualOk.textContent='OK';
-        manualOk.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #86efac;border-radius:5px;background:#f0fdf4;color:#166534;cursor:pointer;font-family:inherit;font-weight:600;';
-        manualOk.addEventListener('click',function(){
-            var parts=manualIn.value.split('.');
-            if(parts.length===3){
-                var d=new Date(+parts[2],+parts[1]-1,+parts[0]);
-                if(!isNaN(d.getTime())){ onSelect(d); dropdown.remove(); return; }
-            }
-            manualIn.style.borderColor='#f87171';
-        });
-        inputRow.appendChild(manualIn); inputRow.appendChild(manualOk);
-        dropdown.appendChild(inputRow);
-
-        function buildCal(){
-            var old=dropdown.querySelector('.gcb-cal'); if(old) old.remove();
-            var cal=document.createElement('div'); cal.className='gcb-cal';
-            // Nav
-            var nav=document.createElement('div'); nav.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
-            var prev=document.createElement('button'); prev.textContent='◀'; prev.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#555;padding:2px 6px;';
-            var next=document.createElement('button'); next.textContent='▶'; next.style.cssText='background:none;border:none;cursor:pointer;font-size:12px;color:#555;padding:2px 6px;';
-            var lbl=document.createElement('span'); lbl.style.cssText='font-size:12px;font-weight:700;color:#333;';
-            var MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-            lbl.textContent=MONTHS[viewM]+' '+viewY;
-            prev.addEventListener('click',function(){ viewM--; if(viewM<0){viewM=11;viewY--;} buildCal(); });
-            next.addEventListener('click',function(){ viewM++; if(viewM>11){viewM=0;viewY++;} buildCal(); });
-            nav.appendChild(prev); nav.appendChild(lbl); nav.appendChild(next); cal.appendChild(nav);
-            // Days header
-            var dHdr=document.createElement('div'); dHdr.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-bottom:2px;';
-            ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(function(d){
-                var c=document.createElement('div'); c.style.cssText='font-size:9px;text-align:center;color:#bbb;font-weight:600;'; c.textContent=d; dHdr.appendChild(c);
-            });
-            cal.appendChild(dHdr);
-            // Days grid
-            var grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;';
-            var first=new Date(viewY,viewM,1).getDay(); // 0=Sun
-            var offset=(first===0)?6:first-1;
-            var days=new Date(viewY,viewM+1,0).getDate();
-            for(var i=0;i<offset;i++){ var empty=document.createElement('div'); grid.appendChild(empty); }
-            for(var day=1;day<=days;day++){
-                (function(d){
-                    var cell=document.createElement('div');
-                    cell.style.cssText='font-size:11px;text-align:center;padding:3px 2px;border-radius:5px;cursor:pointer;color:#333;transition:background 0.1s;';
-                    cell.textContent=d;
-                    cell.addEventListener('mouseenter',function(){cell.style.background='#eff6ff';cell.style.color='#1d4ed8';});
-                    cell.addEventListener('mouseleave',function(){cell.style.background='';cell.style.color='#333';});
-                    cell.addEventListener('click',function(){
-                        onSelect(new Date(viewY,viewM,d));
-                        dropdown.remove();
-                    });
-                    grid.appendChild(cell);
-                })(day);
-            }
-            cal.appendChild(grid); dropdown.appendChild(cal);
-        }
-        buildCal();
-        return dropdown;
-    }
-
-    function makeFilterTh(label, sortVar, onSortChange, onDateSelect, dateVal){
+    function sortTh(label, w, getSortVal, onSort){
         var th=document.createElement('th');
-        th.style.cssText=THS+'cursor:pointer;position:relative;width:110px;';
-        function getIcon(v){ return v===0?ICON_N:v===1?ICON_D:ICON_A; }
-        function render(){
-            var dateStr=dateVal()?(' <span style="font-size:9px;color:#1d4ed8;">'+dateVal().toLocaleDateString('ru-RU')+'</span>'):'';
-            th.innerHTML=label+' <span style="font-size:9px;opacity:0.7;">'+getIcon(sortVar())+'</span>'+dateStr;
-        }
+        th.style.cssText=THS+'width:'+w+';cursor:pointer;';
+        function render(){ th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'; }
         render();
-        var calDrop=null;
-        th.addEventListener('click',function(e){
-            e.stopPropagation();
-            if(calDrop){ calDrop.remove(); calDrop=null; return; }
-            // Первый клик = цикл сортировки, второй (если уже открыт) = закрыть
-            // Правый клик или shift-клик = открыть календарь
-            if(e.shiftKey||e.altKey){
-                // Открыть календарь
-                calDrop=makeCalendarDropdown(function(date){
-                    onDateSelect(date); render(); applyFilters();
-                });
-                th.appendChild(calDrop);
-                setTimeout(function(){
-                    document.addEventListener('click',function cl(){
-                        if(calDrop)calDrop.remove(); calDrop=null;
-                        document.removeEventListener('click',cl);
-                    });
-                },10);
-            } else {
-                onSortChange(); render(); applyFilters();
-            }
-        });
-        // Двойной клик = открыть календарь
-        th.addEventListener('dblclick',function(e){
-            e.stopPropagation();
-            if(calDrop){ calDrop.remove(); calDrop=null; return; }
-            calDrop=makeCalendarDropdown(function(date){
-                onDateSelect(date); render(); applyFilters();
-            });
-            th.appendChild(calDrop);
-            setTimeout(function(){
-                document.addEventListener('click',function cl(){
-                    if(calDrop)calDrop.remove(); calDrop=null;
-                    document.removeEventListener('click',cl);
-                });
-            },10);
-        });
+        th.addEventListener('click',function(){ onSort(); render(); _page=0; applyAndRender(); });
         return {th:th, render:render};
     }
 
-    function updateThLabels(){
-        thEls.open&&thEls.open.render();
-        thEls.close&&thEls.close.render();
-        thEls.total&&thEls.total.render();
-        // Admin th
-        if(thEls.admin){
-            thEls.admin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';
-        }
-    }
-
-    // Build thead row
-    thEls.open = makeFilterTh('Открыта',
-        function(){return _sortOpen;},
-        function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;},
-        function(d){_fFrom=d;},
-        function(){return _fFrom;}
-    );
+    // Открыта ▾
+    thEls.open=sortTh('Открыта','110px',function(){return _sortOpen;},function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;});
     hr.appendChild(thEls.open.th);
 
-    // Админ ▾
-    var thAdmin=document.createElement('th'); thAdmin.style.cssText=THS+'cursor:pointer;position:relative;width:80px;';
-    thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';
-    thEls.admin=thAdmin;
-    var admDrop=null;
+    // Админ ▾ — фильтр
+    var thAdmin=document.createElement('th'); thAdmin.style.cssText=THS+'width:82px;cursor:pointer;position:relative;';
+    thEls.admin=thAdmin; thEls.adminDrop=null;
+    function renderAdminTh(){ thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.6;">'+ICON_N+'</span>'; }
+    renderAdminTh();
     thAdmin.addEventListener('click',function(e){
         e.stopPropagation();
-        if(admDrop){admDrop.remove();admDrop=null;return;}
-        admDrop=document.createElement('div');
-        admDrop.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:30;min-width:110px;padding:4px 0;font-family:inherit;';
-        admDrop.addEventListener('click',function(e2){e2.stopPropagation();});
-        function makeAdmOpt(label,val){
+        if(thEls.adminDrop){ thEls.adminDrop.remove(); thEls.adminDrop=null; return; }
+        var dd=document.createElement('div');
+        dd.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:30;min-width:110px;padding:4px 0;font-family:inherit;';
+        dd.addEventListener('click',function(e2){e2.stopPropagation();});
+        function opt(lbl,val){
             var o=document.createElement('div');
-            o.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(_fAdmin===val?'#1d4ed8':'#333')+';font-weight:'+(_fAdmin===val?'700':'400')+';';
-            o.textContent=label;
+            var active=_fAdmin===val;
+            o.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(active?'#1d4ed8':'#333')+';font-weight:'+(active?700:400)+';';
+            o.textContent=lbl;
             o.addEventListener('mouseenter',function(){o.style.background='#f0f6ff';});
             o.addEventListener('mouseleave',function(){o.style.background='';});
-            o.addEventListener('click',function(){_fAdmin=val;thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.7;">'+ICON_N+'</span>';admDrop.remove();admDrop=null;applyFilters();});
+            o.addEventListener('click',function(){ _fAdmin=val; _page=0; renderAdminTh(); dd.remove(); thEls.adminDrop=null; applyAndRender(); });
             return o;
         }
-        admDrop.appendChild(makeAdmOpt('Все',''));
-        adminNicks.forEach(function(n){admDrop.appendChild(makeAdmOpt(n,n));});
-        thAdmin.appendChild(admDrop);
-        setTimeout(function(){document.addEventListener('click',function cl(){if(admDrop)admDrop.remove();admDrop=null;document.removeEventListener('click',cl);});},10);
+        dd.appendChild(opt('Все',''));
+        adminNicks.forEach(function(n){dd.appendChild(opt(n,n));});
+        thEls.adminDrop=dd; thAdmin.appendChild(dd);
+        setTimeout(function(){ document.addEventListener('click',function cl(){ if(thEls.adminDrop)thEls.adminDrop.remove(); thEls.adminDrop=null; document.removeEventListener('click',cl); }); },10);
     });
     hr.appendChild(thAdmin);
 
-    thEls.close = makeFilterTh('Закрыта',
-        function(){return _sortClose;},
-        function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;},
-        function(d){_fTill=d;},
-        function(){return _fTill;}
-    );
+    // Закрыта ▾
+    thEls.close=sortTh('Закрыта','110px',function(){return _sortClose;},function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;});
     hr.appendChild(thEls.close.th);
 
     // В кассе ▾
-    var thTotal=document.createElement('th'); thTotal.style.cssText=THS+'cursor:pointer;position:relative;width:78px;';
-    function renderTotalTh(){ thTotal.innerHTML='В кассе <span style="font-size:9px;opacity:0.7;">'+(_sortTotal===0?ICON_N:_sortTotal===1?ICON_D:ICON_A)+'</span>'; }
-    renderTotalTh(); thEls.total={render:renderTotalTh};
-    thTotal.addEventListener('click',function(){_sortTotal=(_sortTotal+1)%3;_sortOpen=0;_sortClose=0;renderTotalTh();applyFilters();});
-    hr.appendChild(thTotal);
+    thEls.total=sortTh('В кассе','78px',function(){return _sortTotal;},function(){_sortTotal=(_sortTotal+1)%3;_sortOpen=0;_sortClose=0;});
+    hr.appendChild(thEls.total.th);
 
     ['Нал.','Карта','Внес.','Выем.','Спис.'].forEach(function(n){
-        var th=document.createElement('th'); th.style.cssText=THS+'width:64px;'; th.textContent=n; hr.appendChild(th);
+        var th=document.createElement('th'); th.style.cssText=THS+'width:62px;'; th.textContent=n; hr.appendChild(th);
     });
     thead.appendChild(hr);
+
+    function updateThLabels(){ thEls.open.render(); thEls.close.render(); thEls.total.render(); renderAdminTh(); }
 
     // ── tbody ──
     var tbody=document.createElement('tbody');
     table.appendChild(tbody);
 
-    function applyFilters(){
-        var shifts=allShifts.filter(function(s){
-            if(_fAdmin && s.adminNick!==_fAdmin) return false;
-            if(_fFrom){
-                var from=new Date(_fFrom); from.setHours(0,0,0,0);
-                if(s.openedAt < from.getTime()) return false;
-            }
-            if(_fTill){
-                var till=new Date(_fTill); till.setHours(23,59,59,999);
-                if(s.openedAt > till.getTime()) return false;
-            }
-            return true;
-        });
+    // ── Пагинация ──
+    var pagBar=document.createElement('div');
+    pagBar.style.cssText='display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;flex-shrink:0;border-top:1px solid #eee;';
+    body.appendChild(pagBar);
+
+    function renderPagination(total){
+        pagBar.innerHTML='';
+        var pages=Math.ceil(total/PAGE);
+        if(pages<=1) return;
+        function mkPBtn(label,page,active){
+            var b=document.createElement('button');
+            b.textContent=label;
+            b.style.cssText='font-size:12px;padding:4px 9px;border:1px solid '+(active?'#1d4ed8':'#ddd')+';border-radius:5px;background:'+(active?'#eff6ff':'#fff')+';color:'+(active?'#1d4ed8':'#555')+';cursor:'+(active?'default':'pointer')+';font-family:inherit;font-weight:'+(active?700:400)+';';
+            if(!active) b.addEventListener('click',function(){ _page=page; applyAndRender(); });
+            return b;
+        }
+        if(_page>0) pagBar.appendChild(mkPBtn('←',_page-1,false));
+        var start=Math.max(0,_page-2), end=Math.min(pages-1,_page+2);
+        if(start>0){ pagBar.appendChild(mkPBtn('1',0,false)); if(start>1){var e=document.createElement('span');e.textContent='…';e.style.cssText='font-size:12px;color:#bbb;padding:0 3px;';pagBar.appendChild(e);} }
+        for(var i=start;i<=end;i++) pagBar.appendChild(mkPBtn(i+1,i,i===_page));
+        if(end<pages-1){ if(end<pages-2){var e2=document.createElement('span');e2.textContent='…';e2.style.cssText='font-size:12px;color:#bbb;padding:0 3px;';pagBar.appendChild(e2);} pagBar.appendChild(mkPBtn(pages,pages-1,false)); }
+        if(_page<pages-1) pagBar.appendChild(mkPBtn('→',_page+1,false));
+    }
+
+    function applyAndRender(){
+        var shifts=allShifts.filter(function(s){ return !_fAdmin||s.adminNick===_fAdmin; });
         if(_sortOpen===1) shifts.sort(function(a,b){return b.openedAt-a.openedAt;});
         else if(_sortOpen===2) shifts.sort(function(a,b){return a.openedAt-b.openedAt;});
         else if(_sortClose===1) shifts.sort(function(a,b){return (b.closedAt||0)-(a.closedAt||0);});
         else if(_sortClose===2) shifts.sort(function(a,b){return (a.closedAt||0)-(b.closedAt||0);});
-        else if(_sortTotal===1) shifts.sort(function(a,b){
-            var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0);
-            var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0);
-            return tb-ta;
-        });
-        else if(_sortTotal===2) shifts.sort(function(a,b){
-            var ta=(a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0);
-            var tb=(b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0);
-            return ta-tb;
-        });
-        rebuildRows(shifts);
+        else if(_sortTotal===1) shifts.sort(function(a,b){ return ((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0))-((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0)); });
+        else if(_sortTotal===2) shifts.sort(function(a,b){ return ((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0))-((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0)); });
+        _filtered=shifts;
+        renderPagination(shifts.length);
+        renderPage(shifts);
     }
 
-    function rebuildRows(shifts){
+    function renderPage(shifts){
         tbody.innerHTML='';
-        if(!shifts.length){
+        var slice=shifts.slice(_page*PAGE, (_page+1)*PAGE);
+        if(!slice.length){
             var empty=document.createElement('tr');
-            var etd=document.createElement('td'); etd.colSpan=9; etd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;'; etd.textContent='Нет смен по выбранным фильтрам';
+            var etd=document.createElement('td'); etd.colSpan=9; etd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;'; etd.textContent='Нет смен';
             empty.appendChild(etd); tbody.appendChild(empty); return;
         }
-        shifts.forEach(function(s){
+        slice.forEach(function(s){
             var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
             var tr=document.createElement('tr');
-            tr.style.cssText='border-bottom:2px solid #d1d5db;cursor:pointer;background:#fff;transition:background 0.1s;';
+            tr.style.cssText='border-bottom:2px solid #e5e7eb;cursor:pointer;background:#fff;';
             tr.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';});
             tr.addEventListener('mouseleave',function(){tr.style.background='#fff';});
-            tr.addEventListener('click',function(){showShiftDetail(s);});
+            tr.addEventListener('click',function(e){ if(!e.target.closest||!e.target.closest('a')) showShiftDetail(s); });
 
-            var P='padding:8px 8px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;';
+            var P='padding:8px 7px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;';
 
-            // Открыта — двустрочная с ником в стиле бейджа
+            // Открыта — ник над датой
             var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:left;';
             if(s.adminNick){
-                var nb=document.createElement('div');
-                nb.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:1px 8px;margin-bottom:3px;';
-                nb.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+s.adminNick;
+                var nb=mkAdminBadge(s.adminNick,'10');
+                nb.style.cssText+=';display:block;margin-bottom:2px;pointer-events:none;';
                 tdO.appendChild(nb);
             }
             var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
             tr.appendChild(tdO);
 
-            // Админ — пустая (ник уже в "Открыта")
-            var tdA=document.createElement('td'); tdA.style.cssText=P; tr.appendChild(tdA);
+            // Пустая колонка Админ (ник в Открыта)
+            tr.appendChild(document.createElement('td'));
 
             // Закрыта
-            var tdC=document.createElement('td'); tdC.style.cssText=P;
-            tdC.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tdC.style.color=s.closedAt?'#555':'#ccc'; tr.appendChild(tdC);
+            var tdC=document.createElement('td'); tdC.style.cssText=P+'color:'+(s.closedAt?'#555':'#ccc')+';';
+            tdC.textContent=s.closedAt?fmtDate(s.closedAt):'—'; tr.appendChild(tdC);
 
-            // Данные
             [[fmtAmtAbs(total),'font-weight:800;color:#1a1a1a;font-size:13px;'],
              [fmtAmtAbs(s.cash),'color:#166534;font-weight:600;'],
              [fmtAmtAbs(s.card),'color:#1d4ed8;font-weight:600;'],
@@ -1491,9 +1406,10 @@ function renderHistoryTab(body){
             });
             tbody.appendChild(tr);
         });
+        tableWrap.scrollTop=0;
     }
 
-    applyFilters();
+    applyAndRender();
 }
 
 
@@ -1520,10 +1436,8 @@ function showShiftDetail(s){
     hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
     // Ник админа рядом с крестиком
     if(s.adminNick){
-        var sdAdmin=document.createElement('span');
-        sdAdmin.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 9px;margin-right:6px;white-space:nowrap;';
-        sdAdmin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'+s.adminNick;
-        hdrTop.insertBefore(sdAdmin, hc);
+        var sdAdmin=mkAdminBadge(s.adminNick,'11');
+        sdAdmin.style.marginRight='6px'; hdrTop.insertBefore(sdAdmin, hc);
     }
     hdrTop.appendChild(ht); hdrTop.appendChild(hc);
     // Строка 2: кнопка "История пополнений" по центру
@@ -1857,6 +1771,7 @@ function createBtn(){
     erpBtn.style.setProperty('display', 'flex', 'important');
     erpBtn.style.setProperty('align-items', 'center', 'important');
     erpBtn.style.setProperty('justify-content', 'center', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
     erpBtn.removeAttribute('data-block');
     // Mantine вкладывает текст в span — форсируем перенос через MutationObserver
     (function(){
@@ -1934,6 +1849,7 @@ function createBtn(){
     erpBtn.style.setProperty('display', 'flex', 'important');
     erpBtn.style.setProperty('align-items', 'center', 'important');
     erpBtn.style.setProperty('justify-content', 'center', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
 
     updateBtnBadge();
 }
