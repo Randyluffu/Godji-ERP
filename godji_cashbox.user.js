@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.21
+// @version      3.22
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -1378,17 +1378,32 @@ function renderHistoryTab(body){
 
             var P='padding:8px 7px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;';
 
-            // Открыта — ник над датой
-            var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:left;';
+            // Если есть ник — строка-шапка с colspan=2 над датами
             if(s.adminNick){
+                var trN=document.createElement('tr');
+                trN.style.cssText='cursor:pointer;background:#fff;border-bottom:none;';
+                trN.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';trN.style.background='#f0f6ff';});
+                trN.addEventListener('mouseleave',function(){tr.style.background='#fff';trN.style.background='#fff';});
+                trN.addEventListener('click',function(){showShiftDetail(s);});
+                var tdN=document.createElement('td'); tdN.colSpan=2;
+                tdN.style.cssText='padding:6px 7px 1px;text-align:center;border-bottom:none;';
                 var nb=mkAdminBadge(s.adminNick,'10');
-                nb.style.cssText+=';display:block;margin-bottom:2px;pointer-events:none;';
-                tdO.appendChild(nb);
+                nb.style.cssText+=';pointer-events:none;';
+                tdN.appendChild(nb);
+                // Пустые td для остальных 7 колонок
+                for(var ci=0;ci<7;ci++){var etd=document.createElement('td');etd.style.borderBottom='none';trN.appendChild(etd);}
+                trN.insertBefore(tdN,trN.firstChild);
+                tbody.appendChild(trN);
+                // Уменьшаем верхний отступ основной строки
+                tr.style.borderTop='none';
             }
+
+            // Открыта — только дата (ник в строке выше)
+            var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:center;';
             var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
             tr.appendChild(tdO);
 
-            // Пустая колонка Админ (ник в Открыта)
+            // Пустая колонка Админ
             tr.appendChild(document.createElement('td'));
 
             // Закрыта
@@ -1434,12 +1449,14 @@ function showShiftDetail(s){
     var hc=document.createElement('button');
     hc.style.cssText='background:none;border:none;font-size:20px;cursor:pointer;color:#bbb;line-height:1;';
     hc.textContent='×'; hc.addEventListener('click',function(){ov.remove();});
-    // Ник админа рядом с крестиком
+    hdrTop.appendChild(ht);
+    // Ник админа между заголовком и крестиком
     if(s.adminNick){
         var sdAdmin=mkAdminBadge(s.adminNick,'11');
-        sdAdmin.style.marginRight='6px'; hdrTop.insertBefore(sdAdmin, hc);
+        sdAdmin.style.cssText+=';margin-right:6px;pointer-events:none;';
+        hdrTop.appendChild(sdAdmin);
     }
-    hdrTop.appendChild(ht); hdrTop.appendChild(hc);
+    hdrTop.appendChild(hc);
     // Строка 2: кнопка "История пополнений" по центру
     var hdrBot=document.createElement('div');
     hdrBot.style.cssText='display:flex;justify-content:center;margin-top:8px;';
