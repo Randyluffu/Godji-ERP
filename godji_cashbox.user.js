@@ -1861,4 +1861,19 @@ var _obs = new MutationObserver(function(){
 
 function initObservers(){
     _obs.observe(document.body, {childList:true, subtree:false});
-    setTimeo
+    setTimeout(createBtn, 1500);
+    setTimeout(createBtn, 3000);
+    setTimeout(createBtn, 5000);
+}
+
+
+
+
+
+if(document.body){
+    initObservers();
+} else {
+    document.addEventListener('DOMContentLoaded', initObservers);
+}
+
+})();
