@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.22
+// @version      5.24
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -102,22 +102,24 @@ new MutationObserver(function(muts){
 // === ADD CLIENT BUTTON ===
 function openAddClientModal(){
     if(document.getElementById('godji-add-client-modal')) return;
+
     var ov=document.createElement('div');
     ov.id='godji-add-client-modal';
-    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;';
-    ov.addEventListener('click',function(e){if(e.target===ov){ov.remove();}});
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99998;display:flex;align-items:center;justify-content:center;';
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
 
-    // Открываем /clients в iframe и кликаем кнопку "Добавить клиента"
+    // Используем mantine-классы точно как оригинальная модалка ERP
     var section=document.createElement('section');
     section.className='m_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root';
-    section.setAttribute('role','dialog');
+    section.setAttribute('role','dialog');section.setAttribute('tabindex','-1');
     section.style.cssText='opacity:1;transform:translateY(0px);min-width:calc(28rem * var(--mantine-scale));max-width:90vw;';
+    section.addEventListener('click',function(e){e.stopPropagation();});
 
     var header=document.createElement('header');
     header.className='m_b5489c3c m_d0e2b9cd mantine-Modal-header';
     var h2=document.createElement('h2');
     h2.className='m_615af6c9 mantine-Modal-title';
-    h2.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;width:100%;"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="lg" style="--text-fz:var(--mantine-font-size-lg);--text-lh:var(--mantine-line-height-lg);font-weight:500;">Привязать клиента к клубу</p></div>';
+    h2.innerHTML='<div class="m_8bffd616 mantine-Flex-root" style="align-items:center;justify-content:space-between;width:100%;"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="lg" style="--text-fz:var(--mantine-font-size-lg);--text-lh:var(--mantine-line-height-lg);font-weight:500;">Привязать клиента к клубу</p></div>';
     var xBtn=document.createElement('button');
     xBtn.className='mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root';
     xBtn.setAttribute('data-variant','subtle');xBtn.setAttribute('type','button');
@@ -127,171 +129,137 @@ function openAddClientModal(){
 
     var body=document.createElement('div');
     body.className='m_5df29311 mantine-Modal-body';
-    body.innerHTML='<p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="sm" style="--text-fz:var(--mantine-font-size-sm);--text-lh:var(--mantine-line-height-sm);margin-bottom:var(--mantine-spacing-md);">Введите номер телефона клиента, с которым он регистрировался в <a target="_blank" href="https://id.godji.cloud/registration" style="display:inline-flex;align-items:baseline;border:1px dotted blue;border-radius:4px;padding:0 4px;"><img alt="G" width="14" height="16" src="/godji.svg" style="color:transparent;margin-right:4px;padding-top:4px;">GamerID</a></p><form id="godji-add-client-form"><div class="m_8bffd616 mantine-Flex-root" style="gap:var(--mantine-spacing-md);flex-direction:column;"><div class="m_46b77525 mantine-InputWrapper-root" style="margin-inline:auto;width:100%;"><label class="m_8fdc1311 mantine-InputWrapper-label" data-required="true">Номер телефона<span class="m_78a94662 mantine-InputWrapper-required"> *</span></label><div class="m_6c018570 mantine-Input-wrapper" data-variant="default"><input id="godji-add-phone-input" class="m_8fb7ebe7 mantine-Input-input" data-variant="default" placeholder="+7 (000) 000-00-00" name="phoneNumber" autocomplete="off" aria-invalid="false" value=""></div></div><div class="m_8bffd616 mantine-Flex-root" style="gap:var(--mantine-spacing-md);justify-content:center;"><button class="mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="outline" type="button" id="godji-add-cancel-btn" style="--button-bg:transparent;--button-hover:var(--mantine-color-gray-outline-hover);--button-color:var(--mantine-color-gray-outline);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-gray-outline);"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span></button><button class="mantine-focus-auto m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="filled" type="submit" id="godji-add-submit-btn" style="--button-bg:var(--mantine-color-blue-filled);--button-hover:var(--mantine-color-blue-filled-hover);--button-color:var(--mantine-color-white);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Найти</span></span></button></div></div></form>';
+
+    var desc=document.createElement('p');
+    desc.className='mantine-focus-auto m_b6d8b162 mantine-Text-root';
+    desc.setAttribute('data-size','sm');
+    desc.style.cssText='--text-fz:var(--mantine-font-size-sm);--text-lh:var(--mantine-line-height-sm);margin-bottom:var(--mantine-spacing-md);';
+    desc.innerHTML='Введите номер телефона клиента, с которым он регистрировался в <a target="_blank" href="https://id.godji.cloud/registration" style="display:inline-flex;align-items:baseline;border:1px dotted blue;border-radius:4px;padding:0 4px;"><img alt="G" width="14" height="16" src="/godji.svg" style="color:transparent;margin-right:4px;padding-top:4px;">GamerID</a>';
+
+    // Инпут телефона
+    var inputWrap=document.createElement('div');
+    inputWrap.className='m_46b77525 mantine-InputWrapper-root';
+    inputWrap.style.cssText='margin-inline:auto;width:100%;';
+    var label=document.createElement('label');
+    label.className='m_8fdc1311 mantine-InputWrapper-label';
+    label.setAttribute('data-required','true');
+    label.innerHTML='Номер телефона<span class="m_78a94662 mantine-InputWrapper-required"> *</span>';
+    var inputDiv=document.createElement('div');
+    inputDiv.className='m_6c018570 mantine-Input-wrapper';
+    inputDiv.setAttribute('data-variant','default');
+    var phoneInput=document.createElement('input');
+    phoneInput.id='godji-add-phone-input';
+    phoneInput.className='m_8fb7ebe7 mantine-Input-input';
+    phoneInput.setAttribute('data-variant','default');
+    phoneInput.setAttribute('placeholder','+7 (000) 000-00-00');
+    phoneInput.setAttribute('autocomplete','off');
+    inputDiv.appendChild(phoneInput);
+    inputWrap.appendChild(label);inputWrap.appendChild(inputDiv);
+
+    // Сообщение об ошибке/статусе
+    var statusMsg=document.createElement('p');
+    statusMsg.className='m_8f816625 mantine-InputWrapper-error';
+    statusMsg.style.cssText='margin-top:4px;min-height:18px;';
+    statusMsg.textContent='';
+    inputWrap.appendChild(statusMsg);
+
+    // Кнопки
+    var btnRow=document.createElement('div');
+    btnRow.className='m_8bffd616 mantine-Flex-root';
+    btnRow.style.cssText='gap:var(--mantine-spacing-md);justify-content:center;margin-top:var(--mantine-spacing-md);';
+
+    var cancelBtn=document.createElement('button');
+    cancelBtn.className='mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+    cancelBtn.setAttribute('data-variant','outline');cancelBtn.setAttribute('type','button');
+    cancelBtn.style.cssText='--button-bg:transparent;--button-hover:var(--mantine-color-gray-outline-hover);--button-color:var(--mantine-color-gray-outline);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-gray-outline);';
+    cancelBtn.innerHTML='<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span>';
+    cancelBtn.addEventListener('click',function(){ov.remove();});
+
+    var submitBtn=document.createElement('button');
+    submitBtn.id='godji-add-submit-btn';
+    submitBtn.className='mantine-focus-auto m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root';
+    submitBtn.setAttribute('data-variant','filled');submitBtn.setAttribute('type','button');
+    submitBtn.style.cssText='--button-bg:var(--mantine-color-blue-filled);--button-hover:var(--mantine-color-blue-filled-hover);--button-color:var(--mantine-color-white);--button-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    submitBtn.innerHTML='<span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Найти</span></span>';
+
+    btnRow.appendChild(cancelBtn);btnRow.appendChild(submitBtn);
+
+    var stack=document.createElement('div');
+    stack.className='m_6d731127 mantine-Stack-root';
+    stack.style.cssText='--stack-gap:var(--mantine-spacing-lg);--stack-align:stretch;';
+    stack.appendChild(desc);stack.appendChild(inputWrap);stack.appendChild(btnRow);
+    body.appendChild(stack);
 
     section.appendChild(header);section.appendChild(body);
     ov.appendChild(section);
     document.body.appendChild(ov);
+    setTimeout(function(){phoneInput.focus();},100);
 
-    document.getElementById('godji-add-cancel-btn').addEventListener('click',function(){ov.remove();});
-    document.getElementById('godji-add-client-form').addEventListener('submit',function(e){
-        e.preventDefault();
-        var phone=document.getElementById('godji-add-phone-input').value.trim();
-        if(!phone)return;
-        // Перенаправляем на /clients с параметром поиска
-        window.open('/clients?phone='+encodeURIComponent(phone),'_blank');
-        ov.remove();
-    });
-
-    setTimeout(function(){
-        var inp=document.getElementById('godji-add-phone-input');
-        if(inp)inp.focus();
-    },100);
-
-    document.addEventListener('keydown',function escHandler(e){
-        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',escHandler);}
-    });
-}
-
-function createSearchBtn(){
-    if(document.getElementById('godji-search-btn')) return;
-    // Только на страницах с сайдбаром
-    if(!document.querySelector('.Sidebar_linksInner__oTy_4')) return;
-
-    var btn=document.createElement('a');
-    btn.id='godji-search-btn';
-    // Берём className от нативной NavLink — всё стилизуется через CSS ERP
-    var nativeLink = document.querySelector('a[href="/bookings"]') ||
-                     document.querySelector('a.mantine-NavLink-root');
-    btn.className = nativeLink ? nativeLink.className
-        : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
-    btn.href='javascript:void(0)';
-    // Фиксированная позиция как раньше — архитектура скрипта
-    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:199;width:280px;';
-
-    // Иконка через ThemeIcon — точно как у нативных кнопок
-    var sec=document.createElement('span');
-    sec.className='m_690090b5 mantine-NavLink-section';
-    sec.setAttribute('data-position','left');
-    var ico=document.createElement('div');
-    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
-    ico.setAttribute('data-variant','filled');
-    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
-    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
-    sec.appendChild(ico);
-
-    var lbl=document.createElement('span');
-    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
-    lbl.textContent='Поиск клиента';
-
-    var body=document.createElement('div');
-    body.className='m_f07af9d2 mantine-NavLink-body';
-    body.style.cssText='flex:1;';
-    body.appendChild(lbl);
-
-    // Кнопка добавления клиента — иконка person-plus справа
-    var addBtn=document.createElement('div');
-    addBtn.id='godji-add-client-btn';
-    addBtn.title='Добавить клиента';
-    addBtn.style.cssText='width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--mantine-radius-sm);color:var(--mantine-color-dimmed);flex-shrink:0;margin-right:4px;transition:background 0.15s,color 0.15s;cursor:pointer;';
-    addBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/></svg>';
-    addBtn.addEventListener('mouseenter',function(){addBtn.style.background='var(--mantine-color-default-hover)';addBtn.style.color='var(--mantine-color-text)';});
-    addBtn.addEventListener('mouseleave',function(){addBtn.style.background='';addBtn.style.color='var(--mantine-color-dimmed)';});
-    addBtn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();openAddClientModal();});
-
-    btn.appendChild(sec); btn.appendChild(body); btn.appendChild(addBtn);
-    document.body.appendChild(btn);
-    btn.addEventListener('click',togglePanel);
-}
-
-// === SEARCH PANEL ===
-function createSearchPanel(){
-    if(_panel)return;
-    var p=document.createElement('div');
-    p.id='godji-search-panel';
-    // Фиксированная позиция прямо над кнопкой, не двигается
-    // Панель зажата между top:16px и bottom:502px — никуда не двигается
-    p.style.cssText='position:fixed;top:16px;bottom:502px;left:0;width:280px;background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);box-shadow:0 -4px 24px rgba(0,0,0,0.3);z-index:198;display:none;flex-direction:column;font-family:var(--mantine-font-family);overflow:hidden;';
-
-    var hw=document.createElement('div');
-    hw.style.cssText='padding:8px 10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--mantine-color-default-border);flex-shrink:0;';
-    var si=document.createElement('div');
-    si.style.cssText='color:var(--mantine-color-dimmed);line-height:0;flex-shrink:0;';
-    si.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
-    var inp=document.createElement('input');
-    inp.id='godji-search-input';inp.type='text';inp.placeholder='Ник, имя, телефон...';
-    inp.setAttribute('autocomplete','off');inp.setAttribute('autocorrect','off');
-    inp.setAttribute('autocapitalize','off');inp.setAttribute('spellcheck','false');
-    inp.style.cssText='flex:1;border:none;outline:none;background:transparent;font-size:var(--mantine-font-size-sm,14px);font-family:inherit;color:var(--mantine-color-text);';
-    hw.appendChild(si);hw.appendChild(inp);
-
-    var res=document.createElement('div');
-    res.id='godji-search-results';
-    res.style.cssText='overflow-y:auto;flex:1;min-height:0;';
-
-    p.appendChild(hw);p.appendChild(res);
-    document.body.appendChild(p);
-    _panel=p;
-
-    inp.addEventListener('input',function(){
-        clearTimeout(_st);
-        var q=inp.value.trim();
-        if(!q){res.innerHTML='';return;}
-        res.innerHTML='<div style="padding:10px 12px;font-size:12px;color:var(--mantine-color-dimmed);">Поиск...</div>';
-        _st=setTimeout(async function(){renderResults(await searchClients(q),res);},250);
-    });
-    inp.addEventListener('keydown',function(e){if(e.key==='Escape')closePanel();});
-}
-
-function closePanel(){
-    if(!_panel)return;
-    _panel.style.display='none';
-    var i=document.getElementById('godji-search-input');
-    var r=document.getElementById('godji-search-results');
-    if(i)i.value='';if(r)r.innerHTML='';
-}
-
-function togglePanel(){
-    if(!_panel)createSearchPanel();
-    if(_panel.style.display!=='none'){closePanel();}
-    else{
-        _panel.style.display='flex';
-        setTimeout(function(){var i=document.getElementById('godji-search-input');if(i)i.focus();},50);
+    // === Логика ===
+    function setLoading(on){
+        submitBtn.disabled=on;
+        submitBtn.style.opacity=on?'0.6':'1';
+        var lbl=submitBtn.querySelector('.mantine-Button-label');
+        if(lbl) lbl.textContent=on?'Поиск...':'Найти';
     }
-}
 
-function renderResults(clients,container){
-    container.innerHTML='';
-    if(!clients.length){container.innerHTML='<div style="padding:10px 12px;font-size:12px;color:var(--mantine-color-dimmed);">Ничего не найдено</div>';return;}
-    clients.forEach(function(c,i){
-        var pr=c.users_user_profile||{};
-        var w=c.users_wallets&&c.users_wallets[0];
-        var name=[pr.surname,pr.name].filter(Boolean).join(' ')||'—';
-        var nick=pr.login?'@'+pr.login:'';
-        var bal=w?Math.round(w.balance_amount)+' ₽':'';
-        var bon=w&&w.balance_bonus>0?' · '+Math.round(w.balance_bonus)+' G':'';
-        var item=document.createElement('div');
-        item.style.cssText='padding:8px 12px;cursor:pointer;transition:background 0.1s;'+(i>0?'border-top:1px solid var(--mantine-color-default-border)':'');
-        // Проверяем есть ли заметка у клиента
-        var hasNote = false;
-        try {
-            var noteRaw = localStorage.getItem('godji_note_v2_' + c.id);
-            if (noteRaw) {
-                var noteData = JSON.parse(noteRaw);
-                hasNote = !!(noteData && noteData.html && noteData.html.trim() && noteData.html !== '<br>');
+    function setError(msg){
+        statusMsg.textContent=msg||'';
+        statusMsg.style.color=msg?'var(--mantine-color-error)':'';
+        inputWrap.setAttribute('data-error',msg?'true':'false');
+    }
+
+    async function doFind(){
+        var phone=phoneInput.value.trim();
+        if(!phone){setError('Введите номер телефона');return;}
+        setError('');setLoading(true);
+
+        // Шаг 1: findUserByPhone
+        var res=await gql(
+            'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$club_id}},limit:1){id balance_amount balance_bonus}}}',
+            {phone:phone,club_id:14}
+        );
+
+        setLoading(false);
+
+        if(!res||!res.data||!res.data.findUserByPhone){
+            setError('Пользователь не найден');return;
+        }
+        var user=res.data.findUserByPhone;
+
+        // Шаг 2: AttachUserToClubById
+        setLoading(true);
+        var lbl2=submitBtn.querySelector('.mantine-Button-label');
+        if(lbl2) lbl2.textContent='Привязка...';
+
+        var att=await gql(
+            'mutation AttachUserToClubById($clubId:Int!,$userId:String!){attachUserToClub(params:{clubId:$clubId,userId:$userId}){success __typename}}',
+            {clubId:14,userId:user.id}
+        );
+
+        setLoading(false);
+
+        if(!att||!att.data||!att.data.attachUserToClub||!att.data.attachUserToClub.success){
+            // Возможно уже привязан — всё равно открываем карточку
+            if(att&&att.errors&&att.errors[0]&&att.errors[0].message&&att.errors[0].message.indexOf('already')!==-1){
+                // уже привязан — ок
+            } else {
+                setError('Ошибка привязки. Возможно клиент уже привязан.');
             }
-        } catch(e) {}
-        var noteIndicator = hasNote
-            ? '<span title="Есть заметка" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#cc0001;flex-shrink:0;margin-left:4px;margin-top:3px;"></span>'
-            : '';
-        item.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;align-items:center;gap:4px;"><span style="font-size:var(--mantine-font-size-sm,14px);font-weight:600;color:var(--mantine-color-text);">'+esc(nick||name)+'</span>'+noteIndicator+'</div><span style="font-size:11px;color:var(--mantine-color-dimmed);white-space:nowrap;flex-shrink:0;">'+esc(bal+bon)+'</span></div>'+
-            '<div style="font-size:11px;color:var(--mantine-color-dimmed);margin-top:2px;display:flex;gap:8px;">'+(nick?'<span>'+esc(name)+'</span>':'')+(c.phone?'<span>'+esc(c.phone)+'</span>':'')+'</div>';
-        item.addEventListener('mouseenter',function(){item.style.background='var(--mantine-color-default-hover)';});
-        item.addEventListener('mouseleave',function(){item.style.background='';});
-        item.addEventListener('click',function(){openClientModal(c.id,c.users_wallets&&c.users_wallets[0]);});
-        container.appendChild(item);
+        }
+
+        // Шаг 3: открываем карточку клиента
+        ov.remove();
+        openClientModal(user.id, user.users_wallets&&user.users_wallets[0]);
+    }
+
+    submitBtn.addEventListener('click',doFind);
+    phoneInput.addEventListener('keydown',function(e){if(e.key==='Enter')doFind();});
+    document.addEventListener('keydown',function escH(e){
+        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',escH);}
     });
 }
+
 
 // === CLIENT MODAL (iframe) ===
 function openClientModal(clientId, clientWallet){
@@ -318,9 +286,14 @@ function openClientModal(clientId, clientWallet){
     btns.appendChild(openFull);btns.appendChild(cls);
     hdr.appendChild(title);hdr.appendChild(btns);
 
+    // Обёртка — скрывает сайдбар через overflow:hidden
+    var iframeWrap=document.createElement('div');
+    iframeWrap.style.cssText='flex:1;overflow:hidden;position:relative;';
+
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    iframe.style.cssText='flex:1;border:none;width:100%;opacity:0;transition:opacity 0.2s;';
+    // iframe шире контейнера на ширину сайдбара (~280px), сдвинут влево
+    iframe.style.cssText='border:none;width:calc(100% + 280px);height:100%;margin-left:-280px;opacity:0;transition:opacity 0.2s;';
 
     // Элементы для скрытия
     var _SELECTORS=[
@@ -339,34 +312,31 @@ function openClientModal(clientId, clientWallet){
         try{
             var idoc=iframe.contentDocument||iframe.contentWindow.document;
             if(!idoc||!idoc.body)return;
-            // Скрываем sidebar и шапку
+            // Скрываем navbar полностью — он всё равно скрыт overflow:hidden обёртки
+            var navbar=idoc.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
+            if(navbar) navbar.style.cssText='display:none!important';
+            // Скрываем шапку и breadcrumbs
             _SELECTORS.forEach(function(sel){
                 idoc.querySelectorAll(sel).forEach(hideEl);
             });
-            // Скрываем все godji-* элементы кроме кнопки списания
-            idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
+            // Скрываем все кастомные кнопки кроме заметок и списания
+            idoc.querySelectorAll('[id^="godji"],[class*="godji-"]').forEach(function(el){
                 if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                 hideEl(el);
             });
-            // Сдвигаем контент влево скрывая сайдбар за левым краем
-            var navbar=idoc.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
-            if(navbar){
-                var nbW=navbar.offsetWidth||280;
-                // Сайдбар оставляем как есть — просто скрываем его за краем iframe
-                navbar.style.left='-'+nbW+'px';
-            }
+            // Убираем отступы у main — сайдбар скрыт, отступ не нужен
             var main=idoc.querySelector('.mantine-AppShell-main');
             if(main){
                 main.style.paddingLeft='16px';
                 main.style.marginLeft='0';
                 main.style.paddingTop='16px';
+                main.style.width='100%';
             }
             var root=idoc.querySelector('.mantine-AppShell-root,[class*="Layout_appShell"]');
             if(root){
                 root.style.setProperty('--app-shell-navbar-width','0px','important');
                 root.style.setProperty('--app-shell-navbar-offset','0px','important');
                 root.style.setProperty('--app-shell-header-height','0px','important');
-                root.style.overflowX='hidden';
             }
             iframe.style.opacity='1';
         }catch(e){}
@@ -412,7 +382,8 @@ function openClientModal(clientId, clientWallet){
         },100);
     };
 
-    m.appendChild(hdr);m.appendChild(iframe);
+    iframeWrap.appendChild(iframe);
+    m.appendChild(hdr);m.appendChild(iframeWrap);
     ov.appendChild(m);document.body.appendChild(ov);_modal=ov;
 
     document.addEventListener('keydown',function esc(e){
