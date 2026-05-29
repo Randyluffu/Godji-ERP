@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.23
+// @version      3.24
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -755,11 +755,16 @@ function renderModal(){
     _modal.appendChild(tabs);
 
     var body=document.createElement('div');
-    body.style.cssText='overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0;';
+    body.style.cssText='flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;';
     _modal.appendChild(body);
 
-    if(_tab==='current') renderCurrentTab(body, shift);
-    else renderHistoryTab(body);
+    if(_tab==='current'){
+        body.style.overflowY='auto';
+        body.style.overscrollBehavior='contain';
+        renderCurrentTab(body,shift);
+    } else {
+        renderHistoryTab(body);
+    }
 }
 
 // ── Диагностика кассы
@@ -1218,28 +1223,25 @@ function renderHistoryTab(body){
         body.innerHTML='<div style="text-align:center;color:#ccc;padding:60px;font-size:14px;">Нет завершённых смен</div>';
         return;
     }
+    body.style.cssText='display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0;';
 
-    var PAGE=50, _page=0;
-    var _fAdmin='', _sortOpen=0, _sortClose=0, _sortTotal=0;
-    var adminNicks=[];
-    allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
-    var _filtered=allShifts.slice();
+    var PAGE=50, _page=0, _fAdmin='', _sortOpen=0, _sortClose=0, _sortTotal=0, _filtered=[];
+    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
 
-    // ── Кнопка сброса ──
+    // ── "Сбросить фильтры" — над таблицей, flush right ──
     var topBar=document.createElement('div');
-    topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:6px 14px 0;flex-shrink:0;';
+    topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:5px 14px;flex-shrink:0;';
     var rstBtn=document.createElement('button');
     rstBtn.textContent='Сбросить фильтры';
     rstBtn.style.cssText='font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;';
     rstBtn.addEventListener('click',function(){
         _fAdmin=''; _sortOpen=0; _sortClose=0; _sortTotal=0; _page=0;
-        if(thEls.adminDrop){ thEls.adminDrop.remove(); thEls.adminDrop=null; }
-        updateThLabels(); applyAndRender();
+        renderAdminTh(); thEls.open.render(); thEls.close.render(); thEls.total.render();
+        applyAndRender();
     });
-    topBar.appendChild(rstBtn);
-    body.appendChild(topBar);
+    topBar.appendChild(rstBtn); body.appendChild(topBar);
 
-    // ── Таблица ──
+    // ── Таблица (flex:1, скроллируется) ──
     var tableWrap=document.createElement('div');
     tableWrap.style.cssText='overflow:auto;flex:1;overscroll-behavior:contain;min-height:0;';
     body.appendChild(tableWrap);
@@ -1257,49 +1259,144 @@ function renderHistoryTab(body){
     var ICON_N='\u25be', ICON_D='\u25bc', ICON_A='\u25b2';
     var thEls={};
 
-    function sortTh(label, w, getSortVal, onSort){
-        var th=document.createElement('th');
-        th.style.cssText=THS+'width:'+w+';cursor:pointer;';
-        function render(){ th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'; }
-        render();
-        th.addEventListener('click',function(){ onSort(); render(); _page=0; applyAndRender(); });
-        return {th:th, render:render};
+    // ── Мини-календарик ──
+    function mkCalDrop(onSelect){
+        var now=new Date(), vy=now.getFullYear(), vm=now.getMonth();
+        var dd=document.createElement('div');
+        dd.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.14);z-index:30;padding:10px;width:220px;font-family:inherit;';
+        dd.addEventListener('click',function(e){e.stopPropagation();});
+        // Ручной ввод
+        var inpRow=document.createElement('div'); inpRow.style.cssText='display:flex;gap:4px;margin-bottom:8px;';
+        var inp=document.createElement('input'); inp.type='text'; inp.placeholder='ДД.ММ.ГГГГ';
+        inp.style.cssText='flex:1;font-size:11px;padding:4px 7px;border:1px solid #ddd;border-radius:5px;font-family:inherit;';
+        var ok=document.createElement('button'); ok.textContent='OK';
+        ok.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #86efac;border-radius:5px;background:#f0fdf4;color:#166534;cursor:pointer;font-family:inherit;font-weight:600;';
+        ok.addEventListener('click',function(){
+            var p=inp.value.split('.');
+            if(p.length===3){ var d=new Date(+p[2],+p[1]-1,+p[0]); if(!isNaN(d)){onSelect(d);dd.remove();return;} }
+            inp.style.borderColor='#f87171';
+        });
+        inpRow.appendChild(inp); inpRow.appendChild(ok); dd.appendChild(inpRow);
+        function buildCal(){
+            var old=dd.querySelector('.gcb-cal'); if(old)old.remove();
+            var cal=document.createElement('div'); cal.className='gcb-cal';
+            var nav=document.createElement('div'); nav.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+            var prev=document.createElement('button'); prev.textContent='◀'; prev.style.cssText='background:none;border:none;cursor:pointer;font-size:11px;color:#555;padding:2px 6px;';
+            var next=document.createElement('button'); next.textContent='▶'; next.style.cssText='background:none;border:none;cursor:pointer;font-size:11px;color:#555;padding:2px 6px;';
+            var MN=['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+            var lbl=document.createElement('span'); lbl.style.cssText='font-size:12px;font-weight:700;color:#333;'; lbl.textContent=MN[vm]+' '+vy;
+            prev.addEventListener('click',function(){vm--;if(vm<0){vm=11;vy--;}buildCal();});
+            next.addEventListener('click',function(){vm++;if(vm>11){vm=0;vy++;}buildCal();});
+            nav.appendChild(prev);nav.appendChild(lbl);nav.appendChild(next);cal.appendChild(nav);
+            var dh=document.createElement('div'); dh.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-bottom:3px;';
+            ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(function(d){var c=document.createElement('div');c.style.cssText='font-size:9px;text-align:center;color:#bbb;font-weight:600;';c.textContent=d;dh.appendChild(c);});
+            cal.appendChild(dh);
+            var grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;';
+            var first=new Date(vy,vm,1).getDay(); var off=(first===0)?6:first-1;
+            var days=new Date(vy,vm+1,0).getDate();
+            for(var i=0;i<off;i++)grid.appendChild(document.createElement('div'));
+            for(var d=1;d<=days;d++){
+                (function(day){
+                    var cell=document.createElement('div');
+                    cell.style.cssText='font-size:11px;text-align:center;padding:3px 1px;border-radius:4px;cursor:pointer;color:#333;';
+                    cell.textContent=day;
+                    cell.addEventListener('mouseenter',function(){cell.style.background='#eff6ff';cell.style.color='#1d4ed8';});
+                    cell.addEventListener('mouseleave',function(){cell.style.background='';cell.style.color='#333';});
+                    cell.addEventListener('click',function(){onSelect(new Date(vy,vm,day));dd.remove();});
+                    grid.appendChild(cell);
+                })(d);
+            }
+            cal.appendChild(grid); dd.appendChild(cal);
+        }
+        buildCal(); return dd;
     }
 
-    // Открыта ▾
-    thEls.open=sortTh('Открыта','110px',function(){return _sortOpen;},function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;});
+    // ── Хелпер для th с сортировкой ──
+    function sortTh(label, w, getSortVal, onSort){
+        var th=document.createElement('th'); th.style.cssText=THS+'width:'+w+';cursor:pointer;';
+        function render(){ th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'; }
+        render();
+        th.addEventListener('click',function(){onSort();render();_page=0;applyAndRender();});
+        return {th:th,render:render};
+    }
+
+    // ── Хелпер для th с сортировкой + календарик ──
+    function calSortTh(label, w, getSortVal, onSort, getFilt, setFilt){
+        var th=document.createElement('th'); th.style.cssText=THS+'width:'+w+';cursor:pointer;position:relative;';
+        var calDrop=null;
+        function render(){
+            var fv=getFilt(); var dateStr=fv?' <span style="font-size:9px;color:#1d4ed8;">'+fv.toLocaleDateString('ru-RU')+'</span>':'';
+            th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'+dateStr;
+            if(calDrop)th.appendChild(calDrop);
+        }
+        render();
+        th.addEventListener('click',function(e){
+            e.stopPropagation();
+            if(calDrop){calDrop.remove();calDrop=null;render();return;}
+            onSort();render();_page=0;applyAndRender();
+        });
+        th.addEventListener('dblclick',function(e){
+            e.stopPropagation();
+            if(calDrop){calDrop.remove();calDrop=null;render();return;}
+            calDrop=mkCalDrop(function(date){setFilt(date);calDrop=null;render();_page=0;applyAndRender();});
+            th.appendChild(calDrop);
+            setTimeout(function(){
+                document.addEventListener('click',function cl(){
+                    if(calDrop){calDrop.remove();calDrop=null;render();}
+                    document.removeEventListener('click',cl);
+                });
+            },10);
+        });
+        return {th:th,render:render};
+    }
+
+    // ── Фильтры дат ──
+    var _fFrom=null, _fTill=null;
+
+    // Открыта: одиночный клик = сортировка, двойной = календарик
+    thEls.open=calSortTh('Открыта','110px',
+        function(){return _sortOpen;},
+        function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;},
+        function(){return _fFrom;},
+        function(d){_fFrom=d;}
+    );
     hr.appendChild(thEls.open.th);
 
-    // Админ ▾ — фильтр
+    // Админ ▾
     var thAdmin=document.createElement('th'); thAdmin.style.cssText=THS+'width:82px;cursor:pointer;position:relative;';
     thEls.admin=thAdmin; thEls.adminDrop=null;
     function renderAdminTh(){ thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.6;">'+ICON_N+'</span>'; }
     renderAdminTh();
     thAdmin.addEventListener('click',function(e){
         e.stopPropagation();
-        if(thEls.adminDrop){ thEls.adminDrop.remove(); thEls.adminDrop=null; return; }
+        if(thEls.adminDrop){thEls.adminDrop.remove();thEls.adminDrop=null;return;}
+        if(!adminNicks.length) return;
         var dd=document.createElement('div');
         dd.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:30;min-width:110px;padding:4px 0;font-family:inherit;';
         dd.addEventListener('click',function(e2){e2.stopPropagation();});
         function opt(lbl,val){
             var o=document.createElement('div');
-            var active=_fAdmin===val;
-            o.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(active?'#1d4ed8':'#333')+';font-weight:'+(active?700:400)+';';
+            o.style.cssText='padding:7px 14px;font-size:12px;cursor:pointer;color:'+(_fAdmin===val?'#1d4ed8':'#333')+';font-weight:'+(_fAdmin===val?700:400)+';';
             o.textContent=lbl;
             o.addEventListener('mouseenter',function(){o.style.background='#f0f6ff';});
             o.addEventListener('mouseleave',function(){o.style.background='';});
-            o.addEventListener('click',function(){ _fAdmin=val; _page=0; renderAdminTh(); dd.remove(); thEls.adminDrop=null; applyAndRender(); });
+            o.addEventListener('click',function(){_fAdmin=val;_page=0;renderAdminTh();dd.remove();thEls.adminDrop=null;applyAndRender();});
             return o;
         }
         dd.appendChild(opt('Все',''));
         adminNicks.forEach(function(n){dd.appendChild(opt(n,n));});
         thEls.adminDrop=dd; thAdmin.appendChild(dd);
-        setTimeout(function(){ document.addEventListener('click',function cl(){ if(thEls.adminDrop)thEls.adminDrop.remove(); thEls.adminDrop=null; document.removeEventListener('click',cl); }); },10);
+        setTimeout(function(){document.addEventListener('click',function cl(){if(thEls.adminDrop)thEls.adminDrop.remove();thEls.adminDrop=null;document.removeEventListener('click',cl);});},10);
     });
     hr.appendChild(thAdmin);
 
-    // Закрыта ▾
-    thEls.close=sortTh('Закрыта','110px',function(){return _sortClose;},function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;});
+    // Закрыта: одиночный клик = сортировка, двойной = календарик
+    thEls.close=calSortTh('Закрыта','110px',
+        function(){return _sortClose;},
+        function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;},
+        function(){return _fTill;},
+        function(d){_fTill=d;}
+    );
     hr.appendChild(thEls.close.th);
 
     // В кассе ▾
@@ -1311,56 +1408,68 @@ function renderHistoryTab(body){
     });
     thead.appendChild(hr);
 
-    function updateThLabels(){ thEls.open.render(); thEls.close.render(); thEls.total.render(); renderAdminTh(); }
-
-    // ── tbody ──
     var tbody=document.createElement('tbody');
     table.appendChild(tbody);
 
-    // ── Пагинация ──
+    // ── Пагинация (закреплена снизу, flex-shrink:0) ──
     var pagBar=document.createElement('div');
-    pagBar.style.cssText='display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;flex-shrink:0;border-top:1px solid #eee;';
+    pagBar.style.cssText='display:flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;flex-shrink:0;border-top:1px solid #eee;background:#fff;';
     body.appendChild(pagBar);
 
     function renderPagination(total){
         pagBar.innerHTML='';
         var pages=Math.ceil(total/PAGE);
         if(pages<=1) return;
-        function mkPBtn(label,page,active){
+        function btn(label,page,active,disabled){
             var b=document.createElement('button');
             b.textContent=label;
-            b.style.cssText='font-size:12px;padding:4px 9px;border:1px solid '+(active?'#1d4ed8':'#ddd')+';border-radius:5px;background:'+(active?'#eff6ff':'#fff')+';color:'+(active?'#1d4ed8':'#555')+';cursor:'+(active?'default':'pointer')+';font-family:inherit;font-weight:'+(active?700:400)+';';
-            if(!active) b.addEventListener('click',function(){ _page=page; applyAndRender(); });
+            b.style.cssText='font-size:12px;padding:4px 8px;border:1px solid '+(active?'#1d4ed8':disabled?'#f0f0f0':'#ddd')+';border-radius:5px;background:'+(active?'#eff6ff':'#fff')+';color:'+(active?'#1d4ed8':disabled?'#ccc':'#555')+';cursor:'+(active||disabled?'default':'pointer')+';font-family:inherit;font-weight:'+(active?700:400)+';min-width:32px;';
+            if(!active&&!disabled) b.addEventListener('click',function(){_page=page;applyAndRender();tableWrap.scrollTop=0;});
             return b;
         }
-        if(_page>0) pagBar.appendChild(mkPBtn('←',_page-1,false));
-        var start=Math.max(0,_page-2), end=Math.min(pages-1,_page+2);
-        if(start>0){ pagBar.appendChild(mkPBtn('1',0,false)); if(start>1){var e=document.createElement('span');e.textContent='…';e.style.cssText='font-size:12px;color:#bbb;padding:0 3px;';pagBar.appendChild(e);} }
-        for(var i=start;i<=end;i++) pagBar.appendChild(mkPBtn(i+1,i,i===_page));
-        if(end<pages-1){ if(end<pages-2){var e2=document.createElement('span');e2.textContent='…';e2.style.cssText='font-size:12px;color:#bbb;padding:0 3px;';pagBar.appendChild(e2);} pagBar.appendChild(mkPBtn(pages,pages-1,false)); }
-        if(_page<pages-1) pagBar.appendChild(mkPBtn('→',_page+1,false));
+        function dots(){ var s=document.createElement('span');s.textContent='…';s.style.cssText='font-size:12px;color:#bbb;padding:0 2px;';return s; }
+
+        // Первая страница всегда
+        var WIN=3; // по 3 страницы слева и справа от текущей
+        var lo=Math.max(0,_page-WIN), hi=Math.min(pages-1,_page+WIN);
+
+        // Кнопки навигации
+        pagBar.appendChild(btn('«',0,false,_page===0));
+        pagBar.appendChild(btn('‹',_page-1,false,_page===0));
+
+        if(lo>0){ pagBar.appendChild(btn('1',0,false,false)); if(lo>1)pagBar.appendChild(dots()); }
+        for(var i=lo;i<=hi;i++) pagBar.appendChild(btn(i+1,i,i===_page,false));
+        if(hi<pages-1){ if(hi<pages-2)pagBar.appendChild(dots()); pagBar.appendChild(btn(pages,pages-1,false,false)); }
+
+        pagBar.appendChild(btn('›',_page+1,false,_page===pages-1));
+        pagBar.appendChild(btn('»',pages-1,false,_page===pages-1));
     }
 
     function applyAndRender(){
-        var shifts=allShifts.filter(function(s){ return !_fAdmin||s.adminNick===_fAdmin; });
-        if(_sortOpen===1) shifts.sort(function(a,b){return b.openedAt-a.openedAt;});
-        else if(_sortOpen===2) shifts.sort(function(a,b){return a.openedAt-b.openedAt;});
-        else if(_sortClose===1) shifts.sort(function(a,b){return (b.closedAt||0)-(a.closedAt||0);});
-        else if(_sortClose===2) shifts.sort(function(a,b){return (a.closedAt||0)-(b.closedAt||0);});
-        else if(_sortTotal===1) shifts.sort(function(a,b){ return ((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0))-((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0)); });
-        else if(_sortTotal===2) shifts.sort(function(a,b){ return ((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0))-((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0)); });
-        _filtered=shifts;
-        renderPagination(shifts.length);
-        renderPage(shifts);
+        var s=allShifts.filter(function(sh){
+            if(_fAdmin&&sh.adminNick!==_fAdmin) return false;
+            if(_fFrom){ var f=new Date(_fFrom);f.setHours(0,0,0,0);if(sh.openedAt<f.getTime())return false; }
+            if(_fTill){ var t=new Date(_fTill);t.setHours(23,59,59,999);if(sh.openedAt>t.getTime())return false; }
+            return true;
+        });
+        if(_sortOpen===1) s.sort(function(a,b){return b.openedAt-a.openedAt;});
+        else if(_sortOpen===2) s.sort(function(a,b){return a.openedAt-b.openedAt;});
+        else if(_sortClose===1) s.sort(function(a,b){return(b.closedAt||0)-(a.closedAt||0);});
+        else if(_sortClose===2) s.sort(function(a,b){return(a.closedAt||0)-(b.closedAt||0);});
+        else if(_sortTotal===1) s.sort(function(a,b){return((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0))-((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0));});
+        else if(_sortTotal===2) s.sort(function(a,b){return((a.cash||0)+(a.card||0)+(a.manual||0)-(a.withdrawal||0)-(a.debit||0))-((b.cash||0)+(b.card||0)+(b.manual||0)-(b.withdrawal||0)-(b.debit||0));});
+        _filtered=s;
+        renderPagination(s.length);
+        renderPage(s);
     }
 
     function renderPage(shifts){
         tbody.innerHTML='';
-        var slice=shifts.slice(_page*PAGE, (_page+1)*PAGE);
+        var slice=shifts.slice(_page*PAGE,(_page+1)*PAGE);
         if(!slice.length){
-            var empty=document.createElement('tr');
-            var etd=document.createElement('td'); etd.colSpan=9; etd.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;'; etd.textContent='Нет смен';
-            empty.appendChild(etd); tbody.appendChild(empty); return;
+            var r=document.createElement('tr');
+            var td=document.createElement('td'); td.colSpan=9; td.style.cssText='text-align:center;color:#ccc;padding:40px;font-size:13px;'; td.textContent='Нет смен';
+            r.appendChild(td); tbody.appendChild(r); return;
         }
         slice.forEach(function(s){
             var total=(s.cash||0)+(s.card||0)+(s.manual||0)-(s.withdrawal||0)-(s.debit||0);
@@ -1368,24 +1477,20 @@ function renderHistoryTab(body){
             tr.style.cssText='border-bottom:2px solid #e5e7eb;cursor:pointer;background:#fff;';
             tr.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';});
             tr.addEventListener('mouseleave',function(){tr.style.background='#fff';});
-            tr.addEventListener('click',function(e){ if(!e.target.closest||!e.target.closest('a')) showShiftDetail(s); });
+            tr.addEventListener('click',function(){showShiftDetail(s);});
 
             var P='padding:8px 7px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;';
 
-            // Колонки Открыта + Админ
+            // Открыта + Админ — colspan=2 если есть ник, иначе две отдельных ячейки
             if(s.adminNick){
-                // Ячейка colspan=2: ник сверху, дата снизу — всё в одной ячейке
-                var tdO=document.createElement('td'); tdO.colSpan=2;
-                tdO.style.cssText=P+'text-align:center;';
-                var nb=mkAdminBadge(s.adminNick,'10');
-                nb.style.cssText+=';pointer-events:none;display:block;margin:0 auto 2px;';
+                var tdO=document.createElement('td'); tdO.colSpan=2; tdO.style.cssText=P+'text-align:center;';
+                var nb=mkAdminBadge(s.adminNick,'10'); nb.style.cssText+=';pointer-events:none;display:block;margin:0 auto 2px;';
                 tdO.appendChild(nb);
                 var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
                 tr.appendChild(tdO);
             } else {
-                var tdO=document.createElement('td'); tdO.style.cssText=P+'text-align:center;';
-                var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
-                tr.appendChild(tdO);
+                var tdO=document.createElement('td'); tdO.style.cssText=P;
+                tdO.textContent=fmtDate(s.openedAt); tr.appendChild(tdO);
                 tr.appendChild(document.createElement('td'));
             }
 
@@ -1404,11 +1509,11 @@ function renderHistoryTab(body){
             });
             tbody.appendChild(tr);
         });
-        tableWrap.scrollTop=0;
     }
 
     applyAndRender();
 }
+
 
 // ── Детальная карточка смены
 function showShiftDetail(s){
@@ -1772,20 +1877,20 @@ function createBtn(){
     erpBtn.style.setProperty('justify-content', 'center', 'important');
     erpBtn.style.setProperty('text-align', 'center', 'important');
     erpBtn.removeAttribute('data-block');
-    // Mantine вкладывает текст в span — форсируем перенос через MutationObserver
+    // Форсируем перенос текста в Mantine span
     (function(){
         function forceWrap(){
             erpBtn.querySelectorAll('span').forEach(function(sp){
                 sp.style.setProperty('white-space','normal','important');
                 sp.style.setProperty('text-align','center','important');
                 sp.style.setProperty('word-break','break-word','important');
-                sp.style.setProperty('line-height','1.25','important');
-                sp.style.setProperty('display','block','important');
+                sp.style.setProperty('line-height','1.3','important');
+                sp.style.setProperty('display','flex','important');
+                sp.style.setProperty('align-items','center','important');
+                sp.style.setProperty('justify-content','center','important');
             });
         }
-        forceWrap();
-        setTimeout(forceWrap, 300);
-        setTimeout(forceWrap, 1000);
+        forceWrap(); setTimeout(forceWrap,300); setTimeout(forceWrap,1000);
     })();
 
     // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
