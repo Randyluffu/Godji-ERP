@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Заметки о клиенте
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.6
 // @match        https://godji.cloud/clients/*
 // @match        https://*.godji.cloud/clients/*
 // @match        https://godji.cloud/*
@@ -40,14 +40,6 @@
         } else {
             localStorage.setItem(storageKey(clientId), JSON.stringify(data));
         }
-    }
-
-    // Работаем и на странице клиента, и внутри iframe модалки поиска
-    function getContext() {
-        // Сначала пробуем текущий документ
-        var h2 = document.querySelector('h2.PageHeader_desktopTitle__ffB_Z');
-        if (h2) return { doc: document, h2: h2, inIframe: false };
-        return null;
     }
 
     function injectNote() {
@@ -112,6 +104,7 @@
             'opacity:0',
             'transition:opacity 0.15s',
             'box-shadow:var(--mantine-shadow-xs)',
+            'pointer-events:none',
         ].join(';');
 
         function btnStyle(active) {
@@ -297,10 +290,21 @@
             editor.style.background = 'transparent';
             editor.style.boxShadow = 'none';
             doSave();
+            // Скрываем тулбар с задержкой чтобы не мигал при клике по кнопкам
+            setTimeout(function() {
+                if (document.activeElement !== editor) {
+                    toolbar.style.opacity = '0';
+                    toolbar.style.pointerEvents = 'none';
+                }
+            }, 200);
         });
 
         var saveTimer;
         editor.addEventListener('input', function() {
+            // Если редактор содержит только <br> — считаем пустым
+            if (editor.innerHTML === '<br>' || editor.innerHTML === '<br/>' || editor.innerHTML === '<br />') {
+                editor.innerHTML = '';
+            }
             clearTimeout(saveTimer);
             saveTimer = setTimeout(doSave, 800);
         });
@@ -313,6 +317,7 @@
         noteBlock.addEventListener('mouseenter', function() {
             pencilIcon.style.opacity = '0.5';
             toolbar.style.opacity = '1';
+            toolbar.style.pointerEvents = 'auto';
             if (document.activeElement !== editor) {
                 editor.style.background = 'var(--mantine-color-default)';
                 editor.style.borderColor = 'var(--mantine-color-default-border)';
@@ -321,20 +326,20 @@
         });
         noteBlock.addEventListener('mouseleave', function() {
             pencilIcon.style.opacity = '0';
-            toolbar.style.opacity = document.activeElement === editor ? '1' : '0';
             if (document.activeElement !== editor) {
+                toolbar.style.opacity = '0';
+                toolbar.style.pointerEvents = 'none';
                 editor.style.background = 'transparent';
                 editor.style.borderColor = 'transparent';
                 editor.style.boxShadow = 'none';
             }
         });
 
+        // Горизонтальная компоновка: иконка | редактор | тулбар
         noteBlock.appendChild(pencilIcon);
-        noteBlock.appendChild(toolbar);
         noteBlock.appendChild(editor);
+        noteBlock.appendChild(toolbar);
 
-        // Вставляем noteBlock как fixed поверх страницы — не трогаем DOM ERP
-        // Позиция: у правого края h2, выровнена по вертикали с h2
         noteBlock.style.position = 'fixed';
         noteBlock.style.zIndex = '9000';
         noteBlock.style.display = 'flex';
@@ -350,34 +355,43 @@
             // Левая граница — правый край h2 (заголовок "Клиент @...")
             var leftBound = Math.round(r.right + 12);
 
-            // Правая граница — левый край кнопки "Бронирование" в сайдбаре
+            // Правая граница:
+            // — на полной странице: левый край кнопки «Бронирование» в сайдбаре
+            // — в iframe модалки поиска: правый край viewport минус отступ
             var bookingsEl = document.querySelector('a[href="/bookings"].LinksGroup_navLink__qvSOI');
-            var rightBound = bookingsEl
-                ? Math.round(bookingsEl.getBoundingClientRect().left - 10)
-                : Math.round(window.innerWidth * 0.65);
+            var isInModal  = !!window.frameElement; // запущены в iframe
+            var rightBound;
+            if (bookingsEl && !isInModal) {
+                rightBound = Math.round(bookingsEl.getBoundingClientRect().left - 10);
+            } else {
+                // Без сайдбара — ограничиваем до 80% ширины viewport
+                rightBound = Math.round(window.innerWidth * 0.80);
+            }
 
-            // Верхняя граница — низ breadcrumbs + отступ
+            // Верхняя граница — низ breadcrumbs + отступ (или верх h2 в iframe)
             var breadcrumb = document.querySelector('.mantine-Breadcrumbs-root');
             var topBound = breadcrumb
                 ? Math.round(breadcrumb.getBoundingClientRect().bottom + 6)
-                : 60;
+                : Math.round(r.top);
 
             // Нижняя граница — верх табов (Покупки, Бронирования и т.д.)
             var tabs = document.querySelector('.mantine-Tabs-list');
             var bottomBound = tabs
                 ? Math.round(tabs.getBoundingClientRect().top - 6)
-                : Math.round(window.innerHeight * 0.4);
+                : Math.round(r.bottom + 200);
 
-            // Вертикаль: центрируем по h2, но не выходим за границы
-            var noteH = noteBlock.offsetHeight || 40;
-            var topPos = Math.round(r.top + (r.height - noteH) / 2);
+            // Вертикаль: выравниваем по вертикальному центру h2
+            var noteH = noteBlock.offsetHeight || 60;
+            var topPos = Math.round(r.top + (r.height / 2) - (noteH / 2));
             topPos = Math.max(topBound, Math.min(topPos, bottomBound - noteH));
 
             noteBlock.style.top  = topPos + 'px';
             noteBlock.style.left = leftBound + 'px';
 
-            // Ограничиваем ширину редактора
-            var maxW = Math.max(80, rightBound - leftBound - 180); // 180 = иконка + тулбар
+            // Ширина: от leftBound до rightBound минус иконка(20) минус тулбар(~120) минус зазоры
+            var toolbarW = toolbar.offsetWidth || 120;
+            var iconW    = pencilIcon.offsetWidth || 20;
+            var maxW = Math.max(60, rightBound - leftBound - toolbarW - iconW - 24);
             editor.style.maxWidth = maxW + 'px';
             editor.style.width    = Math.min(700, maxW) + 'px';
         }
