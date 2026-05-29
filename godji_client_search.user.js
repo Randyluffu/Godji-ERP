@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.24
+// @version      5.25
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -390,6 +390,89 @@ function openClientModal(clientId, clientWallet){
         if(e.key==='Escape'){ov.remove();_modal=null;document.removeEventListener('keydown',esc);}
     });
 }
+
+function createSearchBtn(){
+    if(document.getElementById('godji-search-btn')) return;
+    if(!document.querySelector('.Sidebar_linksInner__oTy_4')) return;
+
+    var btn=document.createElement('a');
+    btn.id='godji-search-btn';
+    var nativeLink=document.querySelector('a[href="/bookings"]')||document.querySelector('a.mantine-NavLink-root');
+    btn.className=nativeLink?nativeLink.className:'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
+    btn.href='javascript:void(0)';
+    btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:199;width:280px;display:flex;align-items:center;';
+
+    var sec=document.createElement('span');
+    sec.className='m_690090b5 mantine-NavLink-section';
+    sec.setAttribute('data-position','left');
+    var ico=document.createElement('div');
+    ico.className='LinksGroup_themeIcon__E9SRO m_7341320d mantine-ThemeIcon-root';
+    ico.setAttribute('data-variant','filled');
+    ico.style.cssText='--ti-size:calc(1.875rem * var(--mantine-scale));--ti-bg:var(--mantine-color-gg_primary-filled);--ti-color:var(--mantine-color-white);--ti-bd:calc(0.0625rem * var(--mantine-scale)) solid transparent;';
+    ico.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+    sec.appendChild(ico);
+
+    var lbl=document.createElement('span');
+    lbl.className='m_1f6ac4c4 mantine-NavLink-label';
+    lbl.textContent='Поиск клиента';
+
+    var body=document.createElement('div');
+    body.className='m_f07af9d2 mantine-NavLink-body';
+    body.style.cssText='flex:1;';
+    body.appendChild(lbl);
+
+    var addBtn=document.createElement('div');
+    addBtn.id='godji-add-client-btn';
+    addBtn.title='Добавить клиента';
+    addBtn.style.cssText='width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--mantine-radius-sm);color:var(--mantine-color-dimmed);flex-shrink:0;margin-right:4px;transition:background 0.15s,color 0.15s;cursor:pointer;';
+    addBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/></svg>';
+    addBtn.addEventListener('mouseenter',function(){addBtn.style.background='var(--mantine-color-default-hover)';addBtn.style.color='var(--mantine-color-text)';});
+    addBtn.addEventListener('mouseleave',function(){addBtn.style.background='';addBtn.style.color='var(--mantine-color-dimmed)';});
+    addBtn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();openAddClientModal();});
+
+    btn.appendChild(sec); btn.appendChild(body); btn.appendChild(addBtn);
+    document.body.appendChild(btn);
+    btn.addEventListener('click',togglePanel);
+}
+
+function createSearchPanel(){
+    if(_panel)return;
+    var p=document.createElement('div');
+    p.id='godji-search-panel';
+    // Фиксированная позиция прямо над кнопкой, не двигается
+    // Панель зажата между top:16px и bottom:502px — никуда не двигается
+    p.style.cssText='position:fixed;top:16px;bottom:502px;left:0;width:280px;background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);box-shadow:0 -4px 24px rgba(0,0,0,0.3);z-index:9999;display:none;flex-direction:column;font-family:var(--mantine-font-family);overflow:hidden;';
+
+    var hw=document.createElement('div');
+    hw.style.cssText='padding:8px 10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--mantine-color-default-border);flex-shrink:0;';
+    var si=document.createElement('div');
+    si.style.cssText='color:var(--mantine-color-dimmed);line-height:0;flex-shrink:0;';
+    si.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+    var inp=document.createElement('input');
+    inp.id='godji-search-input';inp.type='text';inp.placeholder='Ник, имя, телефон...';
+    inp.setAttribute('autocomplete','off');inp.setAttribute('autocorrect','off');
+    inp.setAttribute('autocapitalize','off');inp.setAttribute('spellcheck','false');
+    inp.style.cssText='flex:1;border:none;outline:none;background:transparent;font-size:var(--mantine-font-size-sm,14px);font-family:inherit;color:var(--mantine-color-text);';
+    hw.appendChild(si);hw.appendChild(inp);
+
+    var res=document.createElement('div');
+    res.id='godji-search-results';
+    res.style.cssText='overflow-y:auto;flex:1;min-height:0;';
+
+    p.appendChild(hw);p.appendChild(res);
+    document.body.appendChild(p);
+    _panel=p;
+
+    inp.addEventListener('input',function(){
+        clearTimeout(_st);
+        var q=inp.value.trim();
+        if(!q){res.innerHTML='';return;}
+        res.innerHTML='<div style="padding:10px 12px;font-size:12px;color:var(--mantine-color-dimmed);">Поиск...</div>';
+        _st=setTimeout(async function(){renderResults(await searchClients(q),res);},250);
+    });
+    inp.addEventListener('keydown',function(e){if(e.key==='Escape')closePanel();});
+}
+
 
 // === INIT ===
 function setup(){
