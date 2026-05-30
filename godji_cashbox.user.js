@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.24
+// @version      3.25
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -1225,23 +1225,26 @@ function renderHistoryTab(body){
     }
     body.style.cssText='display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0;';
 
-    var PAGE=50, _page=0, _fAdmin='', _sortOpen=0, _sortClose=0, _sortTotal=0, _filtered=[];
-    var adminNicks=[]; allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
+    var PAGE=20, _page=0, _fAdmin='', _fFrom=null, _fTill=null,
+        _sortOpen=0, _sortClose=0, _sortTotal=0, _filtered=[];
+    var adminNicks=[];
+    allShifts.forEach(function(s){ if(s.adminNick&&adminNicks.indexOf(s.adminNick)===-1) adminNicks.push(s.adminNick); });
 
-    // ── "Сбросить фильтры" — над таблицей, flush right ──
+    // ── "Сбросить фильтры" ──
     var topBar=document.createElement('div');
     topBar.style.cssText='display:flex;align-items:center;justify-content:flex-end;padding:5px 14px;flex-shrink:0;';
     var rstBtn=document.createElement('button');
     rstBtn.textContent='Сбросить фильтры';
     rstBtn.style.cssText='font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:inherit;';
     rstBtn.addEventListener('click',function(){
-        _fAdmin=''; _sortOpen=0; _sortClose=0; _sortTotal=0; _page=0;
+        _fAdmin=''; _fFrom=null; _fTill=null;
+        _sortOpen=0; _sortClose=0; _sortTotal=0; _page=0;
         renderAdminTh(); thEls.open.render(); thEls.close.render(); thEls.total.render();
         applyAndRender();
     });
     topBar.appendChild(rstBtn); body.appendChild(topBar);
 
-    // ── Таблица (flex:1, скроллируется) ──
+    // ── Таблица ──
     var tableWrap=document.createElement('div');
     tableWrap.style.cssText='overflow:auto;flex:1;overscroll-behavior:contain;min-height:0;';
     body.appendChild(tableWrap);
@@ -1250,7 +1253,6 @@ function renderHistoryTab(body){
     table.style.cssText='width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;';
     tableWrap.appendChild(table);
 
-    // ── Thead ──
     var thead=document.createElement('thead');
     thead.style.cssText='position:sticky;top:0;background:#f9f9f9;z-index:2;';
     table.appendChild(thead);
@@ -1260,11 +1262,16 @@ function renderHistoryTab(body){
     var thEls={};
 
     // ── Мини-календарик ──
-    function mkCalDrop(onSelect){
+    var _activeDrop=null;
+    function closeActiveDrop(){ if(_activeDrop){_activeDrop.remove();_activeDrop=null;} }
+
+    function mkCalDrop(onSelect, onClear){
         var now=new Date(), vy=now.getFullYear(), vm=now.getMonth();
         var dd=document.createElement('div');
-        dd.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.14);z-index:30;padding:10px;width:220px;font-family:inherit;';
+        dd.style.cssText='position:fixed;background:#fff;border:1px solid #ddd;border-radius:10px;'+
+            'box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:100050;padding:10px;width:230px;font-family:inherit;';
         dd.addEventListener('click',function(e){e.stopPropagation();});
+
         // Ручной ввод
         var inpRow=document.createElement('div'); inpRow.style.cssText='display:flex;gap:4px;margin-bottom:8px;';
         var inp=document.createElement('input'); inp.type='text'; inp.placeholder='ДД.ММ.ГГГГ';
@@ -1273,10 +1280,16 @@ function renderHistoryTab(body){
         ok.style.cssText='font-size:11px;padding:4px 8px;border:1px solid #86efac;border-radius:5px;background:#f0fdf4;color:#166534;cursor:pointer;font-family:inherit;font-weight:600;';
         ok.addEventListener('click',function(){
             var p=inp.value.split('.');
-            if(p.length===3){ var d=new Date(+p[2],+p[1]-1,+p[0]); if(!isNaN(d)){onSelect(d);dd.remove();return;} }
+            if(p.length===3){ var d=new Date(+p[2],+p[1]-1,+p[0]); if(!isNaN(d.getTime())){onSelect(d);closeActiveDrop();return;} }
             inp.style.borderColor='#f87171';
         });
-        inpRow.appendChild(inp); inpRow.appendChild(ok); dd.appendChild(inpRow);
+        // Кнопка сброса
+        var clr=document.createElement('button'); clr.textContent='✕';
+        clr.style.cssText='font-size:11px;padding:4px 7px;border:1px solid #fca5a5;border-radius:5px;background:#fff5f5;color:#991b1b;cursor:pointer;font-family:inherit;';
+        clr.addEventListener('click',function(){onClear();closeActiveDrop();});
+        inpRow.appendChild(inp); inpRow.appendChild(ok); inpRow.appendChild(clr);
+        dd.appendChild(inpRow);
+
         function buildCal(){
             var old=dd.querySelector('.gcb-cal'); if(old)old.remove();
             var cal=document.createElement('div'); cal.className='gcb-cal';
@@ -1302,7 +1315,7 @@ function renderHistoryTab(body){
                     cell.textContent=day;
                     cell.addEventListener('mouseenter',function(){cell.style.background='#eff6ff';cell.style.color='#1d4ed8';});
                     cell.addEventListener('mouseleave',function(){cell.style.background='';cell.style.color='#333';});
-                    cell.addEventListener('click',function(){onSelect(new Date(vy,vm,day));dd.remove();});
+                    cell.addEventListener('click',function(){onSelect(new Date(vy,vm,day));closeActiveDrop();});
                     grid.appendChild(cell);
                 })(d);
             }
@@ -1311,7 +1324,23 @@ function renderHistoryTab(body){
         buildCal(); return dd;
     }
 
-    // ── Хелпер для th с сортировкой ──
+    function showCalDrop(th, onSelect, onClear){
+        closeActiveDrop();
+        var dd=mkCalDrop(onSelect, onClear);
+        var rect=th.getBoundingClientRect();
+        dd.style.top=(rect.bottom+4)+'px';
+        dd.style.left=Math.max(4,rect.left-80)+'px';
+        document.body.appendChild(dd);
+        _activeDrop=dd;
+        setTimeout(function(){
+            document.addEventListener('click',function cl(){
+                closeActiveDrop();
+                document.removeEventListener('click',cl);
+            });
+        },10);
+    }
+
+    // ── th с сортировкой ──
     function sortTh(label, w, getSortVal, onSort){
         var th=document.createElement('th'); th.style.cssText=THS+'width:'+w+';cursor:pointer;';
         function render(){ th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'; }
@@ -1320,59 +1349,49 @@ function renderHistoryTab(body){
         return {th:th,render:render};
     }
 
-    // ── Хелпер для th с сортировкой + календарик ──
-    function calSortTh(label, w, getSortVal, onSort, getFilt, setFilt){
-        var th=document.createElement('th'); th.style.cssText=THS+'width:'+w+';cursor:pointer;position:relative;';
-        var calDrop=null;
+    // ── th с сортировкой + мини-календарик ──
+    function calTh(label, w, getSortVal, onSort, getFilt, setFilt, clrFilt){
+        var th=document.createElement('th'); th.style.cssText=THS+'width:'+w+';cursor:pointer;';
         function render(){
-            var fv=getFilt(); var dateStr=fv?' <span style="font-size:9px;color:#1d4ed8;">'+fv.toLocaleDateString('ru-RU')+'</span>':'';
+            var fv=getFilt();
+            var dateStr=fv?' <span style="font-size:9px;font-weight:700;color:#1d4ed8;">'+
+                fv.getDate()+'.'+(fv.getMonth()+1<10?'0':'')+(fv.getMonth()+1)+'</span>':'';
             th.innerHTML=label+' <span style="font-size:9px;opacity:0.6;">'+(getSortVal()===0?ICON_N:getSortVal()===1?ICON_D:ICON_A)+'</span>'+dateStr;
-            if(calDrop)th.appendChild(calDrop);
         }
         render();
         th.addEventListener('click',function(e){
             e.stopPropagation();
-            if(calDrop){calDrop.remove();calDrop=null;render();return;}
-            onSort();render();_page=0;applyAndRender();
-        });
-        th.addEventListener('dblclick',function(e){
-            e.stopPropagation();
-            if(calDrop){calDrop.remove();calDrop=null;render();return;}
-            calDrop=mkCalDrop(function(date){setFilt(date);calDrop=null;render();_page=0;applyAndRender();});
-            th.appendChild(calDrop);
-            setTimeout(function(){
-                document.addEventListener('click',function cl(){
-                    if(calDrop){calDrop.remove();calDrop=null;render();}
-                    document.removeEventListener('click',cl);
-                });
-            },10);
+            showCalDrop(th,
+                function(d){setFilt(d);_page=0;render();applyAndRender();},
+                function(){clrFilt();_page=0;render();applyAndRender();}
+            );
         });
         return {th:th,render:render};
     }
 
-    // ── Фильтры дат ──
-    var _fFrom=null, _fTill=null;
-
-    // Открыта: одиночный клик = сортировка, двойной = календарик
-    thEls.open=calSortTh('Открыта','110px',
+    // Открыта
+    thEls.open=calTh('Открыта','110px',
         function(){return _sortOpen;},
         function(){_sortOpen=(_sortOpen+1)%3;_sortClose=0;_sortTotal=0;},
         function(){return _fFrom;},
-        function(d){_fFrom=d;}
+        function(d){_fFrom=d;},
+        function(){_fFrom=null;}
     );
     hr.appendChild(thEls.open.th);
 
     // Админ ▾
     var thAdmin=document.createElement('th'); thAdmin.style.cssText=THS+'width:82px;cursor:pointer;position:relative;';
-    thEls.admin=thAdmin; thEls.adminDrop=null;
+    thEls.admin=thAdmin;
     function renderAdminTh(){ thAdmin.innerHTML=(_fAdmin||'Админ')+' <span style="font-size:9px;opacity:0.6;">'+ICON_N+'</span>'; }
     renderAdminTh();
     thAdmin.addEventListener('click',function(e){
         e.stopPropagation();
-        if(thEls.adminDrop){thEls.adminDrop.remove();thEls.adminDrop=null;return;}
         if(!adminNicks.length) return;
+        var rect=thAdmin.getBoundingClientRect();
         var dd=document.createElement('div');
-        dd.style.cssText='position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:30;min-width:110px;padding:4px 0;font-family:inherit;';
+        dd.style.cssText='position:fixed;top:'+(rect.bottom+4)+'px;left:'+(rect.left-20)+'px;'+
+            'background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);'+
+            'z-index:100050;min-width:110px;padding:4px 0;font-family:inherit;';
         dd.addEventListener('click',function(e2){e2.stopPropagation();});
         function opt(lbl,val){
             var o=document.createElement('div');
@@ -1380,22 +1399,23 @@ function renderHistoryTab(body){
             o.textContent=lbl;
             o.addEventListener('mouseenter',function(){o.style.background='#f0f6ff';});
             o.addEventListener('mouseleave',function(){o.style.background='';});
-            o.addEventListener('click',function(){_fAdmin=val;_page=0;renderAdminTh();dd.remove();thEls.adminDrop=null;applyAndRender();});
+            o.addEventListener('click',function(){_fAdmin=val;_page=0;renderAdminTh();dd.remove();applyAndRender();});
             return o;
         }
         dd.appendChild(opt('Все',''));
         adminNicks.forEach(function(n){dd.appendChild(opt(n,n));});
-        thEls.adminDrop=dd; thAdmin.appendChild(dd);
-        setTimeout(function(){document.addEventListener('click',function cl(){if(thEls.adminDrop)thEls.adminDrop.remove();thEls.adminDrop=null;document.removeEventListener('click',cl);});},10);
+        document.body.appendChild(dd);
+        setTimeout(function(){document.addEventListener('click',function cl(){dd.remove();document.removeEventListener('click',cl);});},10);
     });
     hr.appendChild(thAdmin);
 
-    // Закрыта: одиночный клик = сортировка, двойной = календарик
-    thEls.close=calSortTh('Закрыта','110px',
+    // Закрыта
+    thEls.close=calTh('Закрыта','110px',
         function(){return _sortClose;},
         function(){_sortClose=(_sortClose+1)%3;_sortOpen=0;_sortTotal=0;},
         function(){return _fTill;},
-        function(d){_fTill=d;}
+        function(d){_fTill=d;},
+        function(){_fTill=null;}
     );
     hr.appendChild(thEls.close.th);
 
@@ -1411,7 +1431,7 @@ function renderHistoryTab(body){
     var tbody=document.createElement('tbody');
     table.appendChild(tbody);
 
-    // ── Пагинация (закреплена снизу, flex-shrink:0) ──
+    // ── Пагинация (закреплена снизу) ──
     var pagBar=document.createElement('div');
     pagBar.style.cssText='display:flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;flex-shrink:0;border-top:1px solid #eee;background:#fff;';
     body.appendChild(pagBar);
@@ -1423,24 +1443,21 @@ function renderHistoryTab(body){
         function btn(label,page,active,disabled){
             var b=document.createElement('button');
             b.textContent=label;
-            b.style.cssText='font-size:12px;padding:4px 8px;border:1px solid '+(active?'#1d4ed8':disabled?'#f0f0f0':'#ddd')+';border-radius:5px;background:'+(active?'#eff6ff':'#fff')+';color:'+(active?'#1d4ed8':disabled?'#ccc':'#555')+';cursor:'+(active||disabled?'default':'pointer')+';font-family:inherit;font-weight:'+(active?700:400)+';min-width:32px;';
+            b.style.cssText='font-size:12px;padding:4px 8px;border:1px solid '+(active?'#1d4ed8':disabled?'#f0f0f0':'#ddd')+
+                ';border-radius:5px;background:'+(active?'#eff6ff':'#fff')+
+                ';color:'+(active?'#1d4ed8':disabled?'#ccc':'#555')+
+                ';cursor:'+(active||disabled?'default':'pointer')+
+                ';font-family:inherit;font-weight:'+(active?700:400)+';min-width:32px;';
             if(!active&&!disabled) b.addEventListener('click',function(){_page=page;applyAndRender();tableWrap.scrollTop=0;});
             return b;
         }
         function dots(){ var s=document.createElement('span');s.textContent='…';s.style.cssText='font-size:12px;color:#bbb;padding:0 2px;';return s; }
-
-        // Первая страница всегда
-        var WIN=3; // по 3 страницы слева и справа от текущей
-        var lo=Math.max(0,_page-WIN), hi=Math.min(pages-1,_page+WIN);
-
-        // Кнопки навигации
+        var WIN=3, lo=Math.max(0,_page-WIN), hi=Math.min(pages-1,_page+WIN);
         pagBar.appendChild(btn('«',0,false,_page===0));
         pagBar.appendChild(btn('‹',_page-1,false,_page===0));
-
         if(lo>0){ pagBar.appendChild(btn('1',0,false,false)); if(lo>1)pagBar.appendChild(dots()); }
         for(var i=lo;i<=hi;i++) pagBar.appendChild(btn(i+1,i,i===_page,false));
         if(hi<pages-1){ if(hi<pages-2)pagBar.appendChild(dots()); pagBar.appendChild(btn(pages,pages-1,false,false)); }
-
         pagBar.appendChild(btn('›',_page+1,false,_page===pages-1));
         pagBar.appendChild(btn('»',pages-1,false,_page===pages-1));
     }
@@ -1448,8 +1465,8 @@ function renderHistoryTab(body){
     function applyAndRender(){
         var s=allShifts.filter(function(sh){
             if(_fAdmin&&sh.adminNick!==_fAdmin) return false;
-            if(_fFrom){ var f=new Date(_fFrom);f.setHours(0,0,0,0);if(sh.openedAt<f.getTime())return false; }
-            if(_fTill){ var t=new Date(_fTill);t.setHours(23,59,59,999);if(sh.openedAt>t.getTime())return false; }
+            if(_fFrom){ var f=new Date(_fFrom.getFullYear(),_fFrom.getMonth(),_fFrom.getDate()); if(sh.openedAt<f.getTime())return false; }
+            if(_fTill){ var t=new Date(_fTill.getFullYear(),_fTill.getMonth(),_fTill.getDate(),23,59,59,999); if(sh.openedAt>t.getTime())return false; }
             return true;
         });
         if(_sortOpen===1) s.sort(function(a,b){return b.openedAt-a.openedAt;});
@@ -1478,21 +1495,20 @@ function renderHistoryTab(body){
             tr.addEventListener('mouseenter',function(){tr.style.background='#f0f6ff';});
             tr.addEventListener('mouseleave',function(){tr.style.background='#fff';});
             tr.addEventListener('click',function(){showShiftDetail(s);});
-
             var P='padding:8px 7px;vertical-align:middle;text-align:center;font-size:12px;white-space:nowrap;';
 
-            // Открыта + Админ — colspan=2 если есть ник, иначе две отдельных ячейки
+            // Открыта — дата в своей ячейке
+            var tdO=document.createElement('td'); tdO.style.cssText=P;
+            tdO.textContent=fmtDate(s.openedAt); tr.appendChild(tdO);
+
+            // Админ — ник в колонке «Админ» (строго по центру между Открыта и Закрыта)
+            var tdA=document.createElement('td'); tdA.style.cssText=P;
             if(s.adminNick){
-                var tdO=document.createElement('td'); tdO.colSpan=2; tdO.style.cssText=P+'text-align:center;';
-                var nb=mkAdminBadge(s.adminNick,'10'); nb.style.cssText+=';pointer-events:none;display:block;margin:0 auto 2px;';
-                tdO.appendChild(nb);
-                var d1=document.createElement('div'); d1.style.cssText='font-size:11px;color:#555;'; d1.textContent=fmtDate(s.openedAt); tdO.appendChild(d1);
-                tr.appendChild(tdO);
-            } else {
-                var tdO=document.createElement('td'); tdO.style.cssText=P;
-                tdO.textContent=fmtDate(s.openedAt); tr.appendChild(tdO);
-                tr.appendChild(document.createElement('td'));
+                var nb=mkAdminBadge(s.adminNick,'10');
+                nb.style.cssText+=';pointer-events:none;';
+                tdA.appendChild(nb);
             }
+            tr.appendChild(tdA);
 
             // Закрыта
             var tdC=document.createElement('td'); tdC.style.cssText=P+'color:'+(s.closedAt?'#555':'#ccc')+';';
@@ -1838,142 +1854,4 @@ function updateBtnBadge(){
                 sumEl.onmouseenter=null;
                 sumEl.onmouseleave=null;
             } else {
-                sumEl.style.filter='blur(4px)';
-                sumEl.onmouseenter=function(){sumEl.style.filter='none';};
-                sumEl.onmouseleave=function(){if(!_blurDisabled)sumEl.style.filter='blur(4px)';};
-            }
-        } else {
-            sumEl.textContent='закрыта';
-            sumEl.style.color='rgba(255,255,255,0.3)';
-            sumEl.style.filter='none';
-            sumEl.onmouseenter=null; sumEl.onmouseleave=null;
-        }
-    }
-}
-
-function createBtn(){
-    // Если строка уже вставлена — выходим
-    if(document.getElementById('godji-cashbox-row')) return;
-    var paper = document.querySelector('.Shifts_shiftsPaper__9Jml_');
-    if(!paper) return;
-
-    // Ищем ERP-кнопку смены в любом месте paper
-    var erpBtn = paper.querySelector('button[data-variant="filled"]');
-    if(!erpBtn) return;
-
-    // Сжимаем ERP-кнопку: узкая, та же высота
-    erpBtn.style.setProperty('flex', '0 0 68px', 'important');
-    erpBtn.style.setProperty('width', '68px', 'important');
-    erpBtn.style.setProperty('min-width', '0', 'important');
-    erpBtn.style.setProperty('padding', '4px 6px', 'important');
-    erpBtn.style.setProperty('font-size', '10px', 'important');
-    erpBtn.style.setProperty('white-space', 'normal', 'important');
-    erpBtn.style.setProperty('word-break', 'break-word', 'important');
-    erpBtn.style.setProperty('text-align', 'center', 'important');
-    erpBtn.style.setProperty('line-height', '1.3', 'important');
-    erpBtn.style.setProperty('overflow', 'visible', 'important');
-    erpBtn.style.setProperty('display', 'flex', 'important');
-    erpBtn.style.setProperty('align-items', 'center', 'important');
-    erpBtn.style.setProperty('justify-content', 'center', 'important');
-    erpBtn.style.setProperty('text-align', 'center', 'important');
-    erpBtn.removeAttribute('data-block');
-    // Форсируем перенос текста в Mantine span
-    (function(){
-        function forceWrap(){
-            erpBtn.querySelectorAll('span').forEach(function(sp){
-                sp.style.setProperty('white-space','normal','important');
-                sp.style.setProperty('text-align','center','important');
-                sp.style.setProperty('word-break','break-word','important');
-                sp.style.setProperty('line-height','1.3','important');
-                sp.style.setProperty('display','flex','important');
-                sp.style.setProperty('align-items','center','important');
-                sp.style.setProperty('justify-content','center','important');
-            });
-        }
-        forceWrap(); setTimeout(forceWrap,300); setTimeout(forceWrap,1000);
-    })();
-
-    // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
-    // Оборачиваем erpBtn в flex-контейнер, добавляя нашу кнопку слева
-    var row = document.createElement('div');
-    row.id = 'godji-cashbox-row';
-    row.style.cssText = 'display:flex;align-items:stretch;gap:3px;width:100%;';
-
-    // Наша кнопка — flex:1
-    var btn = document.createElement('button');
-    btn.id = 'godji-cashbox-btn';
-    btn.type = 'button';
-    btn.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:rgba(22,101,52,0.85);border:none;border-radius:6px;padding:0 8px;height:54px;cursor:pointer;font-family:inherit;box-sizing:border-box;transition:background 0.15s;';
-    btn.addEventListener('mouseenter', function(){ btn.style.background='rgba(22,101,52,1)'; });
-    btn.addEventListener('mouseleave', function(){ btn.style.background='rgba(22,101,52,0.85)'; });
-
-    var ico = document.createElement('div');
-    ico.style.cssText = 'width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
-    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
-
-    var dot = document.createElement('span');
-    dot.className = 'gcb-dot';
-    dot.style.cssText = 'position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1b2e;';
-    ico.appendChild(dot);
-
-    var textWrap = document.createElement('div');
-    textWrap.style.cssText = 'display:flex;flex-direction:column;min-width:0;flex:1;';
-
-    var lbl = document.createElement('span');
-    lbl.style.cssText = 'font-size:13px;font-weight:700;color:#fff;white-space:nowrap;line-height:1.2;';
-    lbl.textContent = 'Касса смены';
-
-    var sumEl = document.createElement('span');
-    sumEl.className = 'gcb-sum';
-    sumEl.style.cssText = 'font-size:11px;font-weight:600;white-space:nowrap;line-height:1.2;margin-top:2px;color:rgba(255,255,255,0.4);';
-
-    textWrap.appendChild(lbl);
-    textWrap.appendChild(sumEl);
-    btn.appendChild(ico);
-    btn.appendChild(textWrap);
-
-    btn.addEventListener('click', function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        if(_isOpen) hideModal(); else showModal();
-    });
-
-    // erpBtn может быть не прямым дочерним paper — вставляем через его родителя
-    var erpParent = erpBtn.parentNode;
-    if(!erpParent) return;
-    erpParent.insertBefore(row, erpBtn);
-    row.appendChild(btn);
-    row.appendChild(erpBtn);
-    // Одинаковая высота
-    erpBtn.style.setProperty('height', '54px', 'important');
-    erpBtn.style.setProperty('align-self', 'stretch', 'important');
-    erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
-    erpBtn.style.setProperty('font-size', '9.5px', 'important');
-    erpBtn.style.setProperty('line-height', '1.3', 'important');
-    erpBtn.style.setProperty('display', 'flex', 'important');
-    erpBtn.style.setProperty('align-items', 'center', 'important');
-    erpBtn.style.setProperty('justify-content', 'center', 'important');
-    erpBtn.style.setProperty('text-align', 'center', 'important');
-
-    updateBtnBadge();
-}
-
-// ── MutationObserver + init
-var _obs = new MutationObserver(function(){
-    if(!document.getElementById('godji-cashbox-row')) createBtn();
-});
-
-function initObservers(){
-    _obs.observe(document.body, {childList:true, subtree:false});
-    setTimeout(createBtn, 1500);
-    setTimeout(createBtn, 3000);
-    setTimeout(createBtn, 5000);
-}
-
-if(document.body){
-    initObservers();
-} else {
-    document.addEventListener('DOMContentLoaded', initObservers);
-}
-
-})();
+                sumEl.style.filter='blur(4px)
