@@ -335,15 +335,19 @@
             }
         });
 
-        // Горизонтальная компоновка: иконка | редактор | тулбар
+        // Компоновка: иконка + вертикальный блок (тулбар сверху, редактор снизу)
+        var noteInner = document.createElement('div');
+        noteInner.style.cssText = 'display:flex;flex-direction:column;gap:3px;flex:1;';
+        noteInner.appendChild(toolbar);
+        noteInner.appendChild(editor);
+
         noteBlock.appendChild(pencilIcon);
-        noteBlock.appendChild(editor);
-        noteBlock.appendChild(toolbar);
+        noteBlock.appendChild(noteInner);
 
         noteBlock.style.position = 'fixed';
         noteBlock.style.zIndex = '9000';
         noteBlock.style.display = 'flex';
-        noteBlock.style.alignItems = 'center';
+        noteBlock.style.alignItems = 'flex-start';
         noteBlock.style.gap = '6px';
         // toolbar перекрывает содержимое ERP — скрываем пока не наведение
         document.body.appendChild(noteBlock);
@@ -352,8 +356,8 @@
             var r = h2.getBoundingClientRect();
             if (r.width === 0 && r.height === 0) return;
 
-            // Левая граница — правый край h2 (заголовок "Клиент @...")
-            var leftBound = Math.round(r.right + 12);
+            // Левая граница — вплотную к правому краю h2
+            var leftBound = Math.round(r.right + 8);
 
             // Правая граница:
             // — на полной странице: левый край кнопки «Бронирование» в сайдбаре
@@ -388,12 +392,13 @@
             noteBlock.style.top  = topPos + 'px';
             noteBlock.style.left = leftBound + 'px';
 
-            // Ширина: от leftBound до rightBound минус иконка(20) минус тулбар(~120) минус зазоры
-            var toolbarW = toolbar.offsetWidth || 120;
-            var iconW    = pencilIcon.offsetWidth || 20;
-            var maxW = Math.max(60, rightBound - leftBound - toolbarW - iconW - 24);
-            editor.style.maxWidth = maxW + 'px';
-            editor.style.width    = Math.min(700, maxW) + 'px';
+            // Ширина блока: от leftBound до rightBound минус иконка
+            var iconW = pencilIcon.offsetWidth || 24;
+            var maxW = Math.max(100, rightBound - leftBound - iconW - 12);
+            noteInner.style.maxWidth = maxW + 'px';
+            noteInner.style.width    = Math.min(700, maxW) + 'px';
+            editor.style.width = '100%';
+            editor.style.maxWidth = '100%';
         }
         repositionNote();
 
