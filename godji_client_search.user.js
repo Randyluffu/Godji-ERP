@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.26
+// @version      5.27
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -109,6 +109,86 @@ new MutationObserver(function(muts){
 // Позиция кнопок историй управляется их собственными скриптами (footer insertBefore)
 
 // === SEARCH BUTTON ===
+
+// === ADD CLIENT BUTTON ===
+function openAddClientModal(){
+    if(document.getElementById('godji-add-client-modal')) return;
+
+    var ov=document.createElement('div');
+    ov.id='godji-add-client-modal';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99998;display:flex;align-items:center;justify-content:center;';
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+
+    var wrap=document.createElement('div');
+    wrap.innerHTML='<section class="m_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root" data-modal-content="true" role="dialog" tabindex="-1" aria-modal="true" aria-describedby="mantine-8ktkxdaqd-body" aria-labelledby="mantine-8ktkxdaqd-title" style="transition-property: opacity, transform; backface-visibility: hidden; will-change: transform, opacity; transition-duration: 200ms; transition-timing-function: ease; opacity: 1; transform: translateY(0px);" data-ban-uid=""><header class="m_b5489c3c m_d0e2b9cd mantine-Modal-header"><h2 class="m_615af6c9 Add_modalTitle__KwLRz mantine-Modal-title" id="mantine-8ktkxdaqd-title"><div class="m_8bffd616 mantine-Flex-root __m__-rss" style="align-items: center; justify-content: space-between; width: 100%;"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="lg" style="--text-fz: var(--mantine-font-size-lg); --text-lh: var(--mantine-line-height-lg); font-weight: 500;">Привязать клиента к клубу</p></div></h2><button class="mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root" data-variant="subtle" type="button"><svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: var(--cb-icon-size, 70%); height: var(--cb-icon-size, 70%);"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path></svg></button></header><div class="m_5df29311 mantine-Modal-body" id="mantine-8ktkxdaqd-body"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="sm" style="--text-fz: var(--mantine-font-size-sm); --text-lh: var(--mantine-line-height-sm); margin-bottom: var(--mantine-spacing-md);">Введите номер телефона клиента, с которым он&nbsp;регистрировался в&nbsp;<a target="_blank" href="https://id.godji.cloud/registration" style="display: inline-flex; align-items: baseline; border: 1px dotted blue; border-radius: 4px; padding: 0px 4px;"><img alt="G" loading="lazy" width="14" height="16" decoding="async" data-nimg="1" src="/godji.svg" style="color: transparent; margin-right: 4px; padding-top: 4px;">GamerID<svg xmlns="http://www.w3.org/2000/svg" width="16" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-link " style="margin-left: 4px; align-self: end;"><path d="M9 15l6 -6"></path><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"></path><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"></path></svg></a></p><form><div class="m_8bffd616 mantine-Flex-root __m__-rt2" style="gap: var(--mantine-spacing-md); flex-direction: column;"><div class="m_46b77525 mantine-InputWrapper-root" style="margin-inline: auto; width: 100%;" data-error="true"><label class="m_8fdc1311 mantine-InputWrapper-label" data-required="true" for="mantine-brx4b3tgr" id="mantine-brx4b3tgr-label">Номер телефона<span class="m_78a94662 mantine-InputWrapper-required" aria-hidden="true"> *</span></label><div class="m_6c018570 mantine-Input-wrapper" data-variant="default" style="--input-left-section-pointer-events: none; --input-right-section-pointer-events: none; --input-margin-bottom: calc(var(--mantine-spacing-xs) / 2);"><input class="m_8fb7ebe7 mantine-Input-input" data-variant="default" placeholder="+7 (000) 000-00-00" name="phoneNumber" data-autofocus="true" autocomplete="off" aria-invalid="false" id="mantine-brx4b3tgr" value="" aria-describedby="mantine-brx4b3tgr-error"></div><p class="m_8f816625 mantine-InputWrapper-error" id="mantine-brx4b3tgr-error">Номер введен неверно</p></div><div class="m_8bffd616 mantine-Flex-root __m__-rt9" style="gap: var(--mantine-spacing-md); justify-content: center;"><button class="mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="outline" data-block="true" type="button" style="--button-bg: transparent; --button-hover: var(--mantine-color-gray-outline-hover); --button-color: var(--mantine-color-gray-outline); --button-bd: calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-gray-outline);"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span></button><button class="mantine-focus-auto m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="filled" data-disabled="true" data-block="true" type="submit" disabled="" style="--button-bg: var(--mantine-color-blue-filled); --button-hover: var(--mantine-color-blue-filled-hover); --button-color: var(--mantine-color-white); --button-bd: calc(0.0625rem * var(--mantine-scale)) solid transparent;"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Найти</span></span></button></div></div></form></div></section>';
+    var section=wrap.firstElementChild;
+    if(!section){ov.remove();return;}
+    section.addEventListener('click',function(e){e.stopPropagation();});
+    ov.appendChild(section);
+    document.body.appendChild(ov);
+
+    // Закрытие
+    var closeBtn=section.querySelector('[class*="mantine-Modal-close"],[class*="CloseButton"]');
+    if(closeBtn) closeBtn.addEventListener('click',function(){ov.remove();});
+    var cancelBtn=section.querySelector('button[data-variant="outline"]');
+    if(cancelBtn) cancelBtn.addEventListener('click',function(){ov.remove();});
+
+    // Фокус на инпут
+    var phoneInput=section.querySelector('input[name="phoneNumber"],input[placeholder*="000"]');
+    if(phoneInput) setTimeout(function(){phoneInput.focus();},100);
+
+    // Кнопка Найти — логика
+    var submitBtn=section.querySelector('button[type="submit"],button[data-variant="filled"]');
+    var errEl=section.querySelector('[class*="InputWrapper-error"]');
+
+    function showErr(msg){
+        if(!errEl)return;
+        errEl.textContent=msg;
+        errEl.style.display=msg?'':'none';
+        var w=section.querySelector('[class*="InputWrapper-root"]');
+        if(w) w.setAttribute('data-error',msg?'true':'false');
+    }
+
+    async function doFind(){
+        if(!phoneInput) return;
+        var phone=phoneInput.value.trim();
+        if(!phone){showErr('Введите номер телефона');return;}
+        showErr('');
+        if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Поиск...';}
+
+        var res=await gql(
+            'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$club_id}},limit:1){id balance_amount balance_bonus}}}',
+            {phone:phone,club_id:14}
+        );
+
+        if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
+
+        if(!res||!res.data||!res.data.findUserByPhone){showErr('Пользователь не найден');return;}
+        var user=res.data.findUserByPhone;
+
+        if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Привязка...';}
+        var att=await gql(
+            'mutation AttachUserToClubById($clubId:Int!,$userId:String!){attachUserToClub(params:{clubId:$clubId,userId:$userId}){success __typename}}',
+            {clubId:14,userId:user.id}
+        );
+        if(submitBtn){submitBtn.disabled=false;}
+
+        var ok=att&&att.data&&att.data.attachUserToClub&&att.data.attachUserToClub.success;
+        var alreadyOk=att&&att.errors&&att.errors[0]&&att.errors[0].message&&att.errors[0].message.indexOf('already')!==-1;
+        if(!ok&&!alreadyOk){showErr('Ошибка привязки');return;}
+
+        ov.remove();
+        openClientModal(user.id,user.users_wallets&&user.users_wallets[0]);
+    }
+
+    if(submitBtn) submitBtn.addEventListener('click',doFind);
+    var form=section.querySelector('form');
+    if(form) form.addEventListener('submit',function(e){e.preventDefault();doFind();});
+    document.addEventListener('keydown',function escH(e){
+        if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',escH);}
+    });
+}
+
 function createSearchBtn(){
     if(document.getElementById('godji-search-btn')) return;
     // Только на страницах с сайдбаром
@@ -274,9 +354,11 @@ function openClientModal(clientId, clientWallet){
     btns.appendChild(openFull);btns.appendChild(cls);
     hdr.appendChild(title);hdr.appendChild(btns);
 
+    var iframeWrap=document.createElement('div');
+    iframeWrap.style.cssText='flex:1;overflow:hidden;position:relative;min-height:0;';
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    iframe.style.cssText='flex:1;border:none;width:100%;opacity:0;transition:opacity 0.2s;';
+    iframe.style.cssText='border:none;width:calc(100% + 300px);height:100%;opacity:0;transition:opacity 0.2s;display:block;';
 
     // Элементы для скрытия
     var _SELECTORS=[
@@ -365,7 +447,8 @@ function openClientModal(clientId, clientWallet){
         },100);
     };
 
-    m.appendChild(hdr);m.appendChild(iframe);
+    iframeWrap.appendChild(iframe);
+    m.appendChild(hdr);m.appendChild(iframeWrap);
     ov.appendChild(m);document.body.appendChild(ov);_modal=ov;
 
     document.addEventListener('keydown',function esc(e){
