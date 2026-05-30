@@ -1854,4 +1854,142 @@ function updateBtnBadge(){
                 sumEl.onmouseenter=null;
                 sumEl.onmouseleave=null;
             } else {
-                sumEl.style.filter='blur(4px)
+                sumEl.style.filter='blur(4px)';
+                sumEl.onmouseenter=function(){sumEl.style.filter='none';};
+                sumEl.onmouseleave=function(){if(!_blurDisabled)sumEl.style.filter='blur(4px)';};
+            }
+        } else {
+            sumEl.textContent='закрыта';
+            sumEl.style.color='rgba(255,255,255,0.3)';
+            sumEl.style.filter='none';
+            sumEl.onmouseenter=null; sumEl.onmouseleave=null;
+        }
+    }
+}
+
+function createBtn(){
+    // Если строка уже вставлена — выходим
+    if(document.getElementById('godji-cashbox-row')) return;
+    var paper = document.querySelector('.Shifts_shiftsPaper__9Jml_');
+    if(!paper) return;
+
+    // Ищем ERP-кнопку смены в любом месте paper
+    var erpBtn = paper.querySelector('button[data-variant="filled"]');
+    if(!erpBtn) return;
+
+    // Сжимаем ERP-кнопку: узкая, та же высота
+    erpBtn.style.setProperty('flex', '0 0 68px', 'important');
+    erpBtn.style.setProperty('width', '68px', 'important');
+    erpBtn.style.setProperty('min-width', '0', 'important');
+    erpBtn.style.setProperty('padding', '4px 6px', 'important');
+    erpBtn.style.setProperty('font-size', '10px', 'important');
+    erpBtn.style.setProperty('white-space', 'normal', 'important');
+    erpBtn.style.setProperty('word-break', 'break-word', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
+    erpBtn.style.setProperty('line-height', '1.3', 'important');
+    erpBtn.style.setProperty('overflow', 'visible', 'important');
+    erpBtn.style.setProperty('display', 'flex', 'important');
+    erpBtn.style.setProperty('align-items', 'center', 'important');
+    erpBtn.style.setProperty('justify-content', 'center', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
+    erpBtn.removeAttribute('data-block');
+    // Форсируем перенос текста в Mantine span
+    (function(){
+        function forceWrap(){
+            erpBtn.querySelectorAll('span').forEach(function(sp){
+                sp.style.setProperty('white-space','normal','important');
+                sp.style.setProperty('text-align','center','important');
+                sp.style.setProperty('word-break','break-word','important');
+                sp.style.setProperty('line-height','1.3','important');
+                sp.style.setProperty('display','flex','important');
+                sp.style.setProperty('align-items','center','important');
+                sp.style.setProperty('justify-content','center','important');
+            });
+        }
+        forceWrap(); setTimeout(forceWrap,300); setTimeout(forceWrap,1000);
+    })();
+
+    // Обёртка — заменяет erpBtn визуально, но erpBtn остаётся в DOM
+    // Оборачиваем erpBtn в flex-контейнер, добавляя нашу кнопку слева
+    var row = document.createElement('div');
+    row.id = 'godji-cashbox-row';
+    row.style.cssText = 'display:flex;align-items:stretch;gap:3px;width:100%;';
+
+    // Наша кнопка — flex:1
+    var btn = document.createElement('button');
+    btn.id = 'godji-cashbox-btn';
+    btn.type = 'button';
+    btn.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:rgba(22,101,52,0.85);border:none;border-radius:6px;padding:0 8px;height:54px;cursor:pointer;font-family:inherit;box-sizing:border-box;transition:background 0.15s;';
+    btn.addEventListener('mouseenter', function(){ btn.style.background='rgba(22,101,52,1)'; });
+    btn.addEventListener('mouseleave', function(){ btn.style.background='rgba(22,101,52,0.85)'; });
+
+    var ico = document.createElement('div');
+    ico.style.cssText = 'width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;';
+    ico.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="2"/></svg>';
+
+    var dot = document.createElement('span');
+    dot.className = 'gcb-dot';
+    dot.style.cssText = 'position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:#ef4444;border:1.5px solid #1a1b2e;';
+    ico.appendChild(dot);
+
+    var textWrap = document.createElement('div');
+    textWrap.style.cssText = 'display:flex;flex-direction:column;min-width:0;flex:1;';
+
+    var lbl = document.createElement('span');
+    lbl.style.cssText = 'font-size:13px;font-weight:700;color:#fff;white-space:nowrap;line-height:1.2;';
+    lbl.textContent = 'Касса смены';
+
+    var sumEl = document.createElement('span');
+    sumEl.className = 'gcb-sum';
+    sumEl.style.cssText = 'font-size:11px;font-weight:600;white-space:nowrap;line-height:1.2;margin-top:2px;color:rgba(255,255,255,0.4);';
+
+    textWrap.appendChild(lbl);
+    textWrap.appendChild(sumEl);
+    btn.appendChild(ico);
+    btn.appendChild(textWrap);
+
+    btn.addEventListener('click', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if(_isOpen) hideModal(); else showModal();
+    });
+
+    // erpBtn может быть не прямым дочерним paper — вставляем через его родителя
+    var erpParent = erpBtn.parentNode;
+    if(!erpParent) return;
+    erpParent.insertBefore(row, erpBtn);
+    row.appendChild(btn);
+    row.appendChild(erpBtn);
+    // Одинаковая высота
+    erpBtn.style.setProperty('height', '54px', 'important');
+    erpBtn.style.setProperty('align-self', 'stretch', 'important');
+    erpBtn.style.setProperty('box-sizing', 'border-box', 'important');
+    erpBtn.style.setProperty('font-size', '9.5px', 'important');
+    erpBtn.style.setProperty('line-height', '1.3', 'important');
+    erpBtn.style.setProperty('display', 'flex', 'important');
+    erpBtn.style.setProperty('align-items', 'center', 'important');
+    erpBtn.style.setProperty('justify-content', 'center', 'important');
+    erpBtn.style.setProperty('text-align', 'center', 'important');
+
+    updateBtnBadge();
+}
+
+// ── MutationObserver + init
+var _obs = new MutationObserver(function(){
+    if(!document.getElementById('godji-cashbox-row')) createBtn();
+});
+
+function initObservers(){
+    _obs.observe(document.body, {childList:true, subtree:false});
+    setTimeout(createBtn, 1500);
+    setTimeout(createBtn, 3000);
+    setTimeout(createBtn, 5000);
+}
+
+if(document.body){
+    initObservers();
+} else {
+    document.addEventListener('DOMContentLoaded', initObservers);
+}
+
+})();
