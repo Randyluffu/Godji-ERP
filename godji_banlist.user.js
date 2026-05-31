@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -608,13 +608,22 @@ setTimeout(init,2000);
 setTimeout(watchForBannedSessions,5000);
 
 // ── Экспорт для iframe (вызывается из client_search когда открывает карточку клиента) ──
-window._godjiInjectBanBtn = function(clientId) {
-    // Принудительно инжектируем кнопку бана для конкретного clientId
-    // Используется когда банлист работает в контексте iframe
-    var avatarEl=document.querySelector('.mantine-Avatar-root[data-size="xl"]');
-    if(!avatarEl) { setTimeout(function(){ window._godjiInjectBanBtn(clientId); }, 500); return; }
-    if(document.getElementById('godji-ban-client-btn')) return;
-    injectClientPageBanBtn();
+window._godjiInjectBanBtn = function(clientId, _attempt) {
+    _attempt = _attempt || 0;
+    if(_attempt > 20) return; // не ждём больше 10 секунд
+    // Ждём пока карточка клиента полностью загрузится
+    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]');
+    if(!avatarEl) {
+        setTimeout(function(){ window._godjiInjectBanBtn(clientId, _attempt+1); }, 500);
+        return;
+    }
+    // Убираем старую кнопку если есть (при повторном открытии)
+    var old = document.getElementById('godji-ban-client-btn');
+    if(old) old.remove();
+    var oldBanner = document.getElementById('godji-ban-info-banner');
+    if(oldBanner) oldBanner.remove();
+    // Вызываем с явным clientId
+    injectClientPageBanBtn(clientId);
 };
 
 })();
