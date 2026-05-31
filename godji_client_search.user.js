@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.31
+// @version      5.32
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -204,10 +204,11 @@ function openAddClientModal(){
         showErr('');
         if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Поиск...';}
 
-        // Ищем по всей сети — без фильтра по клубу, чтобы найти нового клиента
+        // Ищем по всей сети — getClubId нужен для контекста запроса
+        var cid=await getClubId();
         var res=await gql(
-            'query findUserByPhone($phone:String!){findUserByPhone(params:{phone:$phone}){id phone users_user_profile{name surname login}users_wallets{id club_id balance_amount balance_bonus}}}',
-            {phone:phone}
+            'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets{id club_id balance_amount balance_bonus}}}',
+            {phone:phone,club_id:cid}
         );
 
         if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
@@ -450,21 +451,33 @@ function openClientModal(clientId, clientWallet){
             }
             iframe.style.opacity='1';
 
-            // Компенсируем сдвиг iframe для модалок (position:fixed сдвинут вместе с iframe)
+            // Скрываем navbar через CSS
             var styleEl=idoc.createElement('style');
             styleEl.id='godji-iframe-fix-style';
             styleEl.textContent=[
-                // Все порталы Mantine и fixed элементы — компенсируем смещение iframe
-                '[data-portal="true"],[class*="mantine-Modal-root"],[class*="mantine-Overlay-root"]{',
-                '  margin-left:300px!important;',
-                '  width:calc(100% - 300px)!important;',
-                '}',
-                // Убираем горизонтальный скролл
                 'body{overflow-x:hidden!important;}',
-                // Navbar скрыт
                 '.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]{display:none!important;}',
             ].join('');
             if(!idoc.getElementById('godji-iframe-fix-style')) idoc.head.appendChild(styleEl);
+
+            // Компенсируем сдвиг iframe для модалок — вычисляем реальную ширину navbar
+            var navbar=idoc.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
+            var nbW=navbar?navbar.offsetWidth:280;
+            var portalStyle=idoc.getElementById('godji-iframe-portal-fix');
+            if(!portalStyle){
+                portalStyle=idoc.createElement('style');
+                portalStyle.id='godji-iframe-portal-fix';
+                idoc.head.appendChild(portalStyle);
+            }
+            // position:fixed внутри iframe отсчитывается от левого края iframe viewport
+            // iframe сдвинут на margin-left:-nbW, значит fixed элементы тоже сдвинуты
+            // компенсируем: left смещаем на +nbW, width уменьшаем на nbW
+            portalStyle.textContent=[
+                '[data-portal="true"]{',
+                '  left:'+nbW+'px!important;',
+                '  width:calc(100% - '+nbW+'px)!important;',
+                '}',
+            ].join('');
 
             // Показываем список клубов под "Статистика по сети клубов"
             injectClubsList(idoc, clientId);
