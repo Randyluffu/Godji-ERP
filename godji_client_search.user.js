@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.28
+// @version      5.29
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -24,7 +24,7 @@ async function gql(q,v){var h=hdrs();if(!h)return null;try{var r=await _oF('http
 
 async function searchClients(q){
     if(!q.trim())return[];
-    var res=await gql('query S($q:String!,$c:Int!){users(where:{role:{_eq:user},users_wallets:{club_id:{_eq:$c}},_or:[{users_user_profile:{login:{_ilike:$q}}},{users_user_profile:{name:{_ilike:$q}}},{users_user_profile:{surname:{_ilike:$q}}},{phone:{_ilike:$q}}]},limit:20){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$c}},limit:1){balance_amount balance_bonus}}}',{q:'%'+q.trim()+'%',c:14});
+    var res=await gql('query S($q:String!){users(where:{role:{_eq:user},_or:[{users_user_profile:{login:{_ilike:$q}}},{users_user_profile:{name:{_ilike:$q}}},{users_user_profile:{surname:{_ilike:$q}}},{phone:{_ilike:$q}}]},limit:20){id phone users_user_profile{name surname login}users_wallets(limit:1){balance_amount balance_bonus}}}',{q:'%'+q.trim()+'%'});
     var users=res&&res.data&&res.data.users?res.data.users:[];
     var digits=q.replace(/\D/g,'');
     if(digits.length>=4){
@@ -365,19 +365,15 @@ function openClientModal(clientId, clientWallet){
     hdr.appendChild(title);hdr.appendChild(btns);
 
     var iframeWrap=document.createElement('div');
-    iframeWrap.style.cssText='flex:1;overflow:hidden;position:relative;min-height:0;';
+    // overflow:hidden по X — обрезает сайдбар, но не режет вертикальные модалки
+    iframeWrap.style.cssText='flex:1;overflow-x:hidden;overflow-y:visible;position:relative;min-height:0;';
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    // margin-left:-300px + width:calc(100%+300px) = iframe занимает весь контейнер
-    // но сдвинут влево на 300px → сайдбар уходит за левый край (overflow:hidden на wrap обрезает)
     iframe.style.cssText='border:none;width:calc(100% + 300px);margin-left:-300px;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
 
     // Элементы для скрытия
     var _SELECTORS=[
-        '.mantine-AppShell-navbar',
-        '.Sidebar_navbar__h0i17',
         '.Sidebar_header__dm6Ua',
-        '[class*="Sidebar_navbar"]',
         '[class*="Sidebar_header"]',
         '.mantine-Breadcrumbs-root',
     ];
@@ -401,13 +397,15 @@ function openClientModal(clientId, clientWallet){
                 if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                 hideEl(el);
             });
-            // Убираем отступы у main
+            // Убираем отступ слева у main (был равен ширине navbar)
             var main=idoc.querySelector('.mantine-AppShell-main');
             if(main){
-                main.style.paddingLeft='0';
-                main.style.marginLeft='0';
-                main.style.paddingTop='0';
+                main.style.setProperty('padding-left','16px','important');
+                main.style.setProperty('margin-left','0','important');
+                main.style.setProperty('padding-top','16px','important');
             }
+            // Запрещаем горизонтальный скролл внутри iframe
+            if(idoc.body) idoc.body.style.overflowX='hidden';
             // CSS переменные на documentElement (для корректного позиционирования внутренних модалок)
             try{
                 idoc.documentElement.style.setProperty('--app-shell-navbar-width','0px','important');
