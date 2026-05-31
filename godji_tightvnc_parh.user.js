@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC [Парх]
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -219,7 +219,7 @@ function renderMap(mapWrap, data, busySet){
     img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
     bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
 
-    var CARD=36;
+    var CARD=29;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
         var cx=pos.x+CARD_ORIG/2;
@@ -228,10 +228,11 @@ function renderMap(mapWrap, data, busySet){
         var py=Math.round((cy-CROP_Y)*scaleY)-CARD/2;
         var inVNC=!!(data[name]);
         var busy=busySet.has(name);
-        var bg  = busy  ? 'linear-gradient(135deg,#c00 0%,#e53935 100%)'
-                : inVNC ? 'linear-gradient(135deg,#1b5e20 0%,#43a047 100%)'
-                : 'linear-gradient(135deg,#333 0%,#555 100%)';
-        var bdr = busy  ? '#b71c1c' : inVNC ? '#2e7d32' : '#444';
+        // Красный = свободен+VNC, Зелёный = занят+VNC, Серый = нет VNC
+        var bg  = !inVNC ? 'linear-gradient(135deg,#333 0%,#555 100%)'
+                : busy  ? 'linear-gradient(135deg,#1b5e20 0%,#43a047 100%)'
+                : 'linear-gradient(135deg,#c00 0%,#e53935 100%)';
+        var bdr = !inVNC ? '#444' : busy ? '#2e7d32' : '#b71c1c';
         var clickable=inVNC;
         var cell=document.createElement('button');
         cell.title='ПК '+name;
