@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -283,8 +283,9 @@ function watchForBannedSessions(){
 setInterval(watchForBannedSessions, 5000);
 
 // ── Кнопка бана на карточке клиента /clients/:id ─────────
-function injectClientPageBanBtn(forcedClientId){
-    if(document.getElementById('godji-ban-client-btn')) return;
+function injectClientPageBanBtn(forcedClientId, _doc){
+    var _d = _doc || document;
+    if(_d.getElementById('godji-ban-client-btn')) return;
     // Определяем clientId: явный параметр → URL iframe → URL страницы
     var _clientId = forcedClientId;
     if(!_clientId) {
@@ -298,18 +299,18 @@ function injectClientPageBanBtn(forcedClientId){
     var clientId=m[1];
 
     // Ищем аватар клиента — data-size может быть xl или lg в разных версиях ERP
-    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]')
-                || document.querySelector('.mantine-Avatar-root[data-size="lg"]')
-                || document.querySelector('.mantine-Avatar-root');
+    var avatarEl = _d.querySelector('.mantine-Avatar-root[data-size="xl"]')
+                || _d.querySelector('.mantine-Avatar-root[data-size="lg"]')
+                || _d.querySelector('.mantine-Avatar-root');
     if(!avatarEl) return;
     var avatarRow = avatarEl.closest('[class*="Flex-root"]');
     if(!avatarRow) return;
 
     var nick='', name='';
-    document.querySelectorAll('p,span').forEach(function(el){
+    _d.querySelectorAll('p,span').forEach(function(el){
         if(el.textContent.match(/^@\w+$/)&&!nick) nick=el.textContent.slice(1);
     });
-    var nameEl=document.querySelector('[style*="font-weight: 700"]');
+    var nameEl=_d.querySelector('[style*="font-weight: 700"]');
     if(nameEl) name=nameEl.textContent.trim();
 
     var banned=isBanned(clientId);
@@ -333,7 +334,7 @@ function injectClientPageBanBtn(forcedClientId){
     wrap.appendChild(btn); avatarRow.appendChild(wrap);
 
     // Баннер бана на карточке
-    var existing=document.getElementById('godji-ban-info-banner');
+    var existing=_d.getElementById('godji-ban-info-banner');
     if(existing) existing.remove();
     if(banned){
         var entry=loadBanlist().banned[clientId];
@@ -618,24 +619,25 @@ setTimeout(init,2000);
 setTimeout(watchForBannedSessions,5000);
 
 // ── Экспорт для iframe (вызывается из client_search когда открывает карточку клиента) ──
-window._godjiInjectBanBtn = function(clientId, _attempt) {
+window._godjiInjectBanBtn = function(clientId, _attempt, _doc) {
     _attempt = _attempt || 0;
-    if(_attempt > 20) return; // не ждём больше 10 секунд
-    // Ждём пока карточка клиента полностью загрузится
-    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]')
-                   || document.querySelector('.mantine-Avatar-root[data-size="lg"]')
-                   || document.querySelector('.mantine-Avatar-root');
+    if(_attempt > 20) return;
+    // Используем переданный document (из iframe) или document текущей страницы
+    var targetDoc = _doc || document;
+    var avatarEl = targetDoc.querySelector('.mantine-Avatar-root[data-size="xl"]')
+                   || targetDoc.querySelector('.mantine-Avatar-root[data-size="lg"]')
+                   || targetDoc.querySelector('.mantine-Avatar-root');
     if(!avatarEl) {
-        setTimeout(function(){ window._godjiInjectBanBtn(clientId, _attempt+1); }, 500);
+        setTimeout(function(){ window._godjiInjectBanBtn(clientId, _attempt+1, _doc); }, 500);
         return;
     }
-    // Убираем старую кнопку если есть (при повторном открытии)
-    var old = document.getElementById('godji-ban-client-btn');
+    // Убираем старую кнопку если есть
+    var old = targetDoc.getElementById('godji-ban-client-btn');
     if(old) old.remove();
-    var oldBanner = document.getElementById('godji-ban-info-banner');
+    var oldBanner = targetDoc.getElementById('godji-ban-info-banner');
     if(oldBanner) oldBanner.remove();
-    // Вызываем с явным clientId
-    injectClientPageBanBtn(clientId);
+    // Вызываем с явным clientId и doc
+    injectClientPageBanBtn(clientId, targetDoc);
 };
 
 })();
