@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.34
+// @version      5.35
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -523,11 +523,10 @@ function openClientModal(clientId, clientWallet){
             // Показываем список клубов под "Статистика по сети клубов"
             injectClubsList(idoc, clientId);
 
-            // Вызываем банлист если он загружен в iframe
+            // Вызываем банлист из основного окна, передавая ему idoc и clientId
             try {
-                var iwin = iframe.contentWindow;
-                if(iwin && typeof iwin._godjiInjectBanBtn === 'function') {
-                    iwin._godjiInjectBanBtn(clientId);
+                if(typeof window._godjiInjectBanBtn === 'function') {
+                    window._godjiInjectBanBtn(clientId, 0, idoc);
                 }
             } catch(ee) {}
         }catch(e){}
