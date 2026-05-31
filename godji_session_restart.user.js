@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.13
+// @version      5.14
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -84,7 +84,9 @@
                 if (
                     authToken &&
                     typeof body === 'string' &&
-                    body.indexOf('GetDashboardTable') !== -1 &&
+                    (body.indexOf('GetDashboardTable') !== -1 ||
+                     body.indexOf('GetDashboardDevices') !== -1 ||
+                     body.indexOf('getDashboardDevices') !== -1) &&
                     !window._godjiRestartPending
                 ) {
                     window._godjiRestartPending = true;
@@ -100,6 +102,64 @@
     }
 
     installFetchHook();
+
+    // XHR-хук — ловим Apollo Client запросы (ERP шлёт через XHR, не fetch)
+    (function installXhrHook() {
+        if (XMLHttpRequest.prototype._godjiRestartHooked) return;
+        XMLHttpRequest.prototype._godjiRestartHooked = true;
+        var origOpen = XMLHttpRequest.prototype.open;
+        var origSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(method, url) {
+            this._godjiUrl = url;
+            return origOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function(body) {
+            var xhr = this;
+            if (xhr._godjiUrl && xhr._godjiUrl.indexOf('hasura') !== -1 && body) {
+                try {
+                    var parsed = JSON.parse(body);
+                    var op = parsed.operationName || (parsed.query || '');
+                    if (op.indexOf('GetDashboardDevices') !== -1 || op.indexOf('getDashboardDevices') !== -1 || op.indexOf('GetDashboardTable') !== -1) {
+                        xhr.addEventListener('load', function() {
+                            try {
+                                var json = JSON.parse(xhr.responseText);
+                                if (json && json.data && json.data.getDashboardDevices) {
+                                    var devices = json.data.getDashboardDevices.devices;
+                                    var activeIds = [];
+                                    devices.forEach(function(d) {
+                                        if (!d.sessions || !d.sessions.length) { delete sessionsData[d.name]; return; }
+                                        var s = d.sessions[0];
+                                        if (!s || !s.user || !s.user.wallet) return;
+                                        sessionsData[d.name] = {
+                                            sessionId: s.id, status: s.status,
+                                            tariffId: s.tariff ? s.tariff.id : null,
+                                            tariffName: s.tariff ? s.tariff.name : '',
+                                            tariffType: s.tariff ? s.tariff.type : null,
+                                            walletId: s.user.wallet.id,
+                                            nickname: s.user.nickname || '',
+                                            pcName: d.name, timeTo: null
+                                        };
+                                        activeIds.push({ pc: d.name, sessionId: s.id });
+                                    });
+                                    window._godjiSessionsData = sessionsData;
+                                    if (activeIds.length) {
+                                        xhrGql('query($ids:[Int!]!){reservations(where:{id:{_in:$ids}}){id time_to}}', { ids: activeIds.map(function(x){return x.sessionId;}) })
+                                        .then(function(j2) {
+                                            if (!j2 || !j2.data || !j2.data.reservations) return;
+                                            var tm = {}; j2.data.reservations.forEach(function(r){tm[r.id]=r.time_to;});
+                                            activeIds.forEach(function(x){ if(sessionsData[x.pc]&&tm[x.sessionId]) sessionsData[x.pc].timeTo=tm[x.sessionId]; });
+                                            window._godjiSessionsData = sessionsData;
+                                        }).catch(function(){});
+                                    }
+                                }
+                            } catch(e) {}
+                        });
+                    }
+                } catch(e) {}
+            }
+            return origSend.apply(this, arguments);
+        };
+    })();
 
     // -------------------------------------------------------------------------
     // Загрузка данных сессий (два XHR-запроса)
