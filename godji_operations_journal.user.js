@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — История операций
 // @namespace    http://tampermonkey.net/
-// @version      3.24
+// @version      3.25
 // @description  Журнал всех операций через polling wallet_operations
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -53,7 +53,7 @@ function addOpToRestartGroup(gId, opId){
 }
 var SAFE_KEY    = 'godji_opjournal_safe';
 var MAX_DAYS    = 3;
-var CLUB_ID     = 14;
+var CLUB_ID     = 14; // обновляется через _godjiGetClubId
 var POLL_MS     = 10000;
 
 var _authToken  = null;
