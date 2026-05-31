@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Касса смены
 // @namespace    http://tampermonkey.net/
-// @version      3.25
+// @version      3.26
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_cashbox.user.js
@@ -241,6 +241,9 @@ document.addEventListener('__gcb__', function(e){
         var detail = e.detail;
         if(detail.auth) _authToken = detail.auth;
         if(detail.role) _hasuraRole = detail.role;
+        if(_authToken&&typeof window._godjiGetClubId==="function"){
+            window._godjiGetClubId(_authToken,_hasuraRole).then(function(id){if(id)CLUB_ID=id;});
+        }
         onApi(detail.req, detail.res);
     }catch(err){}
 });
@@ -331,7 +334,7 @@ function initMaxId(shift, cb){
         body: JSON.stringify({
             operationName: 'GCBInit',
             query: 'query GCBInit($clubId:Int!,$before:timestamptz!){wallet_operations(where:{club_id:{_eq:$clubId},created_at:{_lte:$before}},order_by:{id:desc},limit:1){id}}',
-            variables: { clubId: 14, before: openedAt }
+            variables: { clubId: CLUB_ID, before: openedAt }
         })
     }).then(function(r){ return r.json(); }).then(function(data){
         var ops = data && data.data && data.data.wallet_operations;
@@ -354,7 +357,7 @@ function fetchLatestOps(){
         headers: { 'authorization': _authToken, 'content-type': 'application/json', 'x-hasura-role': _hasuraRole },
         body: JSON.stringify({
             operationName: 'GCBOps',
-            variables: { sinceId: shift._maxSeenId, clubId: 14 },
+            variables: { sinceId: shift._maxSeenId, clubId: CLUB_ID },
             query: GQL_OPS
         })
     }).then(function(r){ return r.json(); })
@@ -779,7 +782,7 @@ function runCashboxDebug(){
     window.fetch('https://hasura.godji.cloud/v1/graphql',{
         method:'POST',
         headers:{'authorization':_authToken,'content-type':'application/json','x-hasura-role':_hasuraRole},
-        body:JSON.stringify({query:'query{wallet_operations(where:{id:{_in:'+JSON.stringify(shift.seenOpIds)+'},club_id:{_eq:14}},order_by:{id:asc}){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}}wallet_operation_digest{name}}}'})
+        body:JSON.stringify({query:'query{wallet_operations(where:{id:{_in:'+JSON.stringify(shift.seenOpIds)+'},club_id:{_eq:'+CLUB_ID+'}},order_by:{id:asc}){id amount money_type operation_type created_at user_id user{phone users_user_profile{name surname login}}wallet_operation_digest{name}}}'})
     }).then(function(r){return r.json();}).then(function(data){
         var ops = data&&data.data&&data.data.wallet_operations;
         if(!ops){ showDebugPopup('Ошибка запроса', null, null, null); return; }
