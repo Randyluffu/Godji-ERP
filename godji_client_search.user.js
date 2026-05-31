@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.29
+// @version      5.3
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -14,12 +14,16 @@
 (function(){
 'use strict';
 
+var _clubId_cs = 14; // обновляется через _godjiGetClubId
+function _getClubId(){ return _clubId_cs; }
+
 var _tok=null,_role='club_admin',_oF=window.fetch;
 window.fetch=function(url,opts){
     if(opts&&opts.headers&&opts.headers.authorization){_tok=opts.headers.authorization;_role=opts.headers['x-hasura-role']||'club_admin';}
     return _oF.apply(this,arguments);
 };
-function hdrs(){var t=_tok||window._godjiAuthToken;if(!t)return null;return{'authorization':t,'content-type':'application/json','x-hasura-role':_role||'club_admin'};}
+function hdrs(){var t=_tok||window._godjiAuthToken;
+  if(t&&typeof window._godjiGetClubId==="function")window._godjiGetClubId(t,_role||'club_admin').then(function(id){if(id)_clubId_cs=id;});if(!t)return null;return{'authorization':t,'content-type':'application/json','x-hasura-role':_role||'club_admin'};}
 async function gql(q,v){var h=hdrs();if(!h)return null;try{var r=await _oF('https://hasura.godji.cloud/v1/graphql',{method:'POST',headers:h,body:JSON.stringify({query:q,variables:v})});return await r.json();}catch(e){return null;}}
 
 async function searchClients(q){
@@ -168,7 +172,7 @@ function openAddClientModal(){
 
         var res=await gql(
             'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$club_id}},limit:1){id balance_amount balance_bonus}}}',
-            {phone:phone,club_id:14}
+            {phone:phone,club_id:_getClubId()}
         );
 
         if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
@@ -179,7 +183,7 @@ function openAddClientModal(){
         if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Привязка...';}
         var att=await gql(
             'mutation AttachUserToClubById($clubId:Int!,$userId:String!){attachUserToClub(params:{clubId:$clubId,userId:$userId}){success __typename}}',
-            {clubId:14,userId:user.id}
+            {clubId:_getClubId(),userId:user.id}
         );
         if(submitBtn){submitBtn.disabled=false;}
 
