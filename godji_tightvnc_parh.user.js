@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC [Парх]
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -13,6 +13,7 @@
 'use strict';
 
 var PROXY = 'http://localhost:6080';
+var CLUB_ID = 15;
 
 // Карта филиала Парх (clubId=15)
 // Координаты из DeviceItem на devicesLayer (450x800) — реальные размеры на экране
@@ -160,84 +161,98 @@ function closePopup(){
     document.removeEventListener('click',outsideClose);
 }
 
+function loadERPStatus(cb){
+    var auth=window._godjiAuth||window._godjiAuthToken||window._bkAuth||window._banAuth||'';
+    if(!auth){ cb(new Set()); return; }
+    fetch('https://hasura.godji.cloud/v1/graphql',{
+        method:'POST',
+        headers:{'content-type':'application/json','authorization':auth,'x-hasura-role':'club_admin'},
+        body:JSON.stringify({query:'query GetVNCStatus($clubId:Int!){getDashboardDevices(clubId:$clubId){devices{name sessions{status}}}}',variables:{clubId:CLUB_ID}})
+    }).then(function(r){return r.json();}).then(function(res){
+        var busy=new Set();
+        var devs=(res.data&&res.data.getDashboardDevices&&res.data.getDashboardDevices.devices)||[];
+        devs.forEach(function(d){
+            if(d.sessions&&d.sessions.some(function(s){return s.status==='session_acting'||s.status==='active'||s.status==='created'||s.status==='booking_confirmed';}))
+                busy.add(d.name);
+        });
+        cb(busy);
+    }).catch(function(){cb(new Set());});
+}
+
 function loadPCData(mapWrap, statusDot){
-    fetch(PROXY + '/status')
-        .then(function(r){ return r.json(); })
-        .then(function(data){
-            _pcData = data;
-            var cnt = Object.keys(data).length;
-            statusDot.innerHTML = '<span style="color:#4ade80;">●</span> <span style="color:rgba(0,0,0,.5);">'+cnt+' ПК</span>';
-            renderMap(mapWrap, data);
+    fetch(PROXY+'/status')
+        .then(function(r){return r.json();})
+        .then(function(vncData){
+            loadERPStatus(function(busySet){
+                var merged={};
+                Object.keys(vncData).forEach(function(name){
+                    merged[name]={ip:vncData[name].ip,name:vncData[name].name,busy:busySet.has(name)};
+                });
+                _pcData=merged;
+                var cnt=Object.keys(merged).length;
+                statusDot.innerHTML='<span style="color:#4ade80;">●</span> <span style="color:rgba(0,0,0,.5);">'+cnt+' ПК</span>';
+                renderMap(mapWrap,merged,busySet);
+            });
         })
         .catch(function(){
-            statusDot.innerHTML = '<span style="color:#f87171;">●</span> <span style="color:rgba(0,0,0,.4);">нет сервера</span>';
-            renderMap(mapWrap, {});
-            toast('VNC-сервер не запущен. Запустите vnc_server_parh.py', false);
+            statusDot.innerHTML='<span style="color:#f87171;">●</span> <span style="color:rgba(0,0,0,.4);">нет сервера</span>';
+            renderMap(mapWrap,{},new Set());
+            toast('VNC-сервер не запущен. Запустите vnc_server_parh.py',false);
         });
 }
 
-function renderMap(mapWrap, data){
+function renderMap(mapWrap, data, busySet){
+    busySet=busySet||new Set();
     mapWrap.innerHTML='';
     mapWrap.style.cssText='position:relative;width:'+POPUP_W+'px;height:'+POPUP_H+'px;flex-shrink:0;overflow:hidden;';
 
-    // Фон: масштабируем изображение карты под popup
-    var scaleX = POPUP_W / CROP_W;
-    var scaleY = POPUP_H / CROP_H;
-    var bgW = Math.round(LAYER_W * scaleX);
-    var bgH = Math.round(LAYER_H * scaleY);
-    var bgOffX = -Math.round(CROP_X * scaleX);
-    var bgOffY = -Math.round(CROP_Y * scaleY);
-
-    var bgWrap = document.createElement('div');
+    var scaleX=POPUP_W/CROP_W;
+    var scaleY=POPUP_H/CROP_H;
+    var bgW=Math.round(LAYER_W*scaleX);
+    var bgH=Math.round(LAYER_H*scaleY);
+    var bgOffX=-Math.round(CROP_X*scaleX);
+    var bgOffY=-Math.round(CROP_Y*scaleY);
+    var bgWrap=document.createElement('div');
     bgWrap.style.cssText='position:absolute;inset:0;overflow:hidden;pointer-events:none;';
-    var img = document.createElement('img');
-    img.src = MAP_IMG;
+    var img=document.createElement('img');
+    img.src=MAP_IMG;
     img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
     bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
 
-    var CARD = 36;
+    var CARD=36;
     Object.keys(PC_POS).forEach(function(name){
-        var pos = PC_POS[name];
-        // Центр карточки в layer coords
-        var cx = pos.x + CARD_ORIG / 2;
-        var cy = pos.y + CARD_ORIG / 2;
-        // Позиция в popup coords
-        var px = Math.round((cx - CROP_X) * scaleX) - CARD / 2;
-        var py = Math.round((cy - CROP_Y) * scaleY) - CARD / 2;
-
-        var pc = data[name] || null;
-        var avail = !!pc;
-
-        var cell = document.createElement('button');
-        cell.title = 'ПК ' + name;
-        var bg  = avail ? 'linear-gradient(135deg,#c00 0%,#e53935 100%)' : 'linear-gradient(135deg,#1b5e20 0%,#43a047 100%)';
-        var bdr = avail ? '#b71c1c' : '#2e7d32';
+        var pos=PC_POS[name];
+        var cx=pos.x+CARD_ORIG/2;
+        var cy=pos.y+CARD_ORIG/2;
+        var px=Math.round((cx-CROP_X)*scaleX)-CARD/2;
+        var py=Math.round((cy-CROP_Y)*scaleY)-CARD/2;
+        var inVNC=!!(data[name]);
+        var busy=busySet.has(name);
+        var bg  = busy  ? 'linear-gradient(135deg,#c00 0%,#e53935 100%)'
+                : inVNC ? 'linear-gradient(135deg,#1b5e20 0%,#43a047 100%)'
+                : 'linear-gradient(135deg,#333 0%,#555 100%)';
+        var bdr = busy  ? '#b71c1c' : inVNC ? '#2e7d32' : '#444';
+        var clickable=inVNC;
+        var cell=document.createElement('button');
+        cell.title='ПК '+name;
         cell.style.cssText=[
-            'position:absolute',
-            'left:'+px+'px','top:'+py+'px',
+            'position:absolute','left:'+px+'px','top:'+py+'px',
             'width:'+CARD+'px','height:'+CARD+'px',
-            'border-radius:7px',
-            'border:2px solid '+bdr,
-            'background:'+bg,
-            'color:#fff',
-            'font-size:8px','font-weight:800',
-            'cursor:'+(avail?'pointer':'default'),
+            'border-radius:7px','border:2px solid '+bdr,'background:'+bg,
+            'color:#fff','font-size:8px','font-weight:800',
+            'cursor:'+(clickable?'pointer':'default'),
             'display:flex','flex-direction:column','align-items:center','justify-content:center',
             'gap:2px','font-family:inherit','padding:0','line-height:1',
             'transition:transform .12s,box-shadow .12s','z-index:2',
-            'text-shadow:0 1px 3px rgba(0,0,0,0.7)',
-            'box-shadow:0 2px 6px rgba(0,0,0,0.35)',
+            'text-shadow:0 1px 3px rgba(0,0,0,0.7)','box-shadow:0 2px 6px rgba(0,0,0,0.35)',
         ].join(';');
-
-        var lbl = document.createElement('span');
+        var lbl=document.createElement('span');
         lbl.style.cssText='color:#fff;font-size:8px;font-weight:800;line-height:1;pointer-events:none;';
-        lbl.textContent = name;
-        cell.appendChild(lbl);
-
-        if(avail){
-            cell.addEventListener('mouseenter',function(){ cell.style.transform='scale(1.18)'; cell.style.boxShadow='0 4px 12px rgba(0,0,0,0.5)'; cell.style.zIndex='10'; });
-            cell.addEventListener('mouseleave',function(){ cell.style.transform=''; cell.style.boxShadow='0 2px 6px rgba(0,0,0,0.35)'; cell.style.zIndex='2'; });
-            cell.addEventListener('click',function(e){ e.stopPropagation(); connectPC(name); });
+        lbl.textContent=name; cell.appendChild(lbl);
+        if(clickable){
+            cell.addEventListener('mouseenter',function(){cell.style.transform='scale(1.18)';cell.style.boxShadow='0 4px 12px rgba(0,0,0,0.5)';cell.style.zIndex='10';});
+            cell.addEventListener('mouseleave',function(){cell.style.transform='';cell.style.boxShadow='0 2px 6px rgba(0,0,0,0.35)';cell.style.zIndex='2';});
+            cell.addEventListener('click',function(e){e.stopPropagation();connectPC(name);});
         }
         mapWrap.appendChild(cell);
     });
