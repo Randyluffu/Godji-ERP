@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -544,7 +544,7 @@ var _modalObserver = new MutationObserver(function(mutations){
         });
     });
 });
-_modalObserver.observe(document.body, {childList:true, subtree:true});
+_modalObserver.observe(document.body, {childList:true, subtree:false});
 
 // Также наблюдаем за изменениями внутри уже открытых модалок (выбор клиента)
 setInterval(function(){
