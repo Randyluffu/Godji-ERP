@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.32
+// @version      5.33
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -280,6 +280,9 @@ function createSearchBtn(){
     btn.addEventListener('click',togglePanel);
 }
 
+// Экспорт для банлиста — позволяет открыть карточку клиента из iframe-контекста
+window._godjiOpenClientModal = openClientModal;
+
 // === SEARCH PANEL ===
 function createSearchPanel(){
     if(_panel)return;
@@ -399,7 +402,11 @@ function openClientModal(clientId, clientWallet){
     iframeWrap.style.cssText='flex:1;overflow-x:hidden;overflow-y:visible;position:relative;min-height:0;';
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    iframe.style.cssText='border:none;width:calc(100% + 300px);margin-left:-300px;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
+    // Вычисляем реальную ширину navbar для компенсации
+    var _navbarEl=document.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
+    var _nbW=_navbarEl?_navbarEl.offsetWidth:280;
+    iframe.style.cssText='border:none;width:calc(100% + '+_nbW+'px);margin-left:-'+_nbW+'px;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
+    iframe._godjiNavbarWidth=_nbW;
 
     // Элементы для скрытия
     var _SELECTORS=[
@@ -461,8 +468,7 @@ function openClientModal(clientId, clientWallet){
             if(!idoc.getElementById('godji-iframe-fix-style')) idoc.head.appendChild(styleEl);
 
             // Компенсируем сдвиг iframe для модалок — вычисляем реальную ширину navbar
-            var navbar=idoc.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
-            var nbW=navbar?navbar.offsetWidth:280;
+            var nbW=iframe._godjiNavbarWidth||280;
             var portalStyle=idoc.getElementById('godji-iframe-portal-fix');
             if(!portalStyle){
                 portalStyle=idoc.createElement('style');
@@ -473,9 +479,27 @@ function openClientModal(clientId, clientWallet){
             // iframe сдвинут на margin-left:-nbW, значит fixed элементы тоже сдвинуты
             // компенсируем: left смещаем на +nbW, width уменьшаем на nbW
             portalStyle.textContent=[
+                // position:fixed внутри iframe отсчитывается от левого края iframe viewport
+                // iframe сдвинут влево на nbW, значит fixed элементы тоже. Компенсируем.
                 '[data-portal="true"]{',
                 '  left:'+nbW+'px!important;',
                 '  width:calc(100% - '+nbW+'px)!important;',
+                '  max-width:calc(100% - '+nbW+'px)!important;',
+                '  overflow-x:hidden!important;',
+                '}',
+                // Ограничиваем размер самих модалок чтобы не выходили за экран
+                '.mantine-Modal-inner,[class*="Modal-inner"]{',
+                '  left:'+nbW+'px!important;',
+                '  right:0!important;',
+                '  width:calc(100% - '+nbW+'px)!important;',
+                '  padding:16px!important;',
+                '  box-sizing:border-box!important;',
+                '}',
+                '.mantine-Modal-content,[class*="Modal-content"]{',
+                '  max-width:min(720px,calc(100vw - '+nbW+'px - 32px))!important;',
+                '  max-height:90vh!important;',
+                '  margin:auto!important;',
+                '  overflow-y:auto!important;',
                 '}',
             ].join('');
 
