@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.33
+// @version      5.34
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -206,15 +206,33 @@ function openAddClientModal(){
 
         // Ищем по всей сети — getClubId нужен для контекста запроса
         var cid=await getClubId();
+        // Нормализуем номер: принимаем 8xxx и +7xxx и просто 9xxx
+        var phoneNorm = phone.replace(/\s|-|\(|\)/g,'');
+        if(phoneNorm.match(/^8\d{10}$/)) phoneNorm = '+7' + phoneNorm.slice(1);
+        if(phoneNorm.match(/^9\d{9}$/))  phoneNorm = '+7' + phoneNorm;
+        if(phoneNorm.match(/^7\d{10}$/)&&!phoneNorm.startsWith('+')) phoneNorm = '+' + phoneNorm;
+
+        // Сначала пробуем findUserByPhone (родной метод ERP)
         var res=await gql(
             'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets{id club_id balance_amount balance_bonus}}}',
-            {phone:phone,club_id:cid}
+            {phone:phoneNorm,club_id:cid}
         );
 
         if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
 
-        if(!res||!res.data||!res.data.findUserByPhone){showErr('Пользователь не найден');return;}
-        var user=res.data.findUserByPhone;
+        var user = res&&res.data&&res.data.findUserByPhone;
+
+        // Fallback: прямой запрос к users если findUserByPhone вернул null
+        if(!user){
+            var res2=await gql(
+                'query{users(where:{phone:{_eq:"'+phoneNorm+'"}},limit:1){id phone users_user_profile{name surname login}users_wallets{id club_id balance_amount balance_bonus}}}',
+                {}
+            );
+            var arr=res2&&res2.data&&res2.data.users;
+            user = arr&&arr[0]||null;
+        }
+
+        if(!user){showErr('Пользователь не найден');return;}
 
         // Просто открываем карточку клиента — привязка к клубу выполняется вручную через ERP
         ov.remove();
@@ -380,7 +398,7 @@ function openClientModal(clientId, clientWallet){
     ov.addEventListener('click',function(e){if(e.target===ov){ov.remove();_modal=null;}});
 
     var m=document.createElement('div');
-    m.style.cssText='background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);width:min(1400px,calc(100vw - 32px));height:min(90vh,960px);display:flex;flex-direction:column;font-family:var(--mantine-font-family);box-shadow:0 24px 64px rgba(0,0,0,0.4);overflow:hidden;';
+    m.style.cssText='background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);width:min(1600px,calc(100vw - 32px));height:calc(100vh - 32px);display:flex;flex-direction:column;font-family:var(--mantine-font-family);box-shadow:0 24px 64px rgba(0,0,0,0.4);overflow:hidden;';
 
     var hdr=document.createElement('div');
     hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid var(--mantine-color-default-border);flex-shrink:0;background:var(--mantine-color-body);';
@@ -478,33 +496,40 @@ function openClientModal(clientId, clientWallet){
             // position:fixed внутри iframe отсчитывается от левого края iframe viewport
             // iframe сдвинут на margin-left:-nbW, значит fixed элементы тоже сдвинуты
             // компенсируем: left смещаем на +nbW, width уменьшаем на nbW
+            // Компенсация сдвига iframe: все position:fixed элементы внутри iframe
+            // отсчитываются от левого края iframe viewport, который сдвинут на -nbW.
+            // Сдвигаем порталы вправо на nbW и уменьшаем их ширину.
             portalStyle.textContent=[
-                // position:fixed внутри iframe отсчитывается от левого края iframe viewport
-                // iframe сдвинут влево на nbW, значит fixed элементы тоже. Компенсируем.
                 '[data-portal="true"]{',
                 '  left:'+nbW+'px!important;',
                 '  width:calc(100% - '+nbW+'px)!important;',
-                '  max-width:calc(100% - '+nbW+'px)!important;',
                 '  overflow-x:hidden!important;',
                 '}',
-                // Ограничиваем размер самих модалок чтобы не выходили за экран
                 '.mantine-Modal-inner,[class*="Modal-inner"]{',
                 '  left:'+nbW+'px!important;',
                 '  right:0!important;',
                 '  width:calc(100% - '+nbW+'px)!important;',
-                '  padding:16px!important;',
+                '  padding:12px!important;',
                 '  box-sizing:border-box!important;',
                 '}',
+                // НЕ ограничиваем max-width контента — модалки типа брони с картой ПК
+                // должны быть полноразмерными. Только overflow чтобы не выходили.
                 '.mantine-Modal-content,[class*="Modal-content"]{',
-                '  max-width:min(720px,calc(100vw - '+nbW+'px - 32px))!important;',
-                '  max-height:90vh!important;',
-                '  margin:auto!important;',
+                '  max-height:calc(100vh - 24px)!important;',
                 '  overflow-y:auto!important;',
                 '}',
             ].join('');
 
             // Показываем список клубов под "Статистика по сети клубов"
             injectClubsList(idoc, clientId);
+
+            // Вызываем банлист если он загружен в iframe
+            try {
+                var iwin = iframe.contentWindow;
+                if(iwin && typeof iwin._godjiInjectBanBtn === 'function') {
+                    iwin._godjiInjectBanBtn(clientId);
+                }
+            } catch(ee) {}
         }catch(e){}
     }
 
