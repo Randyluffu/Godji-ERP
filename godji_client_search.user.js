@@ -51,6 +51,7 @@ function getNavLink(text){
 }
 
 function updateHistoryPos(){
+    // Кнопки историй теперь в footer (insertBefore divider) — не трогаем их позицию
     var hist=document.getElementById('godji-history-btn');
     var opj=document.getElementById('godji-opj-btn');
     if(hist){ hist.style.top=''; hist.style.bottom=''; hist.style.position=''; }
@@ -94,6 +95,7 @@ function watchSidebar(){
     _sbObs.observe(sb,{childList:true});
 }
 
+// Следим за появлением godji-history-btn
 new MutationObserver(function(muts){
     muts.forEach(function(m){
         m.addedNodes.forEach(function(n){
@@ -104,21 +106,22 @@ new MutationObserver(function(muts){
     });
 }).observe(document.body||document.documentElement,{childList:true});
 
-// === ADD CLIENT ===
-// Кликаем оригинальную кнопку ERP «Привязать клиента» если она есть на странице /clients
-// Если нет — показываем нашу простую модалку с телефоном
+// Позиция кнопок историй управляется их собственными скриптами (footer insertBefore)
+
+// === SEARCH BUTTON ===
+
+// === ADD CLIENT BUTTON ===
 function openAddClientModal(){
-    // Попробуем найти нативную кнопку ERP на странице /clients
-    var nativeAddBtn = Array.from(document.querySelectorAll('button')).find(function(b){
-        var t = b.textContent||'';
-        return t.trim()==='Привязать клиента' || t.trim()==='Добавить клиента';
+    // Сначала пробуем кликнуть нативную кнопку ERP (на странице /clients)
+    var nativeBtn = Array.from(document.querySelectorAll('button.mantine-Button-root')).find(function(b){
+        var lbl = b.querySelector('[class*="Button-label"]');
+        return lbl && lbl.textContent.trim() === 'Добавить клиента';
     });
-    if(nativeAddBtn){
-        nativeAddBtn.click();
+    if(nativeBtn && !nativeBtn.disabled){
+        nativeBtn.click();
         return;
     }
 
-    // Нет нативной кнопки — показываем собственную модалку с корректным полем телефона
     if(document.getElementById('godji-add-client-modal')) return;
 
     var ov=document.createElement('div');
@@ -126,112 +129,71 @@ function openAddClientModal(){
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99998;display:flex;align-items:center;justify-content:center;';
     ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
 
-    var box=document.createElement('div');
-    box.style.cssText='background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);box-shadow:0 24px 64px rgba(0,0,0,0.4);width:420px;max-width:calc(100vw - 32px);font-family:var(--mantine-font-family);overflow:hidden;';
-    box.addEventListener('click',function(e){e.stopPropagation();});
+    var wrap=document.createElement('div');
+    wrap.innerHTML='<section class="m_fd1ab0aa m_54c44539 mantine-Modal-content m_1b7284a3 mantine-Paper-root" data-modal-content="true" role="dialog" tabindex="-1" aria-modal="true" aria-describedby="mantine-8ktkxdaqd-body" aria-labelledby="mantine-8ktkxdaqd-title" style="transition-property: opacity, transform; backface-visibility: hidden; will-change: transform, opacity; transition-duration: 200ms; transition-timing-function: ease; opacity: 1; transform: translateY(0px);" data-ban-uid=""><header class="m_b5489c3c m_d0e2b9cd mantine-Modal-header"><h2 class="m_615af6c9 Add_modalTitle__KwLRz mantine-Modal-title" id="mantine-8ktkxdaqd-title"><div class="m_8bffd616 mantine-Flex-root __m__-rss" style="align-items: center; justify-content: space-between; width: 100%;"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="lg" style="--text-fz: var(--mantine-font-size-lg); --text-lh: var(--mantine-line-height-lg); font-weight: 500;">Привязать клиента к клубу</p></div></h2><button class="mantine-focus-auto mantine-active m_220c80f2 m_606cb269 mantine-Modal-close m_86a44da5 mantine-CloseButton-root m_87cf2631 mantine-UnstyledButton-root" data-variant="subtle" type="button"><svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: var(--cb-icon-size, 70%); height: var(--cb-icon-size, 70%);"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path></svg></button></header><div class="m_5df29311 mantine-Modal-body" id="mantine-8ktkxdaqd-body"><p class="mantine-focus-auto m_b6d8b162 mantine-Text-root" data-size="sm" style="--text-fz: var(--mantine-font-size-sm); --text-lh: var(--mantine-line-height-sm); margin-bottom: var(--mantine-spacing-md);">Введите номер телефона клиента, с которым он&nbsp;регистрировался в&nbsp;<a target="_blank" href="https://id.godji.cloud/registration" style="display: inline-flex; align-items: baseline; border: 1px dotted blue; border-radius: 4px; padding: 0px 4px;"><img alt="G" loading="lazy" width="14" height="16" decoding="async" data-nimg="1" src="/godji.svg" style="color: transparent; margin-right: 4px; padding-top: 4px;">GamerID<svg xmlns="http://www.w3.org/2000/svg" width="16" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-link " style="margin-left: 4px; align-self: end;"><path d="M9 15l6 -6"></path><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"></path><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"></path></svg></a></p><form><div class="m_8bffd616 mantine-Flex-root __m__-rt2" style="gap: var(--mantine-spacing-md); flex-direction: column;"><div class="m_46b77525 mantine-InputWrapper-root" style="margin-inline: auto; width: 100%;" data-error="true"><label class="m_8fdc1311 mantine-InputWrapper-label" data-required="true" for="mantine-brx4b3tgr" id="mantine-brx4b3tgr-label">Номер телефона<span class="m_78a94662 mantine-InputWrapper-required" aria-hidden="true"> *</span></label><div class="m_6c018570 mantine-Input-wrapper" data-variant="default" style="--input-left-section-pointer-events: none; --input-right-section-pointer-events: none; --input-margin-bottom: calc(var(--mantine-spacing-xs) / 2);"><input class="m_8fb7ebe7 mantine-Input-input" data-variant="default" placeholder="+7 (000) 000-00-00" name="phoneNumber" data-autofocus="true" autocomplete="off" aria-invalid="false" id="mantine-brx4b3tgr" value="" aria-describedby="mantine-brx4b3tgr-error"></div><p class="m_8f816625 mantine-InputWrapper-error" id="mantine-brx4b3tgr-error">Номер введен неверно</p></div><div class="m_8bffd616 mantine-Flex-root __m__-rt9" style="gap: var(--mantine-spacing-md); justify-content: center;"><button class="mantine-focus-auto mantine-active m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="outline" data-block="true" type="button" style="--button-bg: transparent; --button-hover: var(--mantine-color-gray-outline-hover); --button-color: var(--mantine-color-gray-outline); --button-bd: calc(0.0625rem * var(--mantine-scale)) solid var(--mantine-color-gray-outline);"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Отмена</span></span></button><button class="mantine-focus-auto m_77c9d27d mantine-Button-root m_87cf2631 mantine-UnstyledButton-root" data-variant="filled" data-disabled="true" data-block="true" type="submit" disabled="" style="--button-bg: var(--mantine-color-blue-filled); --button-hover: var(--mantine-color-blue-filled-hover); --button-color: var(--mantine-color-white); --button-bd: calc(0.0625rem * var(--mantine-scale)) solid transparent;"><span class="m_80f1301b mantine-Button-inner"><span class="m_811560b9 mantine-Button-label">Найти</span></span></button></div></div></form></div></section>';
+    var section=wrap.firstElementChild;
+    if(!section){ov.remove();return;}
+    section.addEventListener('click',function(e){e.stopPropagation();});
+    ov.appendChild(section);
+    document.body.appendChild(ov);
 
-    var hdr=document.createElement('div');
-    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--mantine-color-default-border);';
-    var htitle=document.createElement('span');htitle.style.cssText='font-size:var(--mantine-font-size-lg,18px);font-weight:500;';htitle.textContent='Привязать клиента к клубу';
-    var hclose=document.createElement('button');
-    hclose.style.cssText='background:none;border:none;color:var(--mantine-color-dimmed);font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
-    hclose.textContent='×';hclose.addEventListener('click',function(){ov.remove();});
-    hdr.appendChild(htitle);hdr.appendChild(hclose);
+    // Закрытие
+    var closeBtn=section.querySelector('[class*="mantine-Modal-close"],[class*="CloseButton"]');
+    if(closeBtn) closeBtn.addEventListener('click',function(){ov.remove();});
+    var cancelBtn=section.querySelector('button[data-variant="outline"]');
+    if(cancelBtn) cancelBtn.addEventListener('click',function(){ov.remove();});
 
-    var body=document.createElement('div');
-    body.style.cssText='padding:20px;display:flex;flex-direction:column;gap:16px;';
+    // Фокус на инпут
+    var phoneInput=section.querySelector('input[name="phoneNumber"],input[placeholder*="000"]');
+    if(phoneInput) setTimeout(function(){phoneInput.focus();},100);
 
-    var desc=document.createElement('p');
-    desc.style.cssText='font-size:var(--mantine-font-size-sm,14px);color:var(--mantine-color-text);margin:0;';
-    desc.textContent='Введите номер телефона клиента, с которым он регистрировался в GamerID.';
+    // Кнопка Найти — логика
+    var submitBtn=section.querySelector('button[type="submit"],button[data-variant="filled"]');
+    var errEl=section.querySelector('[class*="InputWrapper-error"]');
 
-    var label=document.createElement('label');
-    label.style.cssText='display:flex;flex-direction:column;gap:6px;font-size:var(--mantine-font-size-sm,14px);font-weight:500;';
-    label.textContent='Номер телефона ';
-    var req=document.createElement('span');req.style.color='#e03131';req.textContent='*';
-    label.appendChild(req);
-
-    var inp=document.createElement('input');
-    inp.type='tel';
-    inp.placeholder='+7 (900) 000-00-00';
-    inp.autocomplete='tel';
-    inp.style.cssText='border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-sm,6px);padding:8px 12px;font-size:var(--mantine-font-size-sm,14px);font-family:inherit;background:var(--mantine-color-default);color:var(--mantine-color-text);outline:none;width:100%;box-sizing:border-box;transition:border-color 0.15s;';
-    inp.addEventListener('focus',function(){inp.style.borderColor='var(--mantine-color-gg_primary-filled)';});
-    inp.addEventListener('blur',function(){inp.style.borderColor='var(--mantine-color-default-border)';});
-
-    // Форматирование телефона +7 (XXX) XXX-XX-XX
-    inp.addEventListener('input',function(){
-        var raw=inp.value.replace(/\D/g,'');
-        if(!raw){inp.value='';return;}
-        // Приводим к 11 цифрам с 7 впереди
-        if(raw.startsWith('8'))raw='7'+raw.slice(1);
-        if(!raw.startsWith('7'))raw='7'+raw;
-        raw=raw.slice(0,11);
-        var f='+'+raw[0];
-        if(raw.length>1)f+=' ('+raw.slice(1,4);
-        if(raw.length>4)f+=') '+raw.slice(4,7);
-        if(raw.length>7)f+='-'+raw.slice(7,9);
-        if(raw.length>9)f+='-'+raw.slice(9,11);
-        inp.value=f;
-    });
-
-    var err=document.createElement('p');
-    err.style.cssText='font-size:12px;color:#e03131;margin:0;display:none;';
-
-    var ftr=document.createElement('div');
-    ftr.style.cssText='display:flex;gap:8px;justify-content:center;';
-
-    var btnCancel=document.createElement('button');
-    btnCancel.textContent='Отмена';
-    btnCancel.style.cssText='flex:1;padding:9px;border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-sm,6px);background:transparent;color:var(--mantine-color-text);font-size:var(--mantine-font-size-sm,14px);font-family:inherit;cursor:pointer;';
-    btnCancel.addEventListener('click',function(){ov.remove();});
-
-    var btnFind=document.createElement('button');
-    btnFind.textContent='Найти';
-    btnFind.style.cssText='flex:1;padding:9px;border:none;border-radius:var(--mantine-radius-sm,6px);background:var(--mantine-color-gg_primary-filled);color:#fff;font-size:var(--mantine-font-size-sm,14px);font-family:inherit;cursor:pointer;font-weight:600;transition:opacity 0.15s;';
-
-    ftr.appendChild(btnCancel);ftr.appendChild(btnFind);
-    label.appendChild(inp);
-    body.appendChild(desc);body.appendChild(label);body.appendChild(err);body.appendChild(ftr);
-    box.appendChild(hdr);box.appendChild(body);
-    ov.appendChild(box);document.body.appendChild(ov);
-    setTimeout(function(){inp.focus();inp.value='+7 ';},100);
+    function showErr(msg){
+        if(!errEl)return;
+        errEl.textContent=msg;
+        errEl.style.display=msg?'':'none';
+        var w=section.querySelector('[class*="InputWrapper-root"]');
+        if(w) w.setAttribute('data-error',msg?'true':'false');
+    }
 
     async function doFind(){
-        var raw=inp.value.replace(/\D/g,'');
-        if(raw.length<11){err.style.display='';err.textContent='Введите полный номер телефона';return;}
-        err.style.display='none';
-        btnFind.disabled=true;btnFind.textContent='Поиск...';btnFind.style.opacity='0.7';
+        if(!phoneInput) return;
+        var phone=phoneInput.value.trim();
+        if(!phone){showErr('Введите номер телефона');return;}
+        showErr('');
+        if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Поиск...';}
 
-        var phone='+'+raw;
         var res=await gql(
             'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$club_id}},limit:1){id balance_amount balance_bonus}}}',
             {phone:phone,club_id:14}
         );
 
-        if(!res||!res.data||!res.data.findUserByPhone){
-            btnFind.disabled=false;btnFind.textContent='Найти';btnFind.style.opacity='1';
-            err.style.display='';err.textContent='Пользователь не найден';return;
-        }
+        if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
+
+        if(!res||!res.data||!res.data.findUserByPhone){showErr('Пользователь не найден');return;}
         var user=res.data.findUserByPhone;
 
-        btnFind.textContent='Привязка...';
+        if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Привязка...';}
         var att=await gql(
             'mutation AttachUserToClubById($clubId:Int!,$userId:String!){attachUserToClub(params:{clubId:$clubId,userId:$userId}){success __typename}}',
             {clubId:14,userId:user.id}
         );
-        btnFind.disabled=false;btnFind.textContent='Найти';btnFind.style.opacity='1';
+        if(submitBtn){submitBtn.disabled=false;}
 
         var ok=att&&att.data&&att.data.attachUserToClub&&att.data.attachUserToClub.success;
         var alreadyOk=att&&att.errors&&att.errors[0]&&att.errors[0].message&&att.errors[0].message.indexOf('already')!==-1;
-        if(!ok&&!alreadyOk){err.style.display='';err.textContent='Ошибка привязки. Попробуйте ещё раз.';return;}
+        if(!ok&&!alreadyOk){showErr('Ошибка привязки');return;}
 
         ov.remove();
         openClientModal(user.id,user.users_wallets&&user.users_wallets[0]);
     }
 
-    btnFind.addEventListener('click',doFind);
-    inp.addEventListener('keydown',function(e){if(e.key==='Enter')doFind();if(e.key==='Escape')ov.remove();});
+    if(submitBtn) submitBtn.addEventListener('click',doFind);
+    var form=section.querySelector('form');
+    if(form) form.addEventListener('submit',function(e){e.preventDefault();doFind();});
     document.addEventListener('keydown',function escH(e){
         if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',escH);}
     });
@@ -239,17 +201,21 @@ function openAddClientModal(){
 
 function createSearchBtn(){
     if(document.getElementById('godji-search-btn')) return;
+    // Только на страницах с сайдбаром
     if(!document.querySelector('.Sidebar_linksInner__oTy_4')) return;
 
     var btn=document.createElement('a');
     btn.id='godji-search-btn';
+    // Берём className от нативной NavLink — всё стилизуется через CSS ERP
     var nativeLink = document.querySelector('a[href="/bookings"]') ||
                      document.querySelector('a.mantine-NavLink-root');
     btn.className = nativeLink ? nativeLink.className
         : 'mantine-focus-auto LinksGroup_navLink__qvSOI m_f0824112 mantine-NavLink-root m_87cf2631 mantine-UnstyledButton-root';
     btn.href='javascript:void(0)';
+    // Фиксированная позиция как раньше — архитектура скрипта
     btn.style.cssText='position:fixed;bottom:456px;left:0;z-index:199;width:280px;display:flex;align-items:center;';
 
+    // Иконка через ThemeIcon — точно как у нативных кнопок
     var sec=document.createElement('span');
     sec.className='m_690090b5 mantine-NavLink-section';
     sec.setAttribute('data-position','left');
@@ -268,9 +234,10 @@ function createSearchBtn(){
     body.className='m_f07af9d2 mantine-NavLink-body';
     body.appendChild(lbl);
 
+    // Кнопка добавления клиента справа
     var addBtn=document.createElement('div');
     addBtn.id='godji-add-client-btn';
-    addBtn.title='Привязать клиента к клубу';
+    addBtn.title='Добавить клиента';
     addBtn.style.cssText='width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--mantine-radius-sm);color:var(--mantine-color-dimmed);flex-shrink:0;margin-right:4px;transition:background 0.15s,color 0.15s;cursor:pointer;';
     addBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/></svg>';
     addBtn.addEventListener('mouseenter',function(){addBtn.style.background='var(--mantine-color-default-hover)';addBtn.style.color='var(--mantine-color-text)';});
@@ -288,6 +255,8 @@ function createSearchPanel(){
     if(_panel)return;
     var p=document.createElement('div');
     p.id='godji-search-panel';
+    // Фиксированная позиция прямо над кнопкой, не двигается
+    // Панель зажата между top:16px и bottom:502px — никуда не двигается
     p.style.cssText='position:fixed;top:16px;bottom:502px;left:0;width:280px;background:var(--mantine-color-body);border:1px solid var(--mantine-color-default-border);border-radius:var(--mantine-radius-md,8px);box-shadow:0 -4px 24px rgba(0,0,0,0.3);z-index:9999;display:none;flex-direction:column;font-family:var(--mantine-font-family);overflow:hidden;';
 
     var hw=document.createElement('div');
@@ -349,10 +318,19 @@ function renderResults(clients,container){
         var bon=w&&w.balance_bonus>0?' · '+Math.round(w.balance_bonus)+' G':'';
         var item=document.createElement('div');
         item.style.cssText='padding:8px 12px;cursor:pointer;transition:background 0.1s;'+(i>0?'border-top:1px solid var(--mantine-color-default-border)':'');
-        var hasNote=false;
-        try{var nr=localStorage.getItem('godji_note_v2_'+c.id);if(nr){var nd=JSON.parse(nr);hasNote=!!(nd&&nd.html&&nd.html.trim()&&nd.html!=='<br>');}}catch(e){}
-        var noteInd=hasNote?'<span title="Есть заметка" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#cc0001;flex-shrink:0;margin-left:4px;margin-top:3px;"></span>':'';
-        item.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;align-items:center;gap:4px;"><span style="font-size:var(--mantine-font-size-sm,14px);font-weight:600;color:var(--mantine-color-text);">'+esc(nick||name)+'</span>'+noteInd+'</div><span style="font-size:11px;color:var(--mantine-color-dimmed);white-space:nowrap;flex-shrink:0;">'+esc(bal+bon)+'</span></div>'+
+        // Проверяем есть ли заметка у клиента
+        var hasNote = false;
+        try {
+            var noteRaw = localStorage.getItem('godji_note_v2_' + c.id);
+            if (noteRaw) {
+                var noteData = JSON.parse(noteRaw);
+                hasNote = !!(noteData && noteData.html && noteData.html.trim() && noteData.html !== '<br>');
+            }
+        } catch(e) {}
+        var noteIndicator = hasNote
+            ? '<span title="Есть заметка" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#cc0001;flex-shrink:0;margin-left:4px;margin-top:3px;"></span>'
+            : '';
+        item.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;align-items:center;gap:4px;"><span style="font-size:var(--mantine-font-size-sm,14px);font-weight:600;color:var(--mantine-color-text);">'+esc(nick||name)+'</span>'+noteIndicator+'</div><span style="font-size:11px;color:var(--mantine-color-dimmed);white-space:nowrap;flex-shrink:0;">'+esc(bal+bon)+'</span></div>'+
             '<div style="font-size:11px;color:var(--mantine-color-dimmed);margin-top:2px;display:flex;gap:8px;">'+(nick?'<span>'+esc(name)+'</span>':'')+(c.phone?'<span>'+esc(c.phone)+'</span>':'')+'</div>';
         item.addEventListener('mouseenter',function(){item.style.background='var(--mantine-color-default-hover)';});
         item.addEventListener('mouseleave',function(){item.style.background='';});
@@ -362,7 +340,7 @@ function renderResults(clients,container){
 }
 
 // === CLIENT MODAL (iframe) ===
-function openClientModal(clientId){
+function openClientModal(clientId, clientWallet){
     if(_modal){_modal.remove();_modal=null;}
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -379,32 +357,34 @@ function openClientModal(clientId){
     openFull.href='/clients/'+clientId;openFull.target='_blank';
     openFull.style.cssText='font-size:12px;color:var(--mantine-color-dimmed);text-decoration:none;padding:3px 8px;border-radius:4px;border:1px solid var(--mantine-color-default-border);';
     openFull.textContent='↗ Открыть';
+
     var cls=document.createElement('button');
     cls.style.cssText='background:none;border:none;color:var(--mantine-color-dimmed);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;';
     cls.textContent='×';cls.addEventListener('click',function(){ov.remove();_modal=null;});
     btns.appendChild(openFull);btns.appendChild(cls);
     hdr.appendChild(title);hdr.appendChild(btns);
 
-    // iframeWrap с overflow:hidden — сайдбар уедет за левый край
     var iframeWrap=document.createElement('div');
     iframeWrap.style.cssText='flex:1;overflow:hidden;position:relative;min-height:0;';
-
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    // Ширина 100% — не расширяем модалку.
-    // Смещаем влево через margin-left чтобы сайдбар (~300px) ушёл за левый край.
-    // overflow:hidden на wrap обрезает то что левее.
-    iframe.style.cssText='border:none;width:calc(100% + 300px);height:100%;margin-left:-300px;opacity:0;transition:opacity 0.2s;display:block;';
+    // margin-left:-300px + width:calc(100%+300px) = iframe занимает весь контейнер
+    // но сдвинут влево на 300px → сайдбар уходит за левый край (overflow:hidden на wrap обрезает)
+    iframe.style.cssText='border:none;width:calc(100% + 300px);margin-left:-300px;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
 
+    // Элементы для скрытия
     var _SELECTORS=[
         '.mantine-AppShell-navbar',
         '.Sidebar_navbar__h0i17',
+        '.Sidebar_header__dm6Ua',
         '[class*="Sidebar_navbar"]',
+        '[class*="Sidebar_header"]',
+        '.mantine-Breadcrumbs-root',
     ];
 
     function hideEl(el){
         if(!el||el._gcsHidden)return;
-        el.style.display='none';
+        el.style.cssText='display:none';
         el._gcsHidden=true;
     }
 
@@ -412,31 +392,34 @@ function openClientModal(clientId){
         try{
             var idoc=iframe.contentDocument||iframe.contentWindow.document;
             if(!idoc||!idoc.body)return;
-            _SELECTORS.forEach(function(sel){idoc.querySelectorAll(sel).forEach(hideEl);});
-            // Скрываем godji-элементы кроме нужных
+            // Скрываем sidebar и шапку
+            _SELECTORS.forEach(function(sel){
+                idoc.querySelectorAll(sel).forEach(hideEl);
+            });
+            // Скрываем все godji-* элементы кроме кнопки списания
             idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
                 if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                 hideEl(el);
             });
-            // Убираем padding-left у main и сдвигаем контент к левому краю
-            var main=idoc.querySelector('.mantine-AppShell-main,.Layout_mainContent__xcKGS');
+            // Убираем отступы у main
+            var main=idoc.querySelector('.mantine-AppShell-main');
             if(main){
-                main.style.paddingLeft='16px';
+                main.style.paddingLeft='0';
                 main.style.marginLeft='0';
-                main.style.paddingTop='12px';
+                main.style.paddingTop='0';
             }
-            // CSS-переменные: убираем отступ под navbar
-            var root=idoc.querySelector(':root');
+            // CSS переменные на documentElement (для корректного позиционирования внутренних модалок)
+            try{
+                idoc.documentElement.style.setProperty('--app-shell-navbar-width','0px','important');
+                idoc.documentElement.style.setProperty('--app-shell-navbar-offset','0px','important');
+                idoc.documentElement.style.setProperty('--app-shell-header-height','0px','important');
+            }catch(ee){}
+            // CSS переменные на root
+            var root=idoc.querySelector('.mantine-AppShell-root,[class*="Layout_appShell"]');
             if(root){
-                try{
-                    idoc.documentElement.style.setProperty('--app-shell-navbar-width','0px','important');
-                    idoc.documentElement.style.setProperty('--app-shell-navbar-offset','0px','important');
-                }catch(e){}
-            }
-            var appShell=idoc.querySelector('.mantine-AppShell-root,[class*="Layout_appShell"]');
-            if(appShell){
-                appShell.style.setProperty('--app-shell-navbar-width','0px','important');
-                appShell.style.setProperty('--app-shell-navbar-offset','0px','important');
+                root.style.setProperty('--app-shell-navbar-width','0px','important');
+                root.style.setProperty('--app-shell-navbar-offset','0px','important');
+                root.style.setProperty('--app-shell-header-height','0px','important');
             }
             iframe.style.opacity='1';
         }catch(e){}
@@ -446,13 +429,18 @@ function openClientModal(clientId){
         try{
             var idoc=iframe.contentDocument||iframe.contentWindow.document;
             if(!idoc||!idoc.body)return;
+            // Только childList — без attributes чтобы не вызвать бесконечный цикл
             new MutationObserver(function(muts){
                 muts.forEach(function(m){
                     m.addedNodes.forEach(function(n){
                         if(n.nodeType!==1)return;
                         var cn=typeof n.className==='string'?n.className:'';
-                        if(cn.indexOf('AppShell-navbar')!==-1||cn.indexOf('Sidebar_navbar')!==-1){hideEl(n);}
-                        _SELECTORS.forEach(function(sel){if(n.querySelectorAll)n.querySelectorAll(sel).forEach(hideEl);});
+                        if(cn.indexOf('AppShell-navbar')!==-1||
+                           cn.indexOf('Sidebar_navbar')!==-1||
+                           cn.indexOf('Sidebar_header')!==-1){hideEl(n);}
+                        _SELECTORS.forEach(function(sel){
+                            if(n.querySelectorAll)n.querySelectorAll(sel).forEach(hideEl);
+                        });
                         if(n.id&&n.id.indexOf('godji')===0&&n.id!=='godji-debit-btn'&&n.id!=='godji-debit-overlay'&&n.id!=='godji-client-note')hideEl(n);
                         if(n.querySelectorAll)n.querySelectorAll('[id^="godji"]').forEach(function(el){
                             if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
@@ -465,8 +453,10 @@ function openClientModal(clientId){
     }
 
     iframe.onload=function(){
+        // Показываем iframe через 2 сек в любом случае
         setTimeout(function(){iframe.style.opacity='1';},2000);
         attachIframeObserver();
+        // Быстрый polling пока sidebar не скрыт
         var attempts=0;
         var timer=setInterval(function(){
             attempts++;
