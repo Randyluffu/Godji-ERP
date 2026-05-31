@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — TightVNC [Парх]
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @exclude      https://godji.cloud/tv/*
@@ -16,35 +16,35 @@ var PROXY = 'http://localhost:6080';
 var CLUB_ID = 15;
 
 // Карта филиала Парх (clubId=15)
-// Координаты из DeviceItem на devicesLayer (750x1333) — замер без скролла
+// Координаты из DeviceItem на devicesLayer (750x1333) — прямой замер из DOM
 var LAYER_W = 750, LAYER_H = 1333;
 var MAP_IMG = 'https://goodgame-prod.storage.yandexcloud.net/tmp-55-1766578732533';
-var CARD_ORIG = 61; // реальный размер карточки в layer coords
+var CARD_ORIG = 40; // реальный размер карточки в layer coords
 
-// Обрезка bbox всех ПК с запасом для видимости комнат
+// Обрезка с запасом для видимости комнат
 var CROP_X = 23, CROP_Y = 217, CROP_W = 714, CROP_H = 918;
 var POPUP_W = 560;
 var MAP_SCALE = POPUP_W / CROP_W;
 var POPUP_H = Math.round(CROP_H * MAP_SCALE);
 
-// Координаты left-top угла карточек в layer coords (750x1333)
+// Точные координаты left-top из DOM (layer 750x1333)
 var PC_POS = {
-    '1': {x:305,y:1045}, '2': {x:243,y:1045}, '3': {x:180,y:1045},
-    '4': {x:180,y:908},  '5': {x:242,y:908},
-    '6': {x:168,y:736},  '7': {x:242,y:736},  '8': {x:318,y:736},
-    '9': {x:390,y:736},  '10': {x:390,y:695}, '11': {x:318,y:695},
-    '12': {x:243,y:695}, '13': {x:168,y:695},
-    '14': {x:170,y:577}, '15': {x:243,y:577}, '16': {x:318,y:575},
-    '17': {x:393,y:575}, '18': {x:393,y:533}, '19': {x:318,y:533},
-    '20': {x:243,y:533}, '21': {x:170,y:533},
-    '22': {x:53,y:605},  '23': {x:53,y:550},
-    '24': {x:422,y:272}, '25': {x:422,y:325},
-    '26': {x:500,y:247}, '27': {x:573,y:247}, '28': {x:643,y:247},
-    '29': {x:642,y:375}, '30': {x:575,y:377},
-    '31': {x:575,y:442}, '32': {x:647,y:442},
-    '33': {x:643,y:608}, '34': {x:575,y:607},
-    '35': {x:642,y:720}, '36': {x:575,y:720},
-    '37': {x:573,y:783}
+    '1': {x:305,y:1044}, '2': {x:243,y:1044}, '3': {x:180,y:1044},
+    '4': {x:180,y:909},  '5': {x:241,y:909},
+    '6': {x:168,y:737},  '7': {x:242,y:737},  '8': {x:317,y:737},
+    '9': {x:390,y:736},  '10': {x:390,y:694}, '11': {x:317,y:695},
+    '12': {x:242,y:696}, '13': {x:169,y:694},
+    '14': {x:170,y:576}, '15': {x:244,y:576}, '16': {x:318,y:576},
+    '17': {x:393,y:576}, '18': {x:393,y:532}, '19': {x:318,y:533},
+    '20': {x:244,y:533}, '21': {x:170,y:533},
+    '22': {x:53,y:604},  '23': {x:53,y:550},
+    '24': {x:421,y:272}, '25': {x:421,y:325},
+    '26': {x:501,y:247}, '27': {x:573,y:247}, '28': {x:643,y:247},
+    '29': {x:641,y:375}, '30': {x:574,y:376},
+    '31': {x:576,y:442}, '32': {x:646,y:442},
+    '33': {x:643,y:608}, '34': {x:574,y:606},
+    '35': {x:641,y:720}, '36': {x:575,y:719},
+    '37': {x:573,y:782}
 };
 
 // ── Тост ─────────────────────────────────────────────────
@@ -218,7 +218,7 @@ function renderMap(mapWrap, data, busySet){
     img.style.cssText='position:absolute;left:'+bgOffX+'px;top:'+bgOffY+'px;width:'+bgW+'px;height:'+bgH+'px;display:block;';
     bgWrap.appendChild(img); mapWrap.appendChild(bgWrap);
 
-    var CARD=33;
+    var CARD=31;
     Object.keys(PC_POS).forEach(function(name){
         var pos=PC_POS[name];
         var cx=pos.x+CARD_ORIG/2;
