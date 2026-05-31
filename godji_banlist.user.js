@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -285,14 +285,24 @@ setInterval(watchForBannedSessions, 5000);
 // ── Кнопка бана на карточке клиента /clients/:id ─────────
 function injectClientPageBanBtn(forcedClientId){
     if(document.getElementById('godji-ban-client-btn')) return;
-    var _path = (window.frameElement && window.frameElement.src) ? new URL(window.frameElement.src).pathname : window.location.pathname;
-    var m=_path.match(/\/clients\/([a-f0-9-]{36})/) || (forcedClientId ? [null, forcedClientId] : null);
+    // Определяем clientId: явный параметр → URL iframe → URL страницы
+    var _clientId = forcedClientId;
+    if(!_clientId) {
+        var _checkSrc = (window.frameElement && window.frameElement.src) ? window.frameElement.src : '';
+        var _path = _checkSrc ? new URL(_checkSrc).pathname : window.location.pathname;
+        var _m = _path.match(/\/clients\/([a-f0-9-]{36})/);
+        if(_m) _clientId = _m[1];
+    }
+    var m = _clientId ? [null, _clientId] : null;
     if(!m) return;
     var clientId=m[1];
 
-    var avatarEl=document.querySelector('.mantine-Avatar-root[data-size="xl"]');
+    // Ищем аватар клиента — data-size может быть xl или lg в разных версиях ERP
+    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]')
+                || document.querySelector('.mantine-Avatar-root[data-size="lg"]')
+                || document.querySelector('.mantine-Avatar-root');
     if(!avatarEl) return;
-    var avatarRow=avatarEl.closest('[class*="Flex-root"]');
+    var avatarRow = avatarEl.closest('[class*="Flex-root"]');
     if(!avatarRow) return;
 
     var nick='', name='';
@@ -612,7 +622,9 @@ window._godjiInjectBanBtn = function(clientId, _attempt) {
     _attempt = _attempt || 0;
     if(_attempt > 20) return; // не ждём больше 10 секунд
     // Ждём пока карточка клиента полностью загрузится
-    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]');
+    var avatarEl = document.querySelector('.mantine-Avatar-root[data-size="xl"]')
+                   || document.querySelector('.mantine-Avatar-root[data-size="lg"]')
+                   || document.querySelector('.mantine-Avatar-root');
     if(!avatarEl) {
         setTimeout(function(){ window._godjiInjectBanBtn(clientId, _attempt+1); }, 500);
         return;
