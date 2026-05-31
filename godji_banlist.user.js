@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -12,7 +12,7 @@
 'use strict';
 
 var STORAGE_KEY = 'godji_banlist_v1';
-var CLUB_ID = 14;
+var CLUB_ID = 14; // обновляется через _godjiGetClubId
 
 // ── localStorage ─────────────────────────────────────────
 function loadBanlist(){
