@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.3
+// @version      5.30
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -14,21 +14,18 @@
 (function(){
 'use strict';
 
-var _clubId_cs = 14; // обновляется через _godjiGetClubId
-function _getClubId(){ return _clubId_cs; }
-
 var _tok=null,_role='club_admin',_oF=window.fetch;
 window.fetch=function(url,opts){
     if(opts&&opts.headers&&opts.headers.authorization){_tok=opts.headers.authorization;_role=opts.headers['x-hasura-role']||'club_admin';}
     return _oF.apply(this,arguments);
 };
-function hdrs(){var t=_tok||window._godjiAuthToken;
-  if(t&&typeof window._godjiGetClubId==="function")window._godjiGetClubId(t,_role||'club_admin').then(function(id){if(id)_clubId_cs=id;});if(!t)return null;return{'authorization':t,'content-type':'application/json','x-hasura-role':_role||'club_admin'};}
+function hdrs(){var t=_tok||window._godjiAuthToken;if(!t)return null;return{'authorization':t,'content-type':'application/json','x-hasura-role':_role||'club_admin'};}
 async function gql(q,v){var h=hdrs();if(!h)return null;try{var r=await _oF('https://hasura.godji.cloud/v1/graphql',{method:'POST',headers:h,body:JSON.stringify({query:q,variables:v})});return await r.json();}catch(e){return null;}}
 
 async function searchClients(q){
     if(!q.trim())return[];
-    var res=await gql('query S($q:String!){users(where:{role:{_eq:user},_or:[{users_user_profile:{login:{_ilike:$q}}},{users_user_profile:{name:{_ilike:$q}}},{users_user_profile:{surname:{_ilike:$q}}},{phone:{_ilike:$q}}]},limit:20){id phone users_user_profile{name surname login}users_wallets(limit:1){balance_amount balance_bonus}}}',{q:'%'+q.trim()+'%'});
+    var c=await getClubId();
+    var res=await gql('query S($q:String!,$c:Int!){users(where:{role:{_eq:user},users_wallets:{club_id:{_eq:$c}},_or:[{users_user_profile:{login:{_ilike:$q}}},{users_user_profile:{name:{_ilike:$q}}},{users_user_profile:{surname:{_ilike:$q}}},{phone:{_ilike:$q}}]},limit:20){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$c}},limit:1){balance_amount balance_bonus}}}',{q:'%'+q.trim()+'%',c:c});
     var users=res&&res.data&&res.data.users?res.data.users:[];
     var digits=q.replace(/\D/g,'');
     if(digits.length>=4){
@@ -44,6 +41,38 @@ async function searchClients(q){
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 var _panel=null,_modal=null,_st=null,_colOpen=false,_sbObs=null;
+var _clubId=null;
+
+// Определяем clubId текущего клуба — из URL или из API, кэшируем в localStorage на 7 дней
+async function getClubId(){
+    if(_clubId) return _clubId;
+    var CACHE_KEY='godji_club_id_cache';
+    var CACHE_TTL=7*24*60*60*1000; // 7 дней
+    try{
+        var raw=localStorage.getItem(CACHE_KEY);
+        if(raw){
+            var obj=JSON.parse(raw);
+            if(obj&&obj.id&&(Date.now()-obj.ts)<CACHE_TTL){
+                _clubId=obj.id;return _clubId;
+            }
+        }
+    }catch(e){}
+    // Получаем из API — список клубов текущего пользователя
+    var res=await gql('query{club_admins(limit:1){club_id}}',{});
+    var id=res&&res.data&&res.data.club_admins&&res.data.club_admins[0]&&res.data.club_admins[0].club_id;
+    if(!id){
+        // Fallback: ищем clubId в URL страницы или в DOM
+        var m=window.location.search.match(/clubId=(\d+)/);
+        if(m) id=parseInt(m[1]);
+    }
+    if(!id){
+        // Fallback: смотрим в тексте страницы (ERP часто передаёт clubId в запросах)
+        id=14; // последний резерв
+    }
+    _clubId=id;
+    try{localStorage.setItem(CACHE_KEY,JSON.stringify({id:id,ts:Date.now()}));}catch(e){}
+    return _clubId;
+}
 
 // === SIDEBAR COLLAPSE ===
 function getNavLink(text){
@@ -170,9 +199,10 @@ function openAddClientModal(){
         showErr('');
         if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Поиск...';}
 
+        // Ищем по всей сети — без фильтра по клубу, чтобы найти нового клиента
         var res=await gql(
-            'query findUserByPhone($phone:String!,$club_id:Int!){findUserByPhone(params:{phone:$phone,clubId:$club_id}){id phone users_user_profile{name surname login}users_wallets(where:{club_id:{_eq:$club_id}},limit:1){id balance_amount balance_bonus}}}',
-            {phone:phone,club_id:_getClubId()}
+            'query findUserByPhone($phone:String!){findUserByPhone(params:{phone:$phone}){id phone users_user_profile{name surname login}users_wallets{id club_id balance_amount balance_bonus}}}',
+            {phone:phone}
         );
 
         if(submitBtn){submitBtn.disabled=false;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Найти';}
@@ -180,17 +210,7 @@ function openAddClientModal(){
         if(!res||!res.data||!res.data.findUserByPhone){showErr('Пользователь не найден');return;}
         var user=res.data.findUserByPhone;
 
-        if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Привязка...';}
-        var att=await gql(
-            'mutation AttachUserToClubById($clubId:Int!,$userId:String!){attachUserToClub(params:{clubId:$clubId,userId:$userId}){success __typename}}',
-            {clubId:_getClubId(),userId:user.id}
-        );
-        if(submitBtn){submitBtn.disabled=false;}
-
-        var ok=att&&att.data&&att.data.attachUserToClub&&att.data.attachUserToClub.success;
-        var alreadyOk=att&&att.errors&&att.errors[0]&&att.errors[0].message&&att.errors[0].message.indexOf('already')!==-1;
-        if(!ok&&!alreadyOk){showErr('Ошибка привязки');return;}
-
+        // Просто открываем карточку клиента — привязка к клубу выполняется вручную через ERP
         ov.remove();
         openClientModal(user.id,user.users_wallets&&user.users_wallets[0]);
     }
@@ -424,6 +444,68 @@ function openClientModal(clientId, clientWallet){
                 root.style.setProperty('--app-shell-header-height','0px','important');
             }
             iframe.style.opacity='1';
+            // Показываем список клубов под "Статистика по сети клубов"
+            injectClubsList(idoc, clientId);
+        }catch(e){}
+    }
+
+    async function injectClubsList(idoc, userId){
+        try{
+            // Получаем список клубов к которым привязан клиент
+            var res=await gql(
+                'query GetUserClubs($userId:String!){users_wallets(where:{user_id:{_eq:$userId}}){club_id wallets_club{name}balance_amount balance_bonus}}',
+                {userId:userId}
+            );
+            var wallets=res&&res.data&&res.data.users_wallets;
+            if(!wallets||!wallets.length)return;
+
+            // Ищем блок "Статистика по сети клубов" в iframe
+            var attempts=0;
+            var timer=setInterval(function(){
+                attempts++;
+                if(attempts>30){clearInterval(timer);return;}
+                try{
+                    var allText=idoc.body.innerText||'';
+                    if(allText.indexOf('Статистика по сети клубов')===-1)return;
+                    clearInterval(timer);
+
+                    // Ищем элемент с этим текстом
+                    var els=idoc.querySelectorAll('p,span,div');
+                    var target=null;
+                    els.forEach(function(el){
+                        if(el.textContent.trim()==='Статистика по сети клубов') target=el;
+                    });
+                    if(!target)return;
+
+                    // Ищем родительский блок
+                    var block=target.closest('[class*="Paper"],[class*="card"],[class*="Card"]')||target.parentElement;
+                    if(!block)return;
+
+                    // Не добавляем дважды
+                    if(block.querySelector('#godji-clubs-list'))return;
+
+                    var div=idoc.createElement('div');
+                    div.id='godji-clubs-list';
+                    div.style.cssText='margin-top:12px;padding-top:12px;border-top:1px solid var(--mantine-color-default-border);';
+
+                    var title=idoc.createElement('p');
+                    title.style.cssText='font-size:var(--mantine-font-size-sm);font-weight:600;color:var(--mantine-color-text);margin-bottom:6px;';
+                    title.textContent='Привязан к клубам';
+                    div.appendChild(title);
+
+                    wallets.forEach(function(w){
+                        var clubName=w.wallets_club&&w.wallets_club.name||('Клуб '+w.club_id);
+                        var row=idoc.createElement('div');
+                        row.style.cssText='display:flex;justify-content:space-between;font-size:var(--mantine-font-size-xs);color:var(--mantine-color-dimmed);padding:2px 0;';
+                        row.innerHTML='<span>'+clubName+'</span><span>'+
+                            (w.balance_amount?Math.round(w.balance_amount)+' ₽':'')+
+                            (w.balance_bonus?' · '+Math.round(w.balance_bonus)+' G':'')+'</span>';
+                        div.appendChild(row);
+                    });
+
+                    block.appendChild(div);
+                }catch(ee){}
+            },300);
         }catch(e){}
     }
 
