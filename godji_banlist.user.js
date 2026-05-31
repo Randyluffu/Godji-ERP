@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Бан-лист
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Бан-лист клиентов с причиной, фото, автозавершением сеанса
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -283,9 +283,10 @@ function watchForBannedSessions(){
 setInterval(watchForBannedSessions, 5000);
 
 // ── Кнопка бана на карточке клиента /clients/:id ─────────
-function injectClientPageBanBtn(){
+function injectClientPageBanBtn(forcedClientId){
     if(document.getElementById('godji-ban-client-btn')) return;
-    var m=window.location.pathname.match(/\/clients\/([a-f0-9-]{36})/);
+    var _path = (window.frameElement && window.frameElement.src) ? new URL(window.frameElement.src).pathname : window.location.pathname;
+    var m=_path.match(/\/clients\/([a-f0-9-]{36})/) || (forcedClientId ? [null, forcedClientId] : null);
     if(!m) return;
     var clientId=m[1];
 
@@ -578,17 +579,25 @@ setInterval(function(){
 var _initDone=false, _lastPath=window.location.pathname;
 
 function init(){
+    // Проверяем и основной путь, и URL iframe если мы внутри него
     var path=window.location.pathname;
-    if(path.match(/\/clients\/[a-f0-9-]{36}/)) injectClientPageBanBtn();
-    if(path.startsWith('/clients')&&path.length<=10) injectBanTabs();
+    var iframePath = (window.frameElement && window.frameElement.src)
+        ? (function(){ try{return new URL(window.frameElement.src).pathname;}catch(e){return '';} })()
+        : '';
+    var activePath = iframePath || path;
+    if(activePath.match(/\/clients\/[a-f0-9-]{36}/)) injectClientPageBanBtn();
+    if(activePath.startsWith('/clients')&&activePath.length<=10) injectBanTabs();
 }
 
 setInterval(function(){
-    if(window.location.pathname!==_lastPath){ _lastPath=window.location.pathname; _initDone=false; setTimeout(init,1500); }
+    var iframePath = (window.frameElement && window.frameElement.src)
+        ? (function(){ try{return new URL(window.frameElement.src).pathname;}catch(e){return '';} })()
+        : '';
+    var curPath = iframePath || window.location.pathname;
+    if(curPath!==_lastPath){ _lastPath=curPath; _initDone=false; setTimeout(init,1500); }
     if(!_initDone){
-        var path=window.location.pathname;
-        if(path.match(/\/clients\/[a-f0-9-]{36}/)&&document.querySelector('.mantine-Avatar-root')){ injectClientPageBanBtn(); _initDone=true; }
-        if(path.startsWith('/clients')&&path.length<=10&&document.querySelector('.mantine-Tabs-list')){ injectBanTabs(); _initDone=true; }
+        if(curPath.match(/\/clients\/[a-f0-9-]{36}/)&&document.querySelector('.mantine-Avatar-root')){ injectClientPageBanBtn(); _initDone=true; }
+        if(curPath.startsWith('/clients')&&curPath.length<=10&&document.querySelector('.mantine-Tabs-list')){ injectBanTabs(); _initDone=true; }
     }
 },1000);
 
@@ -597,5 +606,15 @@ new MutationObserver(function(){ setTimeout(init,500); })
 
 setTimeout(init,2000);
 setTimeout(watchForBannedSessions,5000);
+
+// ── Экспорт для iframe (вызывается из client_search когда открывает карточку клиента) ──
+window._godjiInjectBanBtn = function(clientId) {
+    // Принудительно инжектируем кнопку бана для конкретного clientId
+    // Используется когда банлист работает в контексте iframe
+    var avatarEl=document.querySelector('.mantine-Avatar-root[data-size="xl"]');
+    if(!avatarEl) { setTimeout(function(){ window._godjiInjectBanBtn(clientId); }, 500); return; }
+    if(document.getElementById('godji-ban-client-btn')) return;
+    injectClientPageBanBtn();
+};
 
 })();
