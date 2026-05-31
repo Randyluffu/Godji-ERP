@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.15
+// @version      5.16
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -47,12 +47,14 @@
     // -------------------------------------------------------------------------
     function xhrGql(query, variables) {
         return new Promise(function (resolve, reject) {
+            var tok = authToken || window._godjiAuthToken || '';
+            var role = hasuraRole || window._godjiHasuraRole || 'club_admin';
             var xhr = new XMLHttpRequest();
             xhr.open('POST', API_URL, true);
             xhr.setRequestHeader('accept', '*/*');
             xhr.setRequestHeader('content-type', 'application/json');
-            xhr.setRequestHeader('authorization', authToken || '');
-            xhr.setRequestHeader('x-hasura-role', hasuraRole);
+            xhr.setRequestHeader('authorization', tok);
+            xhr.setRequestHeader('x-hasura-role', role);
             xhr.onload = function () {
                 try { resolve(JSON.parse(xhr.responseText)); }
                 catch (e) { reject(e); }
@@ -120,8 +122,12 @@
             }
         }
 
-        // Ждём токен (появится когда страница сделает первый запрос)
+        // Ждём токен — берём из своего хука или из глобального (установленного другими скриптами)
         var _tokenWait = setInterval(function() {
+            if (!authToken && window._godjiAuthToken) {
+                authToken = window._godjiAuthToken;
+                hasuraRole = window._godjiHasuraRole || 'club_admin';
+            }
             if (authToken) { clearInterval(_tokenWait); tryPoll(); }
         }, 500);
     }
@@ -173,7 +179,7 @@
 
             if (!activeIds.length) return;
 
-            var ids = activeIds.map(function (x) { return x.sessionId; });
+            var ids = activeIds.map(function (x) { return parseInt(x.sessionId, 10); });
             // Шаг 2: time_to из reservations
             xhrGql(
                 'query($ids:[Int!]!) { reservations(where:{id:{_in:$ids}}) { id time_to } }',
@@ -491,9 +497,25 @@
         var session = sessionsData[pcName];
         if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
         if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
-        if (!session.timeTo)   { notify('Нет данных об остатке времени. Подождите обновления.', 'err'); return; }
 
-        var msLeft       = new Date(session.timeTo).getTime() - Date.now();
+        // timeTo может быть null если поллинг ещё не получил reservations — запрашиваем напрямую
+        var timeToPromise;
+        if (session.timeTo) {
+            timeToPromise = Promise.resolve(session.timeTo);
+        } else {
+            timeToPromise = xhrGql(
+                'query($id:Int!){reservations(where:{id:{_eq:$id}}){id time_to}}',
+                { id: parseInt(session.sessionId, 10) }
+            ).then(function(r) {
+                var res = r && r.data && r.data.reservations && r.data.reservations[0];
+                if (!res || !res.time_to) throw new Error('Нет данных об остатке времени');
+                session.timeTo = res.time_to;
+                return res.time_to;
+            });
+        }
+
+        timeToPromise.then(function(timeTo) {
+        var msLeft       = new Date(timeTo).getTime() - Date.now();
         var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
         var walletId     = session.walletId;
         var oldSessionId = session.sessionId;
@@ -605,6 +627,9 @@
             });
         })
         .catch(function (err) {
+            notify('ПК ' + pcName + ': ошибка — ' + (err.message || err), 'err');
+        });
+        }).catch(function(err) {
             notify('ПК ' + pcName + ': ошибка — ' + (err.message || err), 'err');
         });
     }
