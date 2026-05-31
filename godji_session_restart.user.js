@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.12
+// @version      5.13
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -14,10 +14,12 @@
 (function () {
     'use strict';
 
+    // clubId определяется из cookie/localStorage — работает на любом филиале
+    function CLUB_ID() { return (typeof window._godjiClubId === 'function') ? window._godjiClubId() : 14; }
+
     var BUTTON_ID = 'godji-restart-btn';
     var API_URL   = 'https://hasura.godji.cloud/v1/graphql';
-    var CLUB_ID   = 14; // будет обновлён через _godjiGetClubId()
-
+    
     var sessionsData  = {};
     var lastContextPc = null;
     var authToken     = null;
@@ -73,9 +75,6 @@
                 if (opts && opts.headers && opts.headers.authorization) {
                     authToken = opts.headers.authorization;
                     window._godjiAuthToken = authToken;
-                    if(typeof window._godjiGetClubId==="function"){
-                        window._godjiGetClubId(authToken,hasuraRole).then(function(id){CLUB_ID=id;});
-                    }
                     if (opts.headers['x-hasura-role']) {
                         hasuraRole = opts.headers['x-hasura-role'];
                         window._godjiHasuraRole = hasuraRole;
