@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Мультивыбор ПК
 // @namespace    http://tampermonkey.net/
-// @version      5.12
+// @version      5.13
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_multi_select.user.js
@@ -12,6 +12,7 @@
 
 (function () {
     'use strict';
+window._godjiCachedClubId = window._godjiCachedClubId || 14;
 
     if (window.location.pathname !== '/' && window.location.pathname !== '') return;
 
@@ -24,6 +25,9 @@
         if (options && options.headers && options.headers.authorization) {
             _authToken = options.headers.authorization;
             _hasuraRole = options.headers['x-hasura-role'] || 'club_admin';
+            if(typeof window._godjiGetClubId==="function"){
+                window._godjiGetClubId(_authToken,_hasuraRole).then(function(id){if(id)window._godjiCachedClubId=id;});
+            }
         }
         return _origFetch.apply(this, arguments);
     };
@@ -159,7 +163,7 @@
     async function fetchSessionsForSelected() {
         var h = getHeaders();
         if (!h) return {};
-        var clubId = parseInt((document.cookie.match(/clubId=(\d+)/) || [])[1] || '14');
+        var clubId = parseInt((document.cookie.match(/clubId=(\d+)/) || [])[1] || '0') || (window._godjiCachedClubId || 14);
         try {
             var res = await _origFetch('https://hasura.godji.cloud/v1/graphql', {
                 method: 'POST', headers: h,
