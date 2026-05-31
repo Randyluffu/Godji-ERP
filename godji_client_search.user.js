@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.30
+// @version      5.31
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -183,6 +183,11 @@ function openAddClientModal(){
     // Кнопка Найти — логика
     var submitBtn=section.querySelector('button[type="submit"],button[data-variant="filled"]');
     var errEl=section.querySelector('[class*="InputWrapper-error"]');
+    // Убираем состояние ошибки при инициализации (ERP может рендерить с data-error=true)
+    if(errEl){errEl.style.display='none';errEl.textContent='';}
+    var inputWrapper=section.querySelector('[class*="InputWrapper-root"]');
+    if(inputWrapper) inputWrapper.setAttribute('data-error','false');
+    if(submitBtn){submitBtn.disabled=false;submitBtn.removeAttribute('data-disabled');}
 
     function showErr(msg){
         if(!errEl)return;
@@ -444,6 +449,23 @@ function openClientModal(clientId, clientWallet){
                 root.style.setProperty('--app-shell-header-height','0px','important');
             }
             iframe.style.opacity='1';
+
+            // Компенсируем сдвиг iframe для модалок (position:fixed сдвинут вместе с iframe)
+            var styleEl=idoc.createElement('style');
+            styleEl.id='godji-iframe-fix-style';
+            styleEl.textContent=[
+                // Все порталы Mantine и fixed элементы — компенсируем смещение iframe
+                '[data-portal="true"],[class*="mantine-Modal-root"],[class*="mantine-Overlay-root"]{',
+                '  margin-left:300px!important;',
+                '  width:calc(100% - 300px)!important;',
+                '}',
+                // Убираем горизонтальный скролл
+                'body{overflow-x:hidden!important;}',
+                // Navbar скрыт
+                '.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]{display:none!important;}',
+            ].join('');
+            if(!idoc.getElementById('godji-iframe-fix-style')) idoc.head.appendChild(styleEl);
+
             // Показываем список клубов под "Статистика по сети клубов"
             injectClubsList(idoc, clientId);
         }catch(e){}
@@ -451,7 +473,6 @@ function openClientModal(clientId, clientWallet){
 
     async function injectClubsList(idoc, userId){
         try{
-            // Получаем список клубов к которым привязан клиент
             var res=await gql(
                 'query GetUserClubs($userId:String!){users_wallets(where:{user_id:{_eq:$userId}}){club_id wallets_club{name}balance_amount balance_bonus}}',
                 {userId:userId}
@@ -459,53 +480,52 @@ function openClientModal(clientId, clientWallet){
             var wallets=res&&res.data&&res.data.users_wallets;
             if(!wallets||!wallets.length)return;
 
-            // Ищем блок "Статистика по сети клубов" в iframe
             var attempts=0;
             var timer=setInterval(function(){
                 attempts++;
-                if(attempts>30){clearInterval(timer);return;}
+                if(attempts>40){clearInterval(timer);return;}
                 try{
-                    var allText=idoc.body.innerText||'';
-                    if(allText.indexOf('Статистика по сети клубов')===-1)return;
-                    clearInterval(timer);
+                    if(idoc.getElementById('godji-clubs-list')){clearInterval(timer);return;}
 
-                    // Ищем элемент с этим текстом
-                    var els=idoc.querySelectorAll('p,span,div');
+                    // Ищем элемент содержащий текст "Статистика по сети"
                     var target=null;
-                    els.forEach(function(el){
-                        if(el.textContent.trim()==='Статистика по сети клубов') target=el;
+                    idoc.querySelectorAll('p,span,h3,h4,div').forEach(function(el){
+                        if(!target && el.children.length===0 &&
+                           el.textContent.indexOf('Статистика по сети')!==-1) target=el;
                     });
                     if(!target)return;
+                    clearInterval(timer);
 
-                    // Ищем родительский блок
-                    var block=target.closest('[class*="Paper"],[class*="card"],[class*="Card"]')||target.parentElement;
-                    if(!block)return;
-
-                    // Не добавляем дважды
-                    if(block.querySelector('#godji-clubs-list'))return;
+                    // Поднимаемся до блока-карточки
+                    var block=target;
+                    for(var i=0;i<6;i++){
+                        if(!block.parentElement)break;
+                        block=block.parentElement;
+                        var cn=block.className||'';
+                        if(cn.indexOf('Paper')!==-1||cn.indexOf('card')!==-1||cn.indexOf('Card')!==-1) break;
+                    }
 
                     var div=idoc.createElement('div');
                     div.id='godji-clubs-list';
-                    div.style.cssText='margin-top:12px;padding-top:12px;border-top:1px solid var(--mantine-color-default-border);';
+                    div.style.cssText='margin-top:12px;padding-top:10px;border-top:1px solid var(--mantine-color-default-border,#e9ecef);';
 
                     var title=idoc.createElement('p');
-                    title.style.cssText='font-size:var(--mantine-font-size-sm);font-weight:600;color:var(--mantine-color-text);margin-bottom:6px;';
+                    title.style.cssText='font-size:13px;font-weight:600;margin-bottom:6px;';
                     title.textContent='Привязан к клубам';
                     div.appendChild(title);
 
                     wallets.forEach(function(w){
-                        var clubName=w.wallets_club&&w.wallets_club.name||('Клуб '+w.club_id);
+                        var name=w.wallets_club&&w.wallets_club.name||('Клуб '+w.club_id);
                         var row=idoc.createElement('div');
-                        row.style.cssText='display:flex;justify-content:space-between;font-size:var(--mantine-font-size-xs);color:var(--mantine-color-dimmed);padding:2px 0;';
-                        row.innerHTML='<span>'+clubName+'</span><span>'+
-                            (w.balance_amount?Math.round(w.balance_amount)+' ₽':'')+
-                            (w.balance_bonus?' · '+Math.round(w.balance_bonus)+' G':'')+'</span>';
+                        row.style.cssText='display:flex;justify-content:space-between;font-size:11px;color:var(--mantine-color-dimmed,#868e96);padding:2px 0;';
+                        row.innerHTML='<span>'+name+'</span><span>'+
+                            (w.balance_amount?Math.round(w.balance_amount)+' ₽':'')+
+                            (w.balance_bonus?' · '+Math.round(w.balance_bonus)+' G':'')+'</span>';
                         div.appendChild(row);
                     });
-
                     block.appendChild(div);
                 }catch(ee){}
-            },300);
+            },400);
         }catch(e){}
     }
 
