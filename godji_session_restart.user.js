@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.30
+// @version      5.31
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -562,7 +562,9 @@
                     if (!cr || !cr.data || !cr.data.userReservationCancel || !cr.data.userReservationCancel.success) {
                         throw new Error('Не удалось завершить сеанс');
                     }
-
+                    // Ждём 4 секунды — ERP должен закрыть резервацию на своей стороне
+                    return new Promise(function(resolve){ setTimeout(resolve, 4000); });
+                }).then(function() {
                     if (!wasPackage) {
                         // ПОЧАСОВОЙ: начисляем бонусы на стоимость остатка → создаём сеанс
                         var minuteCost = Math.ceil(minuteTariff.cost * remainMin);
@@ -572,7 +574,6 @@
                             var now = Date.now();
                             return createSession(deviceId, userId, minuteTariff.id, now, now + remainMin * 60000);
                         });
-
                     } else {
                         // -------------------------------------------------------
                         // ПАКЕТНЫЙ → ПАКЕТНЫЙ
