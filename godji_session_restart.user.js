@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.31
+// @version      5.33
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -14,12 +14,27 @@
 (function () {
     'use strict';
 
-    // clubId определяется из cookie/localStorage — работает на любом филиале
-    function CLUB_ID() { return (typeof window._godjiClubId === 'function') ? window._godjiClubId() : 14; }
-
     var BUTTON_ID = 'godji-restart-btn';
     var API_URL   = 'https://hasura.godji.cloud/v1/graphql';
-    
+    var CLUB_ID = 14; // fallback, обновляется автоматически
+    function _getClubId() {
+        // Из глобального если другой скрипт уже определил
+        if (typeof window._godjiClubId === 'function') return window._godjiClubId();
+        if (window._godjiClubId && typeof window._godjiClubId === 'number') return window._godjiClubId;
+        return CLUB_ID;
+    }
+    // Определяем clubId из первого GraphQL ответа содержащего clubId
+    function _detectClubId(body) {
+        try {
+            var parsed = JSON.parse(body);
+            var vars = parsed.variables;
+            if (vars && vars.clubId && typeof vars.clubId === 'number') {
+                CLUB_ID = vars.clubId;
+                window._godjiClubId = vars.clubId;
+            }
+        } catch(e) {}
+    }
+
     var sessionsData  = {};
     var lastContextPc = null;
     var authToken     = null;
@@ -33,9 +48,10 @@
         // Приоритет — поле type из API если есть
         if (tariffType === 'packet') return true;
         if (tariffType === 'minute') return false;
-        // Fallback по названию — "1 час" или "Standart" в начале = поминутный
+        // Fallback по названию
         if (!tariffName) return false;
         var n = tariffName.toLowerCase();
+        // Почасовой = ровно "1 час" в начале названия
         if (/^1\s*час/.test(n)) return false;
         // Всё остальное — пакет
         return true;
@@ -46,14 +62,12 @@
     // -------------------------------------------------------------------------
     function xhrGql(query, variables) {
         return new Promise(function (resolve, reject) {
-            var tok = authToken || window._godjiAuthToken || '';
-            var role = hasuraRole || window._godjiHasuraRole || 'club_admin';
             var xhr = new XMLHttpRequest();
             xhr.open('POST', API_URL, true);
             xhr.setRequestHeader('accept', '*/*');
             xhr.setRequestHeader('content-type', 'application/json');
-            xhr.setRequestHeader('authorization', tok);
-            xhr.setRequestHeader('x-hasura-role', role);
+            xhr.setRequestHeader('authorization', authToken || '');
+            xhr.setRequestHeader('x-hasura-role', hasuraRole);
             xhr.onload = function () {
                 try { resolve(JSON.parse(xhr.responseText)); }
                 catch (e) { reject(e); }
@@ -75,6 +89,8 @@
             try {
                 if (opts && opts.headers && opts.headers.authorization) {
                     authToken = opts.headers.authorization;
+                    hasuraRole = opts.headers['x-hasura-role'] || hasuraRole;
+                    _detectClubId(body);
                     window._godjiAuthToken = authToken;
                     if (opts.headers['x-hasura-role']) {
                         hasuraRole = opts.headers['x-hasura-role'];
@@ -93,7 +109,7 @@
                     window._godjiRestartPending = true;
                     setTimeout(function () { window._godjiRestartPending = false; }, 3000);
                     var vars;
-                    try { vars = JSON.parse(body).variables; } catch (e) { vars = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID) }; }
+                    try { vars = JSON.parse(body).variables; } catch (e) { vars = { clubId: _getClubId() }; }
                     fetchSessionsData(vars);
                 }
             } catch (e) {}
@@ -104,33 +120,22 @@
 
     installFetchHook();
 
-    // Самостоятельный поллинг данных — каждые 10 секунд, не зависит от перехвата чужих запросов
-    function startPolling() {
-        // Первый запрос сразу после получения токена
-        var _pollTimer = null;
-        var _pollStarted = false;
-
-        function tryPoll() {
-            if (!authToken) return;
-            if (!_pollStarted) {
-                _pollStarted = true;
-                fetchSessionsData({ clubId: typeof CLUB_ID === 'function' ? CLUB_ID() : CLUB_ID });
-                _pollTimer = setInterval(function() {
-                    fetchSessionsData({ clubId: typeof CLUB_ID === 'function' ? CLUB_ID() : CLUB_ID });
-                }, 10000);
-            }
-        }
-
-        // Ждём токен — берём из своего хука или из глобального (установленного другими скриптами)
-        var _tokenWait = setInterval(function() {
+    // Поллинг — каждые 10 секунд, не зависит от перехвата чужих запросов
+    (function startPolling() {
+        var _started = false;
+        var _wait = setInterval(function() {
             if (!authToken && window._godjiAuthToken) {
                 authToken = window._godjiAuthToken;
                 hasuraRole = window._godjiHasuraRole || 'club_admin';
             }
-            if (authToken) { clearInterval(_tokenWait); tryPoll(); }
+            if (authToken && !_started) {
+                _started = true;
+                clearInterval(_wait);
+                fetchSessionsData({ clubId: _getClubId() });
+                setInterval(function() { fetchSessionsData({ clubId: _getClubId() }); }, 10000);
+            }
         }, 500);
-    }
-    startPolling();
+    })();
 
     // -------------------------------------------------------------------------
     // Загрузка данных сессий (два XHR-запроса)
@@ -155,7 +160,6 @@
             var activeIds = [];
 
             devices.forEach(function (d) {
-                // Нормализуем имя: "01" → "1", "TV 1" остаётся как есть
                 var domName = d.name.replace(/^0+(\d)/, '$1');
                 if (!d.sessions || d.sessions.length === 0) {
                     delete sessionsData[domName];
@@ -168,6 +172,7 @@
                     status:     s.status,
                     tariffId:   s.tariff ? s.tariff.id   : null,
                     tariffName: s.tariff ? s.tariff.name : '',
+                    tariffType: s.tariff ? s.tariff.type : null,
                     walletId:   s.user.wallet.id,
                     nickname:   s.user.nickname || '',
                     pcName:     domName,
@@ -179,7 +184,7 @@
 
             if (!activeIds.length) return;
 
-            var ids = activeIds.map(function (x) { return parseInt(x.sessionId, 10); });
+            var ids = activeIds.map(function (x) { return x.sessionId; });
             // Шаг 2: time_to из reservations
             xhrGql(
                 'query($ids:[Int!]!) { reservations(where:{id:{_in:$ids}}) { id time_to } }',
@@ -220,7 +225,7 @@
             '    tariffs{id name type durationMin cost sessionEnd}' +
             '  }' +
             '}',
-            { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, from: from, to: to }
+            { clubId: _getClubId(), deviceId: deviceId, from: from, to: to }
         ).then(function (r) {
             return r && r.data && r.data.getBookingTariffs && r.data.getBookingTariffs.tariffs || [];
         });
@@ -246,24 +251,18 @@
     function createSession(deviceId, userId, tariffId, fromMs, toMs) {
         var sessionStart = new Date(fromMs).toISOString();
         var sessionEnd   = new Date(toMs).toISOString();
-        var vars = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
+        var vars = { clubId: _getClubId(), deviceId: deviceId, tariffId: tariffId,
                      sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
-        console.log('[restart] createSession vars:', JSON.stringify(vars));
         var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
                 '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
                 '    reservationId __typename' +
                 '  }' +
                 '}';
         return xhrGql(q, vars).then(function (r) {
-            console.log('[restart] createSession result:', JSON.stringify(r));
             if (r && r.errors) {
-                var vars2 = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
+                var vars2 = { clubId: _getClubId(), deviceId: deviceId, tariffId: tariffId,
                               sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
-                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2)
-                .then(function(r2) {
-                    console.log('[restart] createSession retry result:', JSON.stringify(r2));
-                    return r2;
-                });
+                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
             }
             return r;
         });
@@ -311,12 +310,10 @@
     function getDeviceAndUser(pcName, walletId) {
         var names = [pcName];
         if (/^\d$/.test(pcName)) names.push('0' + pcName);
-        var q = 'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}';
-        var clubId = typeof CLUB_ID === 'function' ? CLUB_ID() : CLUB_ID;
-        console.log('[restart] getDeviceAndUser pcName='+pcName+' names='+JSON.stringify(names)+' clubId='+clubId);
-        return xhrGql(q, { clubId: clubId, names: names })
-        .then(function (r) {
-            console.log('[restart] club_devices result:', JSON.stringify(r));
+        return xhrGql(
+            'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}',
+            { clubId: _getClubId(), names: names }
+        ).then(function (r) {
             if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
                 throw new Error('Не удалось получить deviceId ПК ' + pcName);
             }
@@ -333,30 +330,36 @@
         });
     }
 
-    // Ждём возврата средств от ERP — следим за ростом рублей ИЛИ бонусов
+    // Ждём возврата бонусов от ERP (для почасового тарифа)
     function waitForBonusReturn(walletId, oldSessionId, lastOpIdBefore) {
-        return new Promise(function (resolve) {
-            xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_amount balance_bonus}}', { wid: walletId })
-            .then(function(r0) {
-                var w0 = r0 && r0.data && r0.data.wallets_by_pk || {};
-                var amountBefore = w0.balance_amount || 0;
-                var bonusBefore  = w0.balance_bonus  || 0;
-                var attempts = 0;
-                var timer = setInterval(function () {
-                    attempts++;
-                    if (attempts > 40) { clearInterval(timer); resolve(0); return; }
-                    xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_amount balance_bonus}}', { wid: walletId })
-                    .then(function (r) {
-                        var w = r && r.data && r.data.wallets_by_pk || {};
-                        var amountNow = w.balance_amount || 0;
-                        var bonusNow  = w.balance_bonus  || 0;
-                        if (amountNow > amountBefore || bonusNow > bonusBefore) {
+        return new Promise(function (resolve, reject) {
+            var attempts = 0;
+            var timer = setInterval(function () {
+                attempts++;
+                if (attempts > 40) {
+                    clearInterval(timer);
+                    reject(new Error('ERP не вернул бонусы в течение 2 минут'));
+                    return;
+                }
+                xhrGql(
+                    'query($wid:Int!,$afterId:Int!){' +
+                    '  wallet_operations(where:{wallet_id:{_eq:$wid},id:{_gt:$afterId},amount_type:{_eq:"bonus"},operation_type:{_eq:"deposit"}},order_by:{id:desc},limit:5){' +
+                    '    id amount wallet_operation_digest{name reservation_id}' +
+                    '  }' +
+                    '}',
+                    { wid: walletId, afterId: lastOpIdBefore }
+                ).then(function (r) {
+                    var ops = r && r.data && r.data.wallet_operations;
+                    if (!ops || !ops.length) return;
+                    ops.forEach(function (op) {
+                        var d = op.wallet_operation_digest;
+                        if (d && d.name === 'Возврат бонусов' && d.reservation_id === oldSessionId) {
                             clearInterval(timer);
-                            resolve({ amount: amountNow, bonus: bonusNow });
+                            resolve(op.amount);
                         }
-                    }).catch(function () {});
-                }, 3000);
-            }).catch(function() { resolve(0); });
+                    });
+                }).catch(function () {});
+            }, 3000);
         });
     }
 
@@ -501,33 +504,29 @@
         var session = sessionsData[pcName];
         if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
         if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
+        // Если timeTo нет в кэше — запрашиваем напрямую
+        if (!session.timeTo) {
+            xhrGql('query($id:Int!){reservations(where:{id:{_eq:$id}}){id time_to}}',
+                   { id: parseInt(session.sessionId, 10) })
+            .then(function(r) {
+                var res = r && r.data && r.data.reservations && r.data.reservations[0];
+                if (res && res.time_to) {
+                    session.timeTo = res.time_to;
+                    doRestart(pcName); // повторяем с заполненным timeTo
+                } else {
+                    notify('Нет данных об остатке времени. Подождите обновления.', 'err');
+                }
+            });
+            return;
+        }
 
-        // Берём актуальный time_to — ищем активный сеанс на конкретном ПК, не по sessionId из кэша
-        // (кэш может содержать устаревший sessionId от предыдущей неудачной попытки)
-        // Берём актуальный time_to по sessionId из кэша
-        var timeToPromise = xhrGql(
-            'query($id:Int!){reservations(where:{id:{_eq:$id}}){id status time_to}}',
-            { id: parseInt(session.sessionId, 10) }
-        ).then(function(r) {
-            var res = r && r.data && r.data.reservations && r.data.reservations[0];
-            if (!res) throw new Error('Сеанс не найден');
-            if (res.time_to && new Date(res.time_to).getTime() < Date.now()) {
-                throw new Error('Сеанс на ПК ' + pcName + ' уже завершён');
-            }
-            if (!res.time_to) throw new Error('Нет данных об окончании сеанса');
-            session.timeTo = res.time_to;
-            return res.time_to;
-        });
-
-        timeToPromise.then(function(timeTo) {
-        var msLeft       = new Date(timeTo).getTime() - Date.now();
+        var msLeft       = new Date(session.timeTo).getTime() - Date.now();
         var remainMin    = Math.max(1, Math.ceil(msLeft / 60000));
         var walletId     = session.walletId;
         var oldSessionId = session.sessionId;
         var wasPackage = isPackageTariff(session.tariffName, session.tariffType);
 
         notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
-        console.log('[restart] timeTo='+timeTo+' msLeft='+msLeft+' remainMin='+remainMin);
 
         Promise.all([
             getLastOpId(walletId),
@@ -547,14 +546,11 @@
                 var minuteTariff = tariffs.filter(function (t) { return t.type === 'minute'; })[0];
                 if (!minuteTariff) throw new Error('Поминутный тариф недоступен');
 
-                // Уточняем тип тарифа текущего сеанса
-                // Сначала ищем в доступных тарифах нового ПК
+                // Уточняем тип тарифа по актуальным данным из API
                 var currentTariff = tariffs.filter(function (t) { return t.id === session.tariffId; })[0];
                 if (currentTariff) {
                     wasPackage = currentTariff.type === 'packet';
                 }
-                // currentTariff может отсутствовать если ПК из другой зоны —
-                // в этом случае wasPackage уже определён через isPackageTariff по названию выше
 
                 // Завершаем текущий сеанс
                 return cancelSession(oldSessionId)
@@ -562,18 +558,18 @@
                     if (!cr || !cr.data || !cr.data.userReservationCancel || !cr.data.userReservationCancel.success) {
                         throw new Error('Не удалось завершить сеанс');
                     }
-                    // Ждём 4 секунды — ERP должен закрыть резервацию на своей стороне
-                    return new Promise(function(resolve){ setTimeout(resolve, 4000); });
-                }).then(function() {
+
                     if (!wasPackage) {
-                        // ПОЧАСОВОЙ: начисляем бонусы на стоимость остатка → создаём сеанс
-                        var minuteCost = Math.ceil(minuteTariff.cost * remainMin);
-                        var comment = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
-                        return depositBonus(walletId, minuteCost, comment)
+                        // -------------------------------------------------------
+                        // ПОЧАСОВОЙ → ПОЧАСОВОЙ
+                        // Ждём возврата бонусов от ERP, затем сажаем на почасовой
+                        // -------------------------------------------------------
+                        return waitForBonusReturn(walletId, oldSessionId, lastOpId)
                         .then(function () {
                             var now = Date.now();
                             return createSession(deviceId, userId, minuteTariff.id, now, now + remainMin * 60000);
                         });
+
                     } else {
                         // -------------------------------------------------------
                         // ПАКЕТНЫЙ → ПАКЕТНЫЙ
@@ -636,9 +632,6 @@
             });
         })
         .catch(function (err) {
-            notify('ПК ' + pcName + ': ошибка — ' + (err.message || err), 'err');
-        });
-        }).catch(function(err) {
             notify('ПК ' + pcName + ': ошибка — ' + (err.message || err), 'err');
         });
     }
