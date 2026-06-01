@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.23
+// @version      5.24
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -496,21 +496,16 @@
         if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
         if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
 
-        // timeTo может быть null если поллинг ещё не получил reservations — запрашиваем напрямую
-        var timeToPromise;
-        if (session.timeTo) {
-            timeToPromise = Promise.resolve(session.timeTo);
-        } else {
-            timeToPromise = xhrGql(
-                'query($id:Int!){reservations(where:{id:{_eq:$id}}){id time_to}}',
-                { id: parseInt(session.sessionId, 10) }
-            ).then(function(r) {
-                var res = r && r.data && r.data.reservations && r.data.reservations[0];
-                if (!res || !res.time_to) throw new Error('Нет данных об остатке времени');
-                session.timeTo = res.time_to;
-                return res.time_to;
-            });
-        }
+        // Всегда берём актуальный time_to напрямую из API — кэш может быть устаревшим
+        var timeToPromise = xhrGql(
+            'query($id:Int!){reservations(where:{id:{_eq:$id},status:{_eq:"session_acting"}}){id time_to}}',
+            { id: parseInt(session.sessionId, 10) }
+        ).then(function(r) {
+            var res = r && r.data && r.data.reservations && r.data.reservations[0];
+            if (!res || !res.time_to) throw new Error('Сеанс не найден или уже завершён');
+            session.timeTo = res.time_to;
+            return res.time_to;
+        });
 
         timeToPromise.then(function(timeTo) {
         var msLeft       = new Date(timeTo).getTime() - Date.now();
