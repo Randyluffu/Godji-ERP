@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.37
+// @version      5.38
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -178,11 +178,37 @@ function openAddClientModal(){
 
     // Фокус на инпут
     var phoneInput=section.querySelector('input[name="phoneNumber"],input[placeholder*="000"]');
-    if(phoneInput) setTimeout(function(){phoneInput.focus();},100);
+    if(phoneInput){
+        phoneInput.value='+7';
+        phoneInput.addEventListener('input',function(){
+            var raw=phoneInput.value.replace(/[^0-9]/g,'');
+            if(raw.startsWith('8')) raw='7'+raw.slice(1);
+            if(!raw.startsWith('7')) raw='7'+raw;
+            raw=raw.slice(0,11);
+            var d=raw.slice(1);
+            var fmt='+7';
+            if(d.length>0) fmt+=' ('+d.slice(0,3);
+            if(d.length>=3) fmt+=')';
+            if(d.length>3) fmt+=' '+d.slice(3,6);
+            if(d.length>=6) fmt+='-'+d.slice(6,8);
+            if(d.length>=8) fmt+='-'+d.slice(8,10);
+            phoneInput.value=fmt;
+        });
+        phoneInput.addEventListener('keydown',function(e){
+            if((e.key==='Backspace'||e.key==='Delete')&&(phoneInput.value==='+7')){
+                e.preventDefault();
+            }
+        });
+        setTimeout(function(){phoneInput.focus();phoneInput.setSelectionRange(phoneInput.value.length,phoneInput.value.length);},100);
+    }
 
     // Кнопка Найти — логика
     var submitBtn=section.querySelector('button[type="submit"],button[data-variant="filled"]');
     var errEl=section.querySelector('[class*="InputWrapper-error"]');
+    if(errEl){errEl.style.display='none';errEl.textContent='';}
+    var inputWrapper=section.querySelector('[class*="InputWrapper-root"]');
+    if(inputWrapper) inputWrapper.setAttribute('data-error','false');
+    if(submitBtn){submitBtn.disabled=false;submitBtn.removeAttribute('data-disabled');}
     // Убираем состояние ошибки при инициализации (ERP может рендерить с data-error=true)
     if(errEl){errEl.style.display='none';errEl.textContent='';}
     var inputWrapper=section.querySelector('[class*="InputWrapper-root"]');
@@ -199,8 +225,11 @@ function openAddClientModal(){
 
     async function doFind(){
         if(!phoneInput) return;
-        var phone=phoneInput.value.trim();
-        if(!phone){showErr('Введите номер телефона');return;}
+        var raw=(phoneInput?phoneInput.value:'').replace(/[^0-9]/g,'');
+        if(raw.startsWith('8')) raw='7'+raw.slice(1);
+        if(!raw.startsWith('7')) raw='7'+raw;
+        var phone='+'+raw;
+        if(raw.length!==11){showErr('Введите полный номер телефона (10 цифр)');return;}
         showErr('');
         if(submitBtn){submitBtn.disabled=true;var lbl=submitBtn.querySelector('[class*="Button-label"]');if(lbl)lbl.textContent='Поиск...';}
 
