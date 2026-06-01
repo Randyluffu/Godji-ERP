@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.33
+// @version      5.34
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -16,21 +16,34 @@
 
     var BUTTON_ID = 'godji-restart-btn';
     var API_URL   = 'https://hasura.godji.cloud/v1/graphql';
-    var CLUB_ID = 14; // fallback, обновляется автоматически
-    function _getClubId() {
-        // Из глобального если другой скрипт уже определил
-        if (typeof window._godjiClubId === 'function') return window._godjiClubId();
-        if (window._godjiClubId && typeof window._godjiClubId === 'number') return window._godjiClubId;
-        return CLUB_ID;
+    var CLUB_ID = 14;
+    var _clubId_r = null;
+    async function _getClubId() {
+        if (_clubId_r) return _clubId_r;
+        if (window._godjiClubId && typeof window._godjiClubId === 'number') { _clubId_r = window._godjiClubId; return _clubId_r; }
+        var CACHE_KEY = 'godji_club_id_cache';
+        try {
+            var raw = localStorage.getItem(CACHE_KEY);
+            if (raw) { var obj = JSON.parse(raw); if (obj && obj.id && (Date.now() - obj.ts) < 7*24*60*60*1000) { _clubId_r = obj.id; return _clubId_r; } }
+        } catch(e) {}
+        try {
+            var res = await xhrGql('query{club_admins(limit:1){club_id}}', {});
+            var id = res && res.data && res.data.club_admins && res.data.club_admins[0] && res.data.club_admins[0].club_id;
+            if (!id) { var m = window.location.search.match(/clubId=(\d+)/); if (m) id = parseInt(m[1]); }
+            if (!id) id = CLUB_ID;
+            _clubId_r = id;
+            window._godjiClubId = id;
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify({id: id, ts: Date.now()})); } catch(e) {}
+        } catch(e) { _clubId_r = CLUB_ID; }
+        return _clubId_r;
     }
-    // Определяем clubId из первого GraphQL ответа содержащего clubId
     function _detectClubId(body) {
         try {
-            var parsed = JSON.parse(body);
-            var vars = parsed.variables;
-            if (vars && vars.clubId && typeof vars.clubId === 'number') {
-                CLUB_ID = vars.clubId;
+            var vars = JSON.parse(body).variables;
+            if (vars && vars.clubId && typeof vars.clubId === 'number' && !_clubId_r) {
+                _clubId_r = vars.clubId;
                 window._godjiClubId = vars.clubId;
+                try { localStorage.setItem('godji_club_id_cache', JSON.stringify({id: vars.clubId, ts: Date.now()})); } catch(e) {}
             }
         } catch(e) {}
     }
@@ -131,8 +144,10 @@
             if (authToken && !_started) {
                 _started = true;
                 clearInterval(_wait);
-                fetchSessionsData({ clubId: _getClubId() });
-                setInterval(function() { fetchSessionsData({ clubId: _getClubId() }); }, 10000);
+                _getClubId().then(function(cid) {
+                    fetchSessionsData({ clubId: cid });
+                    setInterval(function() { _getClubId().then(function(cid2){ fetchSessionsData({ clubId: cid2 }); }); }, 10000);
+                });
             }
         }, 500);
     })();
@@ -219,14 +234,16 @@
     function getBookingTariffs(deviceId, fromMs, durationMin) {
         var from = new Date(fromMs).toISOString();
         var to   = new Date(fromMs + durationMin * 60000).toISOString();
-        return xhrGql(
-            'query($clubId:Int!,$deviceId:Int!,$from:timestamptz!,$to:timestamptz!){' +
-            '  getBookingTariffs(params:{clubId:$clubId,deviceId:$deviceId,timeline:{from:$from,to:$to}}){' +
-            '    tariffs{id name type durationMin cost sessionEnd}' +
-            '  }' +
-            '}',
-            { clubId: _getClubId(), deviceId: deviceId, from: from, to: to }
-        ).then(function (r) {
+        return _getClubId().then(function(cid) {
+            return xhrGql(
+                'query($clubId:Int!,$deviceId:Int!,$from:timestamptz!,$to:timestamptz!){' +
+                '  getBookingTariffs(params:{clubId:$clubId,deviceId:$deviceId,timeline:{from:$from,to:$to}}){' +
+                '    tariffs{id name type durationMin cost sessionEnd}' +
+                '  }' +
+                '}',
+                { clubId: cid, deviceId: deviceId, from: from, to: to }
+            );
+        }).then(function (r) {
             return r && r.data && r.data.getBookingTariffs && r.data.getBookingTariffs.tariffs || [];
         });
     }
@@ -251,20 +268,22 @@
     function createSession(deviceId, userId, tariffId, fromMs, toMs) {
         var sessionStart = new Date(fromMs).toISOString();
         var sessionEnd   = new Date(toMs).toISOString();
-        var vars = { clubId: _getClubId(), deviceId: deviceId, tariffId: tariffId,
-                     sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
-        var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
-                '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
-                '    reservationId __typename' +
-                '  }' +
-                '}';
-        return xhrGql(q, vars).then(function (r) {
-            if (r && r.errors) {
-                var vars2 = { clubId: _getClubId(), deviceId: deviceId, tariffId: tariffId,
-                              sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
-                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
-            }
-            return r;
+        return _getClubId().then(function(cid) {
+            var vars = { clubId: cid, deviceId: deviceId, tariffId: tariffId,
+                         sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
+            var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
+                    '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
+                    '    reservationId __typename' +
+                    '  }' +
+                    '}';
+            return xhrGql(q, vars).then(function (r) {
+                if (r && r.errors) {
+                    var vars2 = { clubId: cid, deviceId: deviceId, tariffId: tariffId,
+                                  sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
+                    return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
+                }
+                return r;
+            });
         });
     }
 
@@ -310,10 +329,12 @@
     function getDeviceAndUser(pcName, walletId) {
         var names = [pcName];
         if (/^\d$/.test(pcName)) names.push('0' + pcName);
-        return xhrGql(
-            'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}',
-            { clubId: _getClubId(), names: names }
-        ).then(function (r) {
+        return _getClubId().then(function(cid) {
+            return xhrGql(
+                'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}',
+                { clubId: cid, names: names }
+            );
+        }).then(function (r) {
             if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
                 throw new Error('Не удалось получить deviceId ПК ' + pcName);
             }
@@ -593,6 +614,7 @@
                         return hourlyPricePromise.then(function (hourlyCost) {
                             var totalCost = Math.round((plan.packet.cost + hourlyCost) * 100) / 100;
                             var comment   = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
+                            console.log('[restart] remainMin='+remainMin+' packet='+plan.packet.id+' packetCost='+plan.packet.cost+' hourlyCost='+hourlyCost+' totalCost='+totalCost);
 
                             return depositBonus(walletId, totalCost, comment)
                             .then(function () {
