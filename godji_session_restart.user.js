@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.20
+// @version      5.21
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -249,16 +249,22 @@
         var sessionEnd   = new Date(toMs).toISOString();
         var vars = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
                      sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
+        console.log('[restart] createSession vars:', JSON.stringify(vars));
         var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
                 '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
                 '    reservationId __typename' +
                 '  }' +
                 '}';
         return xhrGql(q, vars).then(function (r) {
+            console.log('[restart] createSession result:', JSON.stringify(r));
             if (r && r.errors) {
                 var vars2 = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
                               sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
-                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
+                return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2)
+                .then(function(r2) {
+                    console.log('[restart] createSession retry result:', JSON.stringify(r2));
+                    return r2;
+                });
             }
             return r;
         });
