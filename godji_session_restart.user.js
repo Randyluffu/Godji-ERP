@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.21
+// @version      5.22
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -33,11 +33,11 @@
         // Приоритет — поле type из API если есть
         if (tariffType === 'packet') return true;
         if (tariffType === 'minute') return false;
-        // Fallback по названию
+        // Fallback по названию — "1 час" или "Standart" в начале = поминутный
         if (!tariffName) return false;
         var n = tariffName.toLowerCase();
-        // Почасовой = ровно "1 час" в начале названия
         if (/^1\s*час/.test(n)) return false;
+        if (/standart|стандарт/i.test(n)) return false;
         // Всё остальное — пакет
         return true;
     }
@@ -552,11 +552,14 @@
                 var minuteTariff = tariffs.filter(function (t) { return t.type === 'minute'; })[0];
                 if (!minuteTariff) throw new Error('Поминутный тариф недоступен');
 
-                // Уточняем тип тарифа по актуальным данным из API
+                // Уточняем тип тарифа текущего сеанса
+                // Сначала ищем в доступных тарифах нового ПК
                 var currentTariff = tariffs.filter(function (t) { return t.id === session.tariffId; })[0];
                 if (currentTariff) {
                     wasPackage = currentTariff.type === 'packet';
                 }
+                // currentTariff может отсутствовать если ПК из другой зоны —
+                // в этом случае wasPackage уже определён через isPackageTariff по названию выше
 
                 // Завершаем текущий сеанс
                 return cancelSession(oldSessionId)
