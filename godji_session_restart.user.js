@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.18
+// @version      5.19
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -304,12 +304,13 @@
     }
 
     function getDeviceAndUser(pcName, walletId) {
-        // Пробуем оба варианта имени: "6" и "06"
         var names = [pcName];
         if (/^\d$/.test(pcName)) names.push('0' + pcName);
         var q = 'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}';
+        console.log('[restart] getDeviceAndUser pcName='+pcName+' names='+JSON.stringify(names)+' clubId='+CLUB_ID);
         return xhrGql(q, { clubId: CLUB_ID, names: names })
         .then(function (r) {
+            console.log('[restart] club_devices result:', JSON.stringify(r));
             if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
                 throw new Error('Не удалось получить deviceId ПК ' + pcName);
             }
