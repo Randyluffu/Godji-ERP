@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.24
+// @version      5.25
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -496,13 +496,18 @@
         if (!session)        { notify('Нет данных о сессии ПК ' + pcName + '. Подождите обновления.', 'err'); return; }
         if (!session.walletId) { notify('Не удалось получить кошелёк клиента.', 'err'); return; }
 
-        // Всегда берём актуальный time_to напрямую из API — кэш может быть устаревшим
+        // Берём актуальный time_to — ищем активный сеанс на конкретном ПК, не по sessionId из кэша
+        // (кэш может содержать устаревший sessionId от предыдущей неудачной попытки)
+        var pcNames = [pcName];
+        if (/^\d$/.test(pcName)) pcNames.push('0' + pcName);
         var timeToPromise = xhrGql(
-            'query($id:Int!){reservations(where:{id:{_eq:$id},status:{_eq:"session_acting"}}){id time_to}}',
-            { id: parseInt(session.sessionId, 10) }
+            'query($names:[String!]!,$clubId:Int!){reservations(where:{status:{_eq:"session_acting"},reservations_club_device:{name:{_in:$names},club_id:{_eq:$clubId}}},order_by:{id:desc},limit:1){id time_to}}',
+            { names: pcNames, clubId: typeof CLUB_ID === 'function' ? CLUB_ID() : CLUB_ID }
         ).then(function(r) {
             var res = r && r.data && r.data.reservations && r.data.reservations[0];
-            if (!res || !res.time_to) throw new Error('Сеанс не найден или уже завершён');
+            if (!res || !res.time_to) throw new Error('Активный сеанс на ПК ' + pcName + ' не найден');
+            // Обновляем sessionId в кэше на актуальный
+            session.sessionId = res.id;
             session.timeTo = res.time_to;
             return res.time_to;
         });
