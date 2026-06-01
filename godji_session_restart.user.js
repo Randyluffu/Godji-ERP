@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.22
+// @version      5.23
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -334,36 +334,23 @@
         });
     }
 
-    // Ждём возврата бонусов от ERP (для почасового тарифа)
+    // Ждём возврата бонусов от ERP — сравниваем баланс до и после отмены
     function waitForBonusReturn(walletId, oldSessionId, lastOpIdBefore) {
-        return new Promise(function (resolve, reject) {
-            var attempts = 0;
-            var timer = setInterval(function () {
-                attempts++;
-                if (attempts > 40) {
-                    clearInterval(timer);
-                    reject(new Error('ERP не вернул бонусы в течение 2 минут'));
-                    return;
-                }
-                xhrGql(
-                    'query($wid:Int!,$afterId:Int!){' +
-                    '  wallet_operations(where:{wallet_id:{_eq:$wid},id:{_gt:$afterId},amount_type:{_eq:"bonus"},operation_type:{_eq:"deposit"}},order_by:{id:desc},limit:5){' +
-                    '    id amount wallet_operation_digest{name reservation_id}' +
-                    '  }' +
-                    '}',
-                    { wid: walletId, afterId: lastOpIdBefore }
-                ).then(function (r) {
-                    var ops = r && r.data && r.data.wallet_operations;
-                    if (!ops || !ops.length) return;
-                    ops.forEach(function (op) {
-                        var d = op.wallet_operation_digest;
-                        if (d && d.name === 'Возврат бонусов' && d.reservation_id === oldSessionId) {
-                            clearInterval(timer);
-                            resolve(op.amount);
-                        }
-                    });
-                }).catch(function () {});
-            }, 3000);
+        return new Promise(function (resolve) {
+            xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_bonus}}', { wid: walletId })
+            .then(function(r0) {
+                var bonusBefore = r0 && r0.data && r0.data.wallets_by_pk ? r0.data.wallets_by_pk.balance_bonus : 0;
+                var attempts = 0;
+                var timer = setInterval(function () {
+                    attempts++;
+                    if (attempts > 40) { clearInterval(timer); resolve(0); return; }
+                    xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_bonus}}', { wid: walletId })
+                    .then(function (r) {
+                        var bonusNow = r && r.data && r.data.wallets_by_pk ? r.data.wallets_by_pk.balance_bonus : bonusBefore;
+                        if (bonusNow > bonusBefore) { clearInterval(timer); resolve(bonusNow - bonusBefore); }
+                    }).catch(function () {});
+                }, 3000);
+            }).catch(function() { resolve(0); });
         });
     }
 
@@ -533,6 +520,7 @@
         var wasPackage = isPackageTariff(session.tariffName, session.tariffType);
 
         notify('Перезапуск сеанса ПК ' + pcName + '… (' + remainMin + ' мин)', 'info');
+        console.log('[restart] timeTo='+timeTo+' msLeft='+msLeft+' remainMin='+remainMin);
 
         Promise.all([
             getLastOpId(walletId),
