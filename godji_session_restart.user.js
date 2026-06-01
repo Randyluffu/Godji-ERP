@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.16
+// @version      5.17
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -142,7 +142,7 @@
             '  getDashboardDevices(params: {clubId: $clubId}) {' +
             '    devices { name sessions {' +
             '      id status' +
-            '      tariff { id name type }' +
+            '      tariff { id name }' +
             '      user { nickname wallet { id } }' +
             '    } }' +
             '  }' +
@@ -156,24 +156,25 @@
             var activeIds = [];
 
             devices.forEach(function (d) {
+                // Нормализуем имя: "01" → "1", "TV 1" остаётся как есть
+                var domName = d.name.replace(/^0+(\d)/, '$1');
                 if (!d.sessions || d.sessions.length === 0) {
-                    delete sessionsData[d.name];
+                    delete sessionsData[domName];
                     return;
                 }
                 var s = d.sessions[0];
                 if (!s || !s.user || !s.user.wallet) return;
-                sessionsData[d.name] = {
+                sessionsData[domName] = {
                     sessionId:  s.id,
                     status:     s.status,
                     tariffId:   s.tariff ? s.tariff.id   : null,
                     tariffName: s.tariff ? s.tariff.name : '',
-                    tariffType: s.tariff ? s.tariff.type : null,
                     walletId:   s.user.wallet.id,
                     nickname:   s.user.nickname || '',
-                    pcName:     d.name,
+                    pcName:     domName,
                     timeTo:     null
                 };
-                activeIds.push({ pc: d.name, sessionId: s.id });
+                activeIds.push({ pc: domName, sessionId: s.id });
             });
             window._godjiSessionsData = sessionsData;
 
