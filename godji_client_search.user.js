@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.36
+// @version      5.37
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -416,11 +416,15 @@ function openClientModal(clientId, clientWallet){
     hdr.appendChild(title);hdr.appendChild(btns);
 
     var iframeWrap=document.createElement('div');
-    iframeWrap.style.cssText='flex:1;position:relative;min-height:0;overflow:hidden;';
+    // overflow:hidden по X — обрезает сайдбар, но не режет вертикальные модалки
+    iframeWrap.style.cssText='flex:1;overflow-x:hidden;overflow-y:visible;position:relative;min-height:0;';
     var iframe=document.createElement('iframe');
     iframe.src='/clients/'+clientId;
-    // iframe на полную ширину — navbar скрываем CSS-ом внутри iframe
-    iframe.style.cssText='border:none;width:100%;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
+    // Вычисляем реальную ширину navbar для компенсации
+    var _navbarEl=document.querySelector('.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]');
+    var _nbW=_navbarEl?_navbarEl.offsetWidth:280;
+    iframe.style.cssText='border:none;width:calc(100% + '+_nbW+'px);margin-left:-'+_nbW+'px;height:100%;opacity:0;transition:opacity 0.2s;display:block;';
+    iframe._godjiNavbarWidth=_nbW;
 
     // Элементы для скрытия
     var _SELECTORS=[
@@ -439,63 +443,90 @@ function openClientModal(clientId, clientWallet){
         try{
             var idoc=iframe.contentDocument||iframe.contentWindow.document;
             if(!idoc||!idoc.body)return;
-
-            // Единый CSS-файл — всё через стили
-            if(!idoc.getElementById('godji-iframe-fix-style')){
-                var styleEl=idoc.createElement('style');
-                styleEl.id='godji-iframe-fix-style';
-                styleEl.textContent=[
-                    // Скрываем navbar и шапку полностью
-                    '.mantine-AppShell-navbar,',
-                    '.Sidebar_navbar__h0i17,',
-                    '[class*="Sidebar_navbar"],',
-                    '[class*="Sidebar_header"],',
-                    '.Sidebar_header__dm6Ua,',
-                    '.mantine-Breadcrumbs-root{display:none!important;}',
-                    // Убираем отступ под navbar у main
-                    '.mantine-AppShell-main{',
-                    '  padding-left:16px!important;',
-                    '  margin-left:0!important;',
-                    '  padding-top:16px!important;',
-                    '  --app-shell-navbar-width:0px!important;',
-                    '  --app-shell-navbar-offset:0px!important;',
-                    '}',
-                    // CSS-переменные на root
-                    '.mantine-AppShell-root,[class*="Layout_appShell"]{',
-                    '  --app-shell-navbar-width:0px!important;',
-                    '  --app-shell-navbar-offset:0px!important;',
-                    '  --app-shell-header-height:0px!important;',
-                    '}',
-                    // Модалки — центрируем нормально без компенсаций
-                    '.mantine-Modal-inner,[class*="Modal-inner"]{',
-                    '  padding:12px!important;',
-                    '  box-sizing:border-box!important;',
-                    '}',
-                    '.mantine-Modal-content,[class*="Modal-content"]{',
-                    '  max-height:calc(100vh - 24px)!important;',
-                    '  overflow-y:auto!important;',
-                    '}',
-                ].join('');
-                idoc.head.appendChild(styleEl);
-            }
-
-            // Скрываем кастомные кнопки кроме разрешённых
+            // Скрываем sidebar и шапку
+            _SELECTORS.forEach(function(sel){
+                idoc.querySelectorAll(sel).forEach(hideEl);
+            });
+            // Скрываем все godji-* элементы кроме кнопки списания
             idoc.querySelectorAll('[id^="godji"]').forEach(function(el){
                 if(el.id==='godji-debit-btn'||el.id==='godji-debit-overlay'||el.id==='godji-client-note') return;
                 hideEl(el);
             });
-
+            // Убираем отступ слева у main (был равен ширине navbar)
+            var main=idoc.querySelector('.mantine-AppShell-main');
+            if(main){
+                main.style.setProperty('padding-left','16px','important');
+                main.style.setProperty('margin-left','0','important');
+                main.style.setProperty('padding-top','16px','important');
+            }
+            // Запрещаем горизонтальный скролл внутри iframe
+            if(idoc.body) idoc.body.style.overflowX='hidden';
+            // CSS переменные на documentElement (для корректного позиционирования внутренних модалок)
+            try{
+                idoc.documentElement.style.setProperty('--app-shell-navbar-width','0px','important');
+                idoc.documentElement.style.setProperty('--app-shell-navbar-offset','0px','important');
+                idoc.documentElement.style.setProperty('--app-shell-header-height','0px','important');
+            }catch(ee){}
+            // CSS переменные на root
+            var root=idoc.querySelector('.mantine-AppShell-root,[class*="Layout_appShell"]');
+            if(root){
+                root.style.setProperty('--app-shell-navbar-width','0px','important');
+                root.style.setProperty('--app-shell-navbar-offset','0px','important');
+                root.style.setProperty('--app-shell-header-height','0px','important');
+            }
             iframe.style.opacity='1';
 
-            // Список клубов
+            // Скрываем navbar через CSS
+            var styleEl=idoc.createElement('style');
+            styleEl.id='godji-iframe-fix-style';
+            styleEl.textContent=[
+                'body{overflow-x:hidden!important;}',
+                '.mantine-AppShell-navbar,.Sidebar_navbar__h0i17,[class*="Sidebar_navbar"]{display:none!important;}',
+            ].join('');
+            if(!idoc.getElementById('godji-iframe-fix-style')) idoc.head.appendChild(styleEl);
+
+            // Компенсируем сдвиг iframe для модалок — вычисляем реальную ширину navbar
+            var nbW=iframe._godjiNavbarWidth||280;
+            var portalStyle=idoc.getElementById('godji-iframe-portal-fix');
+            if(!portalStyle){
+                portalStyle=idoc.createElement('style');
+                portalStyle.id='godji-iframe-portal-fix';
+                idoc.head.appendChild(portalStyle);
+            }
+            // position:fixed внутри iframe отсчитывается от левого края iframe viewport
+            // iframe сдвинут на margin-left:-nbW, значит fixed элементы тоже сдвинуты
+            // компенсируем: left смещаем на +nbW, width уменьшаем на nbW
+            // Компенсация сдвига iframe: все position:fixed элементы внутри iframe
+            // отсчитываются от левого края iframe viewport, который сдвинут на -nbW.
+            // Сдвигаем порталы вправо на nbW и уменьшаем их ширину.
+            // Компенсируем только Modal-inner — центрируем по видимой области
+            // НЕ трогаем data-portal и left/width — это сдвигало модалки вправо
+            portalStyle.textContent=[
+                '.mantine-Modal-inner,[class*="Modal-inner"]{',
+                '  left:'+nbW+'px!important;',
+                '  right:0!important;',
+                '  width:calc(100vw - '+nbW+'px)!important;',
+                '  padding:16px!important;',
+                '  box-sizing:border-box!important;',
+                '  display:flex!important;',
+                '  align-items:center!important;',
+                '  justify-content:center!important;',
+                '}',
+                '.mantine-Modal-content,[class*="Modal-content"]{',
+                '  max-height:calc(100vh - 32px)!important;',
+                '  overflow-y:auto!important;',
+                '}',
+            ].join('');
+
+            // Показываем список клубов под "Статистика по сети клубов"
             injectClubsList(idoc, clientId);
 
-            // Кнопка бана
-            try{
-                if(typeof window._godjiInjectBanBtn==='function'){
-                    window._godjiInjectBanBtn(clientId,0,idoc);
+            // Вызываем банлист из основного окна, передавая ему idoc и clientId
+            try {
+                if(typeof window._godjiInjectBanBtn === 'function') {
+                    window._godjiInjectBanBtn(clientId, 0, idoc);
                 }
-            }catch(ee){}
+            } catch(ee) {}
         }catch(e){}
     }
 
