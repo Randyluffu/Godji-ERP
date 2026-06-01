@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.19
+// @version      5.20
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -94,7 +94,7 @@
                     window._godjiRestartPending = true;
                     setTimeout(function () { window._godjiRestartPending = false; }, 3000);
                     var vars;
-                    try { vars = JSON.parse(body).variables; } catch (e) { vars = { clubId: CLUB_ID }; }
+                    try { vars = JSON.parse(body).variables; } catch (e) { vars = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID) }; }
                     fetchSessionsData(vars);
                 }
             } catch (e) {}
@@ -221,7 +221,7 @@
             '    tariffs{id name type durationMin cost sessionEnd}' +
             '  }' +
             '}',
-            { clubId: CLUB_ID, deviceId: deviceId, from: from, to: to }
+            { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, from: from, to: to }
         ).then(function (r) {
             return r && r.data && r.data.getBookingTariffs && r.data.getBookingTariffs.tariffs || [];
         });
@@ -247,7 +247,7 @@
     function createSession(deviceId, userId, tariffId, fromMs, toMs) {
         var sessionStart = new Date(fromMs).toISOString();
         var sessionEnd   = new Date(toMs).toISOString();
-        var vars = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+        var vars = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
                      sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId, isDirect: true };
         var q = 'mutation CreateBooking($clubId:Int!,$deviceId:Int!,$tariffId:Int!,$sessionStart:timestamptz!,$sessionEnd:timestamptz!,$userId:String!,$isDirect:Boolean){' +
                 '  userReservationCreate(params:{clubId:$clubId,deviceId:$deviceId,tariffId:$tariffId,sessionStart:$sessionStart,sessionEnd:$sessionEnd,userId:$userId,isDirect:$isDirect}){' +
@@ -256,7 +256,7 @@
                 '}';
         return xhrGql(q, vars).then(function (r) {
             if (r && r.errors) {
-                var vars2 = { clubId: CLUB_ID, deviceId: deviceId, tariffId: tariffId,
+                var vars2 = { clubId: (typeof CLUB_ID==='function'?CLUB_ID():CLUB_ID), deviceId: deviceId, tariffId: tariffId,
                               sessionStart: sessionStart, sessionEnd: sessionEnd, userId: userId };
                 return xhrGql(q.replace(',$isDirect:Boolean', '').replace(',isDirect:$isDirect', ''), vars2);
             }
@@ -307,8 +307,9 @@
         var names = [pcName];
         if (/^\d$/.test(pcName)) names.push('0' + pcName);
         var q = 'query($clubId:Int!,$names:[String!]!){club_devices(where:{club_id:{_eq:$clubId},name:{_in:$names}}){id name}}';
-        console.log('[restart] getDeviceAndUser pcName='+pcName+' names='+JSON.stringify(names)+' clubId='+CLUB_ID);
-        return xhrGql(q, { clubId: CLUB_ID, names: names })
+        var clubId = typeof CLUB_ID === 'function' ? CLUB_ID() : CLUB_ID;
+        console.log('[restart] getDeviceAndUser pcName='+pcName+' names='+JSON.stringify(names)+' clubId='+clubId);
+        return xhrGql(q, { clubId: clubId, names: names })
         .then(function (r) {
             console.log('[restart] club_devices result:', JSON.stringify(r));
             if (!r || !r.data || !r.data.club_devices || !r.data.club_devices.length) {
