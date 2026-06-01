@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.34
+// @version      5.35
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -401,7 +401,6 @@
 
         if (!packetTariffs.length) return null;
 
-        // Сортируем пакеты по длительности по убыванию
         packetTariffs.sort(function (a, b) { return b.durationMin - a.durationMin; });
 
         // Ищем наибольший пакет ≤ remainMin
@@ -413,19 +412,15 @@
             }
         }
 
-        if (!bestPacket) {
-            // Все пакеты больше remainMin — берём наименьший пакет, hourlyMin=0
-            packetTariffs.sort(function (a, b) { return a.durationMin - b.durationMin; });
-            bestPacket = packetTariffs[0];
-        }
+        // Все пакеты больше remainMin — пакетная посадка невозможна
+        if (!bestPacket) return null;
 
         var hourlyMin = remainMin - bestPacket.durationMin;
 
         return {
-            packet:      bestPacket,
+            packet:       bestPacket,
             minuteTariff: hourlyMin > 0 ? minuteTariff : null,
-            hourlyMin:   Math.max(0, hourlyMin)
-            // totalCost считается после отдельного запроса стоимости почасового добора
+            hourlyMin:    Math.max(0, hourlyMin)
         };
     }
 
@@ -593,12 +588,32 @@
 
                     } else {
                         // -------------------------------------------------------
-                        // ПАКЕТНЫЙ → ПАКЕТНЫЙ
-                        // Подбираем комбинацию, начисляем бонусы, сажаем
+                        // ПАКЕТНЫЙ → попытка пакета, или почасовой если пакет невозможен
                         // -------------------------------------------------------
                         var plan = buildPackagePlan(tariffs, remainMin);
-                        if (!plan) throw new Error('Не найден подходящий пакетный тариф для ' + remainMin + ' мин');
 
+                        if (!plan) {
+                            // Пакет невозможен (remainMin < минимального пакета)
+                            // Садим на почасовой, но запоминаем что был пакет —
+                            // ERP может вернуть бонусы за недоигранное время, их нужно списать
+                            console.log('[restart] пакет невозможен для ' + remainMin + ' мин — сажаем на почасовой');
+                            return waitForBonusReturn(walletId, oldSessionId, lastOpId)
+                            .then(function (bonusReturned) {
+                                var now = Date.now();
+                                return createSession(deviceId, userId, minuteTariff.id, now, now + remainMin * 60000)
+                                .then(function(cr2) {
+                                    // После успешного создания сеанса — следим за возвратом бонусов
+                                    // от ERP (он может вернуть остаток пакета) и сразу списываем
+                                    if (bonusReturned > 0) {
+                                        return depositBonus(walletId, -bonusReturned,
+                                            'Корректировка: перезапуск с пакета на почасовой, ERP вернул ' + bonusReturned + 'G за недоигранное время');
+                                    }
+                                    return cr2;
+                                });
+                            });
+                        }
+
+                        // Пакет возможен — стандартный пакетный перезапуск
                         // Получаем точную стоимость почасового добора отдельным запросом
                         var hourlyPricePromise;
                         if (plan.hourlyMin > 0) {
