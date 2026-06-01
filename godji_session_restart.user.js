@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Godji — Перезапуск сеанса
 // @namespace    http://tampermonkey.net/
-// @version      5.27
+// @version      5.30
 // @description  Перезапускает сеанс с сохранением остатка времени и типа тарифа
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
@@ -37,7 +37,6 @@
         if (!tariffName) return false;
         var n = tariffName.toLowerCase();
         if (/^1\s*час/.test(n)) return false;
-        if (/standart|стандарт/i.test(n)) return false;
         // Всё остальное — пакет
         return true;
     }
@@ -334,20 +333,27 @@
         });
     }
 
-    // Ждём возврата бонусов от ERP — сравниваем баланс до и после отмены
+    // Ждём возврата средств от ERP — следим за ростом рублей ИЛИ бонусов
     function waitForBonusReturn(walletId, oldSessionId, lastOpIdBefore) {
         return new Promise(function (resolve) {
-            xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_bonus}}', { wid: walletId })
+            xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_amount balance_bonus}}', { wid: walletId })
             .then(function(r0) {
-                var bonusBefore = r0 && r0.data && r0.data.wallets_by_pk ? r0.data.wallets_by_pk.balance_bonus : 0;
+                var w0 = r0 && r0.data && r0.data.wallets_by_pk || {};
+                var amountBefore = w0.balance_amount || 0;
+                var bonusBefore  = w0.balance_bonus  || 0;
                 var attempts = 0;
                 var timer = setInterval(function () {
                     attempts++;
                     if (attempts > 40) { clearInterval(timer); resolve(0); return; }
-                    xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_bonus}}', { wid: walletId })
+                    xhrGql('query($wid:Int!){wallets_by_pk(id:$wid){balance_amount balance_bonus}}', { wid: walletId })
                     .then(function (r) {
-                        var bonusNow = r && r.data && r.data.wallets_by_pk ? r.data.wallets_by_pk.balance_bonus : bonusBefore;
-                        if (bonusNow > bonusBefore) { clearInterval(timer); resolve(bonusNow - bonusBefore); }
+                        var w = r && r.data && r.data.wallets_by_pk || {};
+                        var amountNow = w.balance_amount || 0;
+                        var bonusNow  = w.balance_bonus  || 0;
+                        if (amountNow > amountBefore || bonusNow > bonusBefore) {
+                            clearInterval(timer);
+                            resolve({ amount: amountNow, bonus: bonusNow });
+                        }
                     }).catch(function () {});
                 }, 3000);
             }).catch(function() { resolve(0); });
@@ -558,11 +564,10 @@
                     }
 
                     if (!wasPackage) {
-                        // -------------------------------------------------------
-                        // ПОЧАСОВОЙ → ПОЧАСОВОЙ
-                        // Ждём возврата бонусов от ERP, затем сажаем на почасовой
-                        // -------------------------------------------------------
-                        return waitForBonusReturn(walletId, oldSessionId, lastOpId)
+                        // ПОЧАСОВОЙ: начисляем бонусы на стоимость остатка → создаём сеанс
+                        var minuteCost = Math.ceil(minuteTariff.cost * remainMin);
+                        var comment = 'Перезапуск сеанса (остаток ' + remainMin + ' мин)';
+                        return depositBonus(walletId, minuteCost, comment)
                         .then(function () {
                             var now = Date.now();
                             return createSession(deviceId, userId, minuteTariff.id, now, now + remainMin * 60000);
