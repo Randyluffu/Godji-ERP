@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Таблица
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      2.6
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_table_enhance.user.js
@@ -225,18 +225,13 @@
         if (_pendingConfirm) return;
 
         var menuItem = e.target.closest('[role="menuitem"]');
-        if (!menuItem) {
-            // клик мог попасть на дочерний элемент itemLabel напрямую
-            var labelParent = e.target.closest('.mantine-Menu-itemLabel');
-            if (labelParent) menuItem = labelParent.closest('[role="menuitem"]');
-        }
         if (!menuItem) return;
 
         var labelEl = menuItem.querySelector('.mantine-Menu-itemLabel');
         if (!labelEl) return;
         var label = labelEl.textContent.trim();
 
-        var isFinish = label === 'Завершить сессию';
+        var isFinish = label === 'Завершить сеанс';
         var isPowerOff = label === 'Выключить ПК';
         if (!isFinish && !isPowerOff) return;
 
@@ -262,8 +257,8 @@
             var title, text, confirmLabel;
 
             if (isFinish) {
-                title = 'Завершить сессию';
-                text = 'Завершить сессию на ПК <strong>' + (pcName || '?') + '</strong>?';
+                title = 'Завершить сеанс';
+                text = 'Завершить сеанс на ПК <strong>' + (pcName || '?') + '</strong>?';
                 if (nickname) {
                     text += '<br><span style="color:var(--mantine-color-dimmed);font-size:0.85em;">' + nickname + '</span>';
                 }
