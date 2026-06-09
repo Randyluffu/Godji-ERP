@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Таблица
 // @namespace    http://tampermonkey.net/
-// @version      2.9
+// @version      3.0
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://raw.githubusercontent.com/Randyluffu/Godji-ERP/main/godji_table_enhance.user.js
@@ -251,12 +251,16 @@
 
         _pendingConfirm = true;
 
-        // Прячем меню визуально (не закрываем — иначе ERP удалит menuItem из DOM)
+        // Прячем меню — pointer-events:none + opacity:0, но оставляем в DOM
         var menuDropdown = document.querySelector('[data-menu-dropdown="true"]');
-        if (menuDropdown) menuDropdown.style.setProperty('opacity', '0', 'important');
+        if (menuDropdown) {
+            menuDropdown.style.setProperty('opacity', '0', 'important');
+            menuDropdown.style.setProperty('pointer-events', 'none', 'important');
+        }
 
-        // Сохраняем ссылку на menuItem — он ещё в DOM
+        // Сохраняем ссылку на menuItem пока он точно в DOM
         var savedMenuItem = menuItem;
+        var savedLabel = label;
 
         var title, text, confirmLabel;
         if (isFinish) {
@@ -275,22 +279,22 @@
         showConfirm(title, text, confirmLabel,
             function () {
                 _pendingConfirm = false;
+                // Восстанавливаем меню перед кликом
+                if (menuDropdown) {
+                    menuDropdown.style.removeProperty('opacity');
+                    menuDropdown.style.removeProperty('pointer-events');
+                }
                 if (savedMenuItem && savedMenuItem.isConnected) {
                     savedMenuItem.click();
-                } else {
-                    var menuEl = document.querySelector('[data-menu-dropdown="true"]');
-                    if (menuEl) {
-                        var items = menuEl.querySelectorAll('[role="menuitem"]');
-                        for (var j = 0; j < items.length; j++) {
-                            var lbl2 = items[j].querySelector('.mantine-Menu-itemLabel');
-                            if (lbl2 && lbl2.textContent.trim() === label) { items[j].click(); return; }
-                        }
-                    }
                 }
             },
             function () {
+                // Отмена — восстанавливаем меню
                 _pendingConfirm = false;
-                if (menuDropdown) menuDropdown.style.removeProperty('opacity');
+                if (menuDropdown) {
+                    menuDropdown.style.removeProperty('opacity');
+                    menuDropdown.style.removeProperty('pointer-events');
+                }
             }
         );
 
