@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Годжи — Быстрый поиск клиента
 // @namespace    http://tampermonkey.net/
-// @version      5.38
+// @version      5.39
 // @match        https://godji.cloud/*
 // @match        https://*.godji.cloud/*
 // @updateURL    https://github.com/Randyluffu/Godji-ERP/raw/refs/heads/main/godji_client_search.user.js
@@ -188,10 +188,9 @@ function openAddClientModal(){
             var d=raw.slice(1);
             var fmt='+7';
             if(d.length>0) fmt+=' ('+d.slice(0,3);
-            if(d.length>=3) fmt+=')';
-            if(d.length>3) fmt+=' '+d.slice(3,6);
-            if(d.length>=6) fmt+='-'+d.slice(6,8);
-            if(d.length>=8) fmt+='-'+d.slice(8,10);
+            if(d.length>3) fmt+=') '+d.slice(3,6);
+            if(d.length>6) fmt+='-'+d.slice(6,8);
+            if(d.length>8) fmt+='-'+d.slice(8,10);
             phoneInput.value=fmt;
         });
         phoneInput.addEventListener('keydown',function(e){
